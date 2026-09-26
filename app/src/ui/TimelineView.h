@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ui/AppContext.h"
+#include "ui/ChordLane.h"
 #include "ui/Ruler.h"
 #include "ui/TempoMeterLanes.h"
 #include "ui/TrackHeader.h"
@@ -77,6 +78,10 @@ private:
     Ruler ruler;
     TempoLane tempoLane;
     MeterLane meterLane;
+    ChordLane chordLane;
+    juce::ToggleButton chordPlaybackToggle;
+    juce::Slider chordVolume { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
+    juce::String chordVolumeMergeId;
     TrackLanes lanes;
     juce::Component headerHolder;
     juce::OwnedArray<TrackHeader> headers;
@@ -91,4 +96,5 @@ private:
     void layoutHeaders();
     void updateScrollBars();
     void showAddTrackMenu();
+    void updateChordControls();
 };

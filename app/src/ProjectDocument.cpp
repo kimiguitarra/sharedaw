@@ -14,7 +14,7 @@ namespace
 
 ProjectDocument::ProjectDocument()
 {
-    project = collab::Project::createEmpty ("無題");
+    project = collab::Project::createEmpty ("無題");   // utf8-std
     tempoMap = collab::TempoMap (project);
     startTimer (1000);
 }

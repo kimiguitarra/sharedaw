@@ -42,6 +42,8 @@ target_sources(CollabDAW PRIVATE
     src/SessionGuard.cpp
     src/SfizzPlugin.cpp
     src/ui/AppContext.cpp
+    src/ui/ChordEditor.cpp
+    src/ui/ChordLane.cpp
     src/ui/Ruler.cpp
     src/ui/Theme.cpp
     src/ui/MainComponent.cpp

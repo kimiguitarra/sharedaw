@@ -8,6 +8,7 @@
 #include "ProjectDocument.h"
 #include "SessionGuard.h"
 #include "SfizzPlugin.h"
+#include "collab/ChordPlayback.h"
 #include "ui/Dialogs.h"
 #include "ui/MainComponent.h"
 #include "ui/Theme.h"
@@ -204,7 +205,7 @@ private:
             return 2;
         }
 
-        if (! bridge->renderToFile (output, document->getProject().contentEndTick()))
+        if (! bridge->renderToFile (output, collab::chordTrackEndTick (document->getProject(), document->getTempoMap())))
         {
             std::cerr << "render failed" << std::endl;
             return 3;

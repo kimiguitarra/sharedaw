@@ -35,7 +35,38 @@
         "version": "0.1.0"
       }
     },
-    "events": []
+    "events": [
+      {
+        "id": "332a137e-5b68-4367-9ac7-177ad392151e",
+        "tick": 0,
+        "chord": {
+          "root": "C",
+          "quality": "maj7",
+          "tensions": [
+            "9"
+          ],
+          "bass": null
+        },
+        "text": "CM7(9)"
+      },
+      {
+        "id": "abb201f2-6ee6-4c90-acdc-4a38cad91e41",
+        "tick": 3840,
+        "chord": {
+          "root": "A",
+          "quality": "m7",
+          "tensions": [],
+          "bass": "G"
+        },
+        "text": "Am7/G"
+      },
+      {
+        "id": "7ef1bb1e-15ce-4a8f-99f5-15895105832f",
+        "tick": 5760,
+        "noChord": true,
+        "text": "X"
+      }
+    ]
   },
   "tracks": [
     {

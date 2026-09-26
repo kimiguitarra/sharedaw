@@ -3,6 +3,7 @@
 #include <sstream>
 
 #include "SfizzPlugin.h"
+#include "collab/ChordPlayback.h"
 
 namespace
 {
@@ -124,6 +125,7 @@ void EngineBridge::sync()
         syncTrack (t, b, tempoChanged);
     }
 
+    syncChordTrack (tempoChanged);
     syncMetronome (tempoChanged);
 
     if (tempoChanged)
@@ -260,6 +262,83 @@ juce::String EngineBridge::getInstrumentProblem (const std::string& trackId) con
 {
     auto it = bindings.find (trackId);
     return it != bindings.end() ? it->second.problem : juce::String();
+}
+
+//==============================================================================
+void EngineBridge::syncChordTrack (bool tempoChanged)
+{
+    const auto& project = document.getProject();
+    const auto& playback = project.chordTrack.playback;
+
+    if (chordTrack == nullptr)
+    {
+        chordTrack = createTrack();
+
+        if (chordTrack == nullptr)
+            return;
+
+        chordTrack->setName ("Chord Track");
+        chordSynth = addSynth (*chordTrack);
+    }
+
+    // 発音先（内蔵ピアノ）
+    if (chordSynth != nullptr)
+    {
+        auto* manifest = library.find (playback.instrument.id, playback.instrument.version);
+
+        if (manifest == nullptr)
+            manifest = library.findLatest (playback.instrument.id);
+
+        if (manifest != nullptr)
+        {
+            auto text = toJuce (collab::generateSfz (*manifest, manifest->defaultParams));
+
+            if (text != chordSfzText && chordSynth->setSfz (library.getVirtualSfzPath (*manifest).getFullPathName(), text))
+                chordSfzText = text;
+        }
+    }
+
+    chordTrack->setMute (! playback.enabled);
+
+    if (auto vol = chordTrack->getVolumePlugin())
+        if (std::abs (vol->getVolumeDb() - (float) playback.volumeDb) > 0.001f)
+            vol->setVolumeDb ((float) playback.volumeDb);
+
+    // コードイベントから MIDI を生成（§3.8: 全音符ベタ、小節の頭で弾き直し）
+    const auto& map = document.getTempoMap();
+    const auto notes = collab::renderChordTrack (project, map);
+
+    std::ostringstream keyStream;
+    for (auto& n : notes)
+        keyStream << n.tick << ',' << n.lengthTick << ',' << n.pitch << ';';
+
+    auto key = keyStream.str();
+
+    if (key == chordKey && ! tempoChanged)
+        return;
+
+    chordKey = key;
+
+    for (auto c : chordTrack->getClips())
+        c->removeFromParent();
+
+    if (notes.empty())
+        return;
+
+    const double end = map.tickToSeconds ((double) collab::chordTrackEndTick (project, map));
+    auto clip = chordTrack->insertMIDIClip ("chords", te::TimeRange (secondsToTime (0), secondsToTime (end)), nullptr);
+
+    if (clip == nullptr)
+        return;
+
+    auto& seq = clip->getSequence();
+
+    for (auto& n : notes)
+    {
+        const double s = map.tickToSeconds ((double) n.tick);
+        const double e = map.tickToSeconds ((double) (n.tick + n.lengthTick));
+        seq.addNote (n.pitch, secondsToBeats (s), te::BeatDuration::fromBeats (juce::jmax (0.001, e - s)), n.velocity, 0, nullptr);
+    }
 }
 
 //==============================================================================
@@ -412,7 +491,8 @@ bool EngineBridge::renderToFile (const juce::File& output, collab::Tick endTick,
     auto allTracks = te::getAllTracks (*edit);
 
     for (int i = 0; i < allTracks.size(); ++i)
-        if (dynamic_cast<te::AudioTrack*> (allTracks[i]) != nullptr && allTracks[i] != metronomeTrack.get())
+        if (dynamic_cast<te::AudioTrack*> (allTracks[i]) != nullptr && allTracks[i] != metronomeTrack.get()
+             && (allTracks[i] != chordTrack.get() || document.getProject().chordTrack.playback.enabled))
             tracksToDo.setBit (i);
 
     const double end = document.getTempoMap().tickToSeconds ((double) endTick) + tailSeconds;

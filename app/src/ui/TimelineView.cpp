@@ -7,6 +7,8 @@ namespace
 {
     constexpr int rulerHeight = 26;
     constexpr int laneHeight = 24;
+    constexpr int chordLaneHeight = 30;
+    constexpr int topHeight = rulerHeight + laneHeight * 2 + chordLaneHeight;
     constexpr int scrollBarSize = 12;
     constexpr float edgeGrab = 7.0f;
 }
@@ -357,13 +359,41 @@ TimelineView::TimelineView (AppContext& c)
       ruler (c.document, c.state, c.state.timeline),
       tempoLane (c.document, c.state),
       meterLane (c.document, c.state),
+      chordLane (c),
       lanes (c),
       playhead (c.state.timeline)
 {
     addAndMakeVisible (ruler);
     addAndMakeVisible (tempoLane);
     addAndMakeVisible (meterLane);
+    addAndMakeVisible (chordLane);
     addAndMakeVisible (lanes);
+
+    // コードトラックの発音（内蔵ピアノ）のオン・オフと音量
+    chordPlaybackToggle.setButtonText ("発音"_ju);
+    chordPlaybackToggle.setTooltip ("コードトラックを内蔵ピアノで鳴らす"_ju);
+    chordPlaybackToggle.onClick = [this]
+    {
+        const bool on = chordPlaybackToggle.getToggleState();
+        ctx.document.perform ("コードトラックの発音"_ju, [on] (collab::Project& p) { p.chordTrack.playback.enabled = on; });
+    };
+    addAndMakeVisible (chordPlaybackToggle);
+
+    chordVolume.setRange (-40.0, 6.0, 0.1);
+    chordVolume.setDoubleClickReturnValue (true, -6.0);
+    chordVolume.setPopupDisplayEnabled (true, true, nullptr);
+    chordVolume.setTextValueSuffix (" dB");
+    chordVolume.setTooltip ("コードトラックの音量"_ju);
+    chordVolume.onDragStart = [this] { chordVolumeMergeId = juce::Uuid().toString(); };
+    chordVolume.onDragEnd = [this] { ctx.document.endMerge(); };
+    chordVolume.onValueChange = [this]
+    {
+        const double v = chordVolume.getValue();
+        ctx.document.perform ("コードトラックの音量"_ju, [v] (collab::Project& p) { p.chordTrack.playback.volumeDb = v; },
+                              chordVolumeMergeId);
+    };
+    addAndMakeVisible (chordVolume);
+    updateChordControls();
     addAndMakeVisible (headerHolder);
     addAndMakeVisible (addTrackButton);
     addAndMakeVisible (hScroll);
@@ -405,17 +435,19 @@ void TimelineView::paint (juce::Graphics& g)
     g.drawText ("テンポ"_ju, 10, rulerHeight, w, laneHeight, juce::Justification::centredLeft);
     g.setColour (Theme::meter);
     g.drawText ("拍子"_ju, 10, rulerHeight + laneHeight, w, laneHeight, juce::Justification::centredLeft);
+    g.setColour (juce::Colour (0xffffb74d));
+    g.drawText ("コード"_ju, 10, rulerHeight + laneHeight * 2, w, chordLaneHeight, juce::Justification::centredLeft);
 
     g.setColour (Theme::background);
     g.drawVerticalLine (headerWidth - 1, 0.0f, (float) getHeight());
-    g.drawHorizontalLine (rulerHeight + laneHeight * 2 - 1, 0.0f, (float) getWidth());
+    g.drawHorizontalLine (topHeight - 1, 0.0f, (float) getWidth());
 }
 
 void TimelineView::resized()
 {
     auto area = getLocalBounds();
     auto right = area.removeFromRight (scrollBarSize);
-    vScroll.setBounds (right.withTrimmedTop (rulerHeight + laneHeight * 2).withTrimmedBottom (scrollBarSize));
+    vScroll.setBounds (right.withTrimmedTop (topHeight).withTrimmedBottom (scrollBarSize));
 
     auto left = area.removeFromLeft (headerWidth);
     auto bottom = area.removeFromBottom (scrollBarSize);
@@ -424,9 +456,17 @@ void TimelineView::resized()
     ruler.setBounds (area.removeFromTop (rulerHeight));
     tempoLane.setBounds (area.removeFromTop (laneHeight));
     meterLane.setBounds (area.removeFromTop (laneHeight));
+    chordLane.setBounds (area.removeFromTop (chordLaneHeight));
     lanes.setBounds (area);
 
-    left.removeFromTop (rulerHeight + laneHeight * 2);
+    {
+        auto chordRow = left.withTop (chordLane.getY()).withHeight (chordLaneHeight).reduced (4, 4);
+        chordRow.removeFromLeft (56);
+        chordPlaybackToggle.setBounds (chordRow.removeFromLeft (70));
+        chordVolume.setBounds (chordRow);
+    }
+
+    left.removeFromTop (topHeight);
     addTrackButton.setBounds (left.removeFromBottom (scrollBarSize + 22).reduced (6, 2).withTrimmedBottom (scrollBarSize - 2));
     headerHolder.setBounds (left.withTrimmedRight (1));
 
@@ -520,10 +560,20 @@ void TimelineView::handleWheel (const juce::MouseEvent& e, const juce::MouseWhee
     ctx.state.changed();
 }
 
+void TimelineView::updateChordControls()
+{
+    const auto& pb = ctx.document.getProject().chordTrack.playback;
+    chordPlaybackToggle.setToggleState (pb.enabled, juce::dontSendNotification);
+    chordVolume.setValue (pb.volumeDb, juce::dontSendNotification);
+}
+
 void TimelineView::changeListenerCallback (juce::ChangeBroadcaster* source)
 {
     if (source == &ctx.document)
+    {
         rebuildHeaders();
+        updateChordControls();
+    }
     else
         for (auto* h : headers)
             h->repaint();

@@ -69,6 +69,11 @@ private:
     std::map<std::string, Binding> bindings;
     std::string tempoKey;
 
+    te::AudioTrack::Ptr chordTrack;
+    SfizzPlugin* chordSynth = nullptr;
+    juce::String chordSfzText;
+    std::string chordKey;
+
     te::AudioTrack::Ptr metronomeTrack;
     std::string metronomeKey;
     bool metronomeEnabled = false;
@@ -84,6 +89,7 @@ private:
     void syncTrack (const collab::Track&, Binding&, bool tempoChanged);
     void syncInstrument (const collab::Track&, Binding&);
     void syncMetronome (bool tempoChanged);
+    void syncChordTrack (bool tempoChanged);
     void applyLoop();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EngineBridge)

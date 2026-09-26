@@ -53,7 +53,7 @@
 
 - 内部の文字列は UTF-8（`std::string`）。保存前・読み込み時に NFC に正規化する（`collab::toNfc`）。
 - JUCE の `juce::String (const char*)` は ASCII として扱うため、日本語のリテラルは必ず `"..."_ju`
-  （`Common.h`）で書く。
+  （`Common.h`）で書く。CI の `tools/check_literals.py` が確認する（`std::string` として使う行は行末に `// utf8-std`）。
 
 ## 保存・自動保存・クラッシュ復旧
 
