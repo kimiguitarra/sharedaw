@@ -37,6 +37,8 @@ private:
     juce::Label volumeLabel { {}, "音量"_ju }, panLabel { {}, "パン"_ju }, toneLabel { {}, "トーン"_ju };
     juce::ComboBox kitBox;
     juce::Label kitLabel { {}, "キット"_ju };
+    juce::ComboBox presetBox;
+    juce::Label presetLabel { {}, "音色"_ju };
     juce::Label credits;
     std::vector<PieceRow> rows;
     juce::String mergeId;

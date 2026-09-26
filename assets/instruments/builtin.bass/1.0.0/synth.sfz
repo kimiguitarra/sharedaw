@@ -1,0 +1,8 @@
+// シンセベース: デチューンしたノコギリ波 + 1 オクターブ下の矩形波、レゾナンスのある 4 ポールのローパス
+<group> group_volume=-8 lokey=0 hikey=127 amp_veltrack=60 note_polyphony=1 ampeg_release=0.08
+ fil_type=lpf_4p cutoff=160 resonance=5 fil_keytrack=60 fil_veltrack=1800
+ fileg_attack=0 fileg_decay=0.35 fileg_sustain=25 fileg_depth=3000
+<region> sample=*saw oscillator_multi=3 oscillator_detune=12 volume=-6
+ ampeg_attack=0.002 ampeg_decay=0.6 ampeg_sustain=80
+<region> sample=*square transpose=-12 volume=-10
+ ampeg_attack=0.002 ampeg_decay=0.6 ampeg_sustain=80

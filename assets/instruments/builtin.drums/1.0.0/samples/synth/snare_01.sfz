@@ -1,0 +1,6 @@
+// 仮音源: ノイズ + 胴鳴りのスネア
+<region> sample=*noise volume=4 fil_type=bpf_2p cutoff=3500 resonance=1 amp_veltrack=90
+ ampeg_attack=0 ampeg_decay=0.2 ampeg_sustain=0 ampeg_release=0.2
+<region> sample=*sine volume=4 transpose=17 amp_veltrack=90
+ pitcheg_attack=0 pitcheg_decay=0.03 pitcheg_sustain=0 pitcheg_depth=700
+ ampeg_attack=0 ampeg_decay=0.1 ampeg_sustain=0 ampeg_release=0.1

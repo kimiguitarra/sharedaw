@@ -1,0 +1,9 @@
+// エレキベース風（ピック弾き）: 明るいアタックのノコギリ波 + 三角波 + ピックの当たる音
+<group> group_volume=1 lokey=0 hikey=127 amp_veltrack=70 note_polyphony=1 ampeg_release=0.08
+<region> sample=*triangle volume=-2
+ ampeg_attack=0.002 ampeg_hold=0.03 ampeg_decay=1.5 ampeg_sustain=45
+<region> sample=*saw volume=-4 fil_type=lpf_2p cutoff=450 resonance=2 fil_keytrack=100 fil_veltrack=1500
+ fileg_attack=0 fileg_decay=0.12 fileg_sustain=20 fileg_depth=3600
+ ampeg_attack=0.002 ampeg_decay=1.0 ampeg_sustain=35
+<region> sample=*noise volume=-20 fil_type=bpf_2p cutoff=3200 resonance=4 amp_veltrack=100
+ ampeg_attack=0 ampeg_decay=0.008 ampeg_sustain=0 ampeg_release=0.008

@@ -1,5 +1,5 @@
 {
-  "name": "collabdaw-sync-server",
+  "name": "sharedaw-sync-server",
   "private": true,
   "type": "module",
   "scripts": {

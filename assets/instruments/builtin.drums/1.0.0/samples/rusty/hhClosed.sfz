@@ -1,0 +1,41 @@
+// hhClosed: Big Rusty Drums（CC0）hihat_14 / ht_tc_cl.sfz のマイクを作者の既定のバランスでまとめたもの
+<group> hivel=15 amp_velcurve_15=1 seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 group_volume=7
+<region> sample=audio/rusty/hhClosed/ht_tc_vl1_rr1.flac seq_position=1
+<region> sample=audio/rusty/hhClosed/ht_tc_vl1_rr2.flac seq_position=2
+<region> sample=audio/rusty/hhClosed/ht_tc_vl1_rr3.flac seq_position=3
+<region> sample=audio/rusty/hhClosed/ht_tc_vl1_rr4.flac seq_position=4
+<group> lovel=16 hivel=31 amp_velcurve_31=1 seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 group_volume=7
+<region> sample=audio/rusty/hhClosed/ht_tc_vl2_rr1.flac seq_position=1
+<region> sample=audio/rusty/hhClosed/ht_tc_vl2_rr2.flac seq_position=2
+<region> sample=audio/rusty/hhClosed/ht_tc_vl2_rr3.flac seq_position=3
+<region> sample=audio/rusty/hhClosed/ht_tc_vl2_rr4.flac seq_position=4
+<group> lovel=32 hivel=47 amp_velcurve_47=1 seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 group_volume=7
+<region> sample=audio/rusty/hhClosed/ht_tc_vl3_rr1.flac seq_position=1
+<region> sample=audio/rusty/hhClosed/ht_tc_vl3_rr2.flac seq_position=2
+<region> sample=audio/rusty/hhClosed/ht_tc_vl3_rr3.flac seq_position=3
+<region> sample=audio/rusty/hhClosed/ht_tc_vl3_rr4.flac seq_position=4
+<group> lovel=48 hivel=63 amp_velcurve_63=1 seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 group_volume=7
+<region> sample=audio/rusty/hhClosed/ht_tc_vl4_rr1.flac seq_position=1
+<region> sample=audio/rusty/hhClosed/ht_tc_vl4_rr2.flac seq_position=2
+<region> sample=audio/rusty/hhClosed/ht_tc_vl4_rr3.flac seq_position=3
+<region> sample=audio/rusty/hhClosed/ht_tc_vl4_rr4.flac seq_position=4
+<group> lovel=64 hivel=79 amp_velcurve_79=1 seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 group_volume=7
+<region> sample=audio/rusty/hhClosed/ht_tc_vl5_rr1.flac seq_position=1
+<region> sample=audio/rusty/hhClosed/ht_tc_vl5_rr2.flac seq_position=2
+<region> sample=audio/rusty/hhClosed/ht_tc_vl5_rr3.flac seq_position=3
+<region> sample=audio/rusty/hhClosed/ht_tc_vl5_rr4.flac seq_position=4
+<group> lovel=80 hivel=95 amp_velcurve_95=1 seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 group_volume=7
+<region> sample=audio/rusty/hhClosed/ht_tc_vl6_rr1.flac seq_position=1
+<region> sample=audio/rusty/hhClosed/ht_tc_vl6_rr2.flac seq_position=2
+<region> sample=audio/rusty/hhClosed/ht_tc_vl6_rr3.flac seq_position=3
+<region> sample=audio/rusty/hhClosed/ht_tc_vl6_rr4.flac seq_position=4
+<group> lovel=96 hivel=111 amp_velcurve_111=1 seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 group_volume=7
+<region> sample=audio/rusty/hhClosed/ht_tc_vl7_rr1.flac seq_position=1
+<region> sample=audio/rusty/hhClosed/ht_tc_vl7_rr2.flac seq_position=2
+<region> sample=audio/rusty/hhClosed/ht_tc_vl7_rr3.flac seq_position=3
+<region> sample=audio/rusty/hhClosed/ht_tc_vl7_rr4.flac seq_position=4
+<group> lovel=112 seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 group_volume=7
+<region> sample=audio/rusty/hhClosed/ht_tc_vl8_rr1.flac seq_position=1
+<region> sample=audio/rusty/hhClosed/ht_tc_vl8_rr2.flac seq_position=2
+<region> sample=audio/rusty/hhClosed/ht_tc_vl8_rr3.flac seq_position=3
+<region> sample=audio/rusty/hhClosed/ht_tc_vl8_rr4.flac seq_position=4

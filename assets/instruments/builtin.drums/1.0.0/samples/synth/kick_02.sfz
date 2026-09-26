@@ -1,0 +1,6 @@
+// 仮音源: 短めのキック
+<region> sample=*sine volume=12 transpose=0 amp_veltrack=80
+ pitcheg_attack=0 pitcheg_decay=0.035 pitcheg_sustain=0 pitcheg_depth=3000
+ ampeg_attack=0 ampeg_decay=0.22 ampeg_sustain=0 ampeg_release=0.22
+<region> sample=*noise volume=-9 fil_type=hpf_2p cutoff=3000 amp_veltrack=90
+ ampeg_attack=0 ampeg_decay=0.008 ampeg_sustain=0 ampeg_release=0.008

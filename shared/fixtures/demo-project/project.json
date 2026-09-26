@@ -32,7 +32,7 @@
       "volumeDb": -6.0,
       "instrument": {
         "id": "builtin.piano",
-        "version": "0.1.0"
+        "version": "1.0.0"
       }
     },
     "events": [
@@ -81,17 +81,13 @@
       "instrument": {
         "kind": "builtin",
         "id": "builtin.drums",
-        "version": "0.1.0",
+        "version": "1.0.0",
         "params": {
-          "kit": "synth",
-          "pieces": {
-            "snare": {
-              "sample": "synth/snare_02",
-              "volumeDb": -2.0,
-              "pan": 0.0,
-              "tune": 0
-            }
-          }
+          "kit": "acoustic",
+          "volumeDb": 0.0,
+          "pan": 0.0,
+          "tone": 0.0,
+          "pieces": {}
         }
       },
       "clips": [
@@ -284,8 +280,9 @@
       "instrument": {
         "kind": "builtin",
         "id": "builtin.bass",
-        "version": "0.1.0",
+        "version": "1.0.0",
         "params": {
+          "preset": "fingered",
           "volumeDb": 0.0,
           "pan": 0.0,
           "tone": 0.0
@@ -355,7 +352,7 @@
       "instrument": {
         "kind": "builtin",
         "id": "builtin.piano",
-        "version": "0.1.0",
+        "version": "1.0.0",
         "params": {
           "volumeDb": 0.0,
           "pan": 0.0,

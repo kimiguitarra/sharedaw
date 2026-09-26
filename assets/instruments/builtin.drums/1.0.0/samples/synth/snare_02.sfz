@@ -1,0 +1,6 @@
+// 仮音源: 明るく短いスネア
+<region> sample=*noise volume=4 fil_type=hpf_2p cutoff=2000 amp_veltrack=90
+ ampeg_attack=0 ampeg_decay=0.12 ampeg_sustain=0 ampeg_release=0.12
+<region> sample=*triangle volume=0 transpose=22 amp_veltrack=90
+ pitcheg_attack=0 pitcheg_decay=0.02 pitcheg_sustain=0 pitcheg_depth=500
+ ampeg_attack=0 ampeg_decay=0.07 ampeg_sustain=0 ampeg_release=0.07

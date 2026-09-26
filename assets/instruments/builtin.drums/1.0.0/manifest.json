@@ -1,0 +1,190 @@
+{
+  "id": "builtin.drums",
+  "version": "1.0.0",
+  "displayName": "ドラム",
+  "type": "drums",
+  "credits": [
+    "アコースティックのサンプル: Big Rusty Drums by Karoryfer Samples x bigcat (CC0 1.0)"
+  ],
+  "defaultParams": {
+    "kit": "acoustic",
+    "volumeDb": 0.0,
+    "pan": 0.0,
+    "tone": 0.0,
+    "pieces": {}
+  },
+  "pieces": [
+    {
+      "key": "kick",
+      "name": "キック",
+      "note": 36
+    },
+    {
+      "key": "rim",
+      "name": "サイドスティック",
+      "note": 37
+    },
+    {
+      "key": "snare",
+      "name": "スネア",
+      "note": 38
+    },
+    {
+      "key": "clap",
+      "name": "クラップ",
+      "note": 39
+    },
+    {
+      "key": "rimshot",
+      "name": "スネア（リムショット）",
+      "note": 40
+    },
+    {
+      "key": "tomFloor",
+      "name": "フロアタム（低）",
+      "note": 41
+    },
+    {
+      "key": "hhClosed",
+      "name": "ハイハット（クローズ）",
+      "note": 42,
+      "sfzExtra": "group=2"
+    },
+    {
+      "key": "tomFloorHigh",
+      "name": "フロアタム（高）",
+      "note": 43
+    },
+    {
+      "key": "hhPedal",
+      "name": "ハイハット（ペダル）",
+      "note": 44,
+      "sfzExtra": "group=2"
+    },
+    {
+      "key": "tomLow",
+      "name": "ロータム",
+      "note": 45
+    },
+    {
+      "key": "hhOpen",
+      "name": "ハイハット（オープン）",
+      "note": 46,
+      "sfzExtra": "group=1 off_by=2"
+    },
+    {
+      "key": "tomMid",
+      "name": "ミッドタム",
+      "note": 47
+    },
+    {
+      "key": "tomHighMid",
+      "name": "ハイミッドタム",
+      "note": 48
+    },
+    {
+      "key": "crash",
+      "name": "クラッシュ",
+      "note": 49
+    },
+    {
+      "key": "tomHigh",
+      "name": "ハイタム",
+      "note": 50
+    },
+    {
+      "key": "ride",
+      "name": "ライド",
+      "note": 51
+    },
+    {
+      "key": "china",
+      "name": "チャイナ",
+      "note": 52
+    },
+    {
+      "key": "rideBell",
+      "name": "ライド（ベル）",
+      "note": 53
+    },
+    {
+      "key": "crash2",
+      "name": "クラッシュ 2",
+      "note": 57
+    }
+  ],
+  "kits": {
+    "acoustic": {
+      "kick": "rusty/kick",
+      "rim": "rusty/rim",
+      "snare": "rusty/snare",
+      "clap": "synth/clap_01",
+      "rimshot": "rusty/rimshot",
+      "tomFloor": "rusty/tom22",
+      "hhClosed": "rusty/hhClosed",
+      "tomFloorHigh": "rusty/tom18",
+      "hhPedal": "rusty/hhPedal",
+      "tomLow": "rusty/tom18",
+      "hhOpen": "rusty/hhOpen",
+      "tomMid": "rusty/tom15",
+      "tomHighMid": "rusty/tom14",
+      "crash": "rusty/crash",
+      "tomHigh": "rusty/tom14",
+      "ride": "rusty/ride",
+      "china": "rusty/china",
+      "rideBell": "rusty/rideBell",
+      "crash2": "rusty/crash2"
+    },
+    "electronic": {
+      "kick": "synth/kick_01",
+      "rim": "synth/rim_01",
+      "snare": "synth/snare_01",
+      "clap": "synth/clap_01",
+      "rimshot": "synth/snare_02",
+      "tomFloor": "synth/tom_01",
+      "hhClosed": "synth/hh_closed_01",
+      "tomFloorHigh": "synth/tom_01",
+      "hhPedal": "synth/hh_pedal_01",
+      "tomLow": "synth/tom_01",
+      "hhOpen": "synth/hh_open_01",
+      "tomMid": "synth/tom_01",
+      "tomHighMid": "synth/tom_01",
+      "crash": "synth/crash_01",
+      "tomHigh": "synth/tom_01",
+      "ride": "synth/ride_01",
+      "china": "synth/crash_01",
+      "rideBell": "synth/ride_01",
+      "crash2": "synth/crash_01"
+    }
+  },
+  "samples": [
+    "rusty/china",
+    "rusty/crash",
+    "rusty/crash2",
+    "rusty/hhClosed",
+    "rusty/hhOpen",
+    "rusty/hhPedal",
+    "rusty/kick",
+    "rusty/ride",
+    "rusty/rideBell",
+    "rusty/rim",
+    "rusty/rimshot",
+    "rusty/snare",
+    "rusty/tom14",
+    "rusty/tom15",
+    "rusty/tom18",
+    "rusty/tom22",
+    "synth/clap_01",
+    "synth/crash_01",
+    "synth/hh_closed_01",
+    "synth/hh_open_01",
+    "synth/hh_pedal_01",
+    "synth/kick_01",
+    "synth/kick_02",
+    "synth/ride_01",
+    "synth/rim_01",
+    "synth/snare_01",
+    "synth/snare_02",
+    "synth/tom_01"
+  ]
+}

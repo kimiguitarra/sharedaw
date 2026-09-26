@@ -200,7 +200,7 @@ void MainComponent::updateTitle()
     if (document.isDirty())
         title = "* " + title;
 
-    title << " - CollabDAW";
+    title << " - ShareDAW";
 
     if (sync.isLinked())
         title << "  (rev " << sync.getMeta().baseRevision << ", " << sync.getMeta().userName << ")";
@@ -593,7 +593,7 @@ void MainComponent::applyLatencyOffset()
 
 void MainComponent::showCredits()
 {
-    juce::String text = "CollabDAW はオープンソースの JUCE / Tracktion Engine（GPL）、sfizz（BSD-2-Clause）を使用しています。\n\n"_ju
+    juce::String text = "ShareDAW はオープンソースの JUCE / Tracktion Engine（GPL）、sfizz（BSD-2-Clause）を使用しています。\n\n"_ju
                         "内蔵音源:\n"_ju;
 
     for (auto* m : library.getAll())
@@ -740,7 +740,7 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdSyncHistory:   info.setInfo ("リビジョン履歴…"_ju, {}, "Sync", 0); info.setActive (sync.isLinked()); break;
         case cmdSyncRefreshLocks: info.setInfo ("ロックの状態を更新"_ju, {}, "Sync", 0); info.setActive (sync.isLinked()); break;
         case cmdCredits:    info.setInfo ("クレジット…"_ju, {}, "Help", 0); break;
-        case cmdAbout:      info.setInfo ("CollabDAW について…"_ju, {}, "Help", 0); break;
+        case cmdAbout:      info.setInfo ("ShareDAW について…"_ju, {}, "Help", 0); break;
         case cmdFont100: case cmdFont125: case cmdFont150: case cmdFont175: case cmdFont200:
         {
             const float scale = fontScales[id - cmdFont100];
@@ -799,8 +799,8 @@ bool MainComponent::perform (const InvocationInfo& info)
         }
         case cmdCredits:    showCredits(); break;
         case cmdAbout:
-            Dialogs::showInfo ("CollabDAW について"_ju,
-                               "CollabDAW "_ju + juce::String (JUCE_APPLICATION_VERSION_STRING)
+            Dialogs::showInfo ("ShareDAW について"_ju,
+                               "ShareDAW "_ju + juce::String (JUCE_APPLICATION_VERSION_STRING)
                                  + "\n共同制作用の軽量DAW（アイデア出し・ラフ録音用）"_ju);
             break;
         case cmdFont100: case cmdFont125: case cmdFont150: case cmdFont175: case cmdFont200:

@@ -3,7 +3,7 @@
 #   1. スキャンは別プロセスで行い、クラッシュするプラグインはブラックリストに入る（本体は落ちない）
 #   2. 外部プラグインの音源でバウンスでき、状態ファイルが書かれ、バウンスが最新と判定される
 #   3. 状態ファイルがない環境（他の人の環境）ではバウンスした音で再生する
-# 使い方: tools/plugin-smoke-test.sh <CollabDAW の実行ファイル> <ビルドフォルダ（-DCOLLAB_BUILD_TEST_PLUGINS=ON）>
+# 使い方: tools/plugin-smoke-test.sh <ShareDAW の実行ファイル> <ビルドフォルダ（-DCOLLAB_BUILD_TEST_PLUGINS=ON）>
 set -euo pipefail
 
 app="$1"
@@ -36,7 +36,7 @@ p = sys.argv[1]
 d = json.load(open(p))
 d["tracks"] = [t for t in d["tracks"] if t["name"] == "Bass"]
 d["tracks"][0]["instrument"] = {"kind": "external", "stateRef": "plugins-state/synth.bin",
-    "plugin": {"format": "VST3", "name": "CollabTestSynth", "vendor": "CollabDAW Test", "uid": "unknown", "os": "linux"}}
+    "plugin": {"format": "VST3", "name": "CollabTestSynth", "vendor": "ShareDAW Test", "uid": "unknown", "os": "linux"}}
 json.dump(d, open(p, "w"), indent=2)
 PY
 out="$(run --bounce "$work/proj")"

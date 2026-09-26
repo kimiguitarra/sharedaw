@@ -1,0 +1,250 @@
+// Salamander Grand Piano V3 by Alexander Holm (CC-BY 3.0)。ShareDAW 用に 8 レイヤー・16bit に縮小
+// 各レイヤー内の強弱は amp_veltrack で付ける（元の既定値に近い値）
+<group> lovel=1 hivel=34 amp_veltrack=30 ampeg_release=1 note_polyphony=2 group_volume=9
+<region> sample=audio/A0v2.flac lokey=21 hikey=22 pitch_keycenter=21
+<region> sample=audio/C1v2.flac lokey=23 hikey=25 pitch_keycenter=24
+<region> sample=audio/Ds1v2.flac lokey=26 hikey=28 pitch_keycenter=27
+<region> sample=audio/Fs1v2.flac lokey=29 hikey=31 pitch_keycenter=30
+<region> sample=audio/A1v2.flac lokey=32 hikey=34 pitch_keycenter=33
+<region> sample=audio/C2v2.flac lokey=35 hikey=37 pitch_keycenter=36
+<region> sample=audio/Ds2v2.flac lokey=38 hikey=40 pitch_keycenter=39
+<region> sample=audio/Fs2v2.flac lokey=41 hikey=43 pitch_keycenter=42
+<region> sample=audio/A2v2.flac lokey=44 hikey=46 pitch_keycenter=45
+<region> sample=audio/C3v2.flac lokey=47 hikey=49 pitch_keycenter=48
+<region> sample=audio/Ds3v2.flac lokey=50 hikey=52 pitch_keycenter=51
+<region> sample=audio/Fs3v2.flac lokey=53 hikey=55 pitch_keycenter=54
+<region> sample=audio/A3v2.flac lokey=56 hikey=58 pitch_keycenter=57
+<region> sample=audio/C4v2.flac lokey=59 hikey=61 pitch_keycenter=60
+<region> sample=audio/Ds4v2.flac lokey=62 hikey=64 pitch_keycenter=63
+<region> sample=audio/Fs4v2.flac lokey=65 hikey=67 pitch_keycenter=66
+<region> sample=audio/A4v2.flac lokey=68 hikey=70 pitch_keycenter=69
+<region> sample=audio/C5v2.flac lokey=71 hikey=73 pitch_keycenter=72
+<region> sample=audio/Ds5v2.flac lokey=74 hikey=76 pitch_keycenter=75
+<region> sample=audio/Fs5v2.flac lokey=77 hikey=79 pitch_keycenter=78
+<region> sample=audio/A5v2.flac lokey=80 hikey=82 pitch_keycenter=81
+<region> sample=audio/C6v2.flac lokey=83 hikey=85 pitch_keycenter=84
+<region> sample=audio/Ds6v2.flac lokey=86 hikey=88 pitch_keycenter=87
+<region> sample=audio/Fs6v2.flac lokey=89 hikey=91 pitch_keycenter=90 ampeg_release=3
+<region> sample=audio/A6v2.flac lokey=92 hikey=94 pitch_keycenter=93 ampeg_release=3
+<region> sample=audio/C7v2.flac lokey=95 hikey=97 pitch_keycenter=96 ampeg_release=4
+<region> sample=audio/Ds7v2.flac lokey=98 hikey=100 pitch_keycenter=99 ampeg_release=4
+<region> sample=audio/Fs7v2.flac lokey=101 hikey=103 pitch_keycenter=102 ampeg_release=4
+<region> sample=audio/A7v2.flac lokey=104 hikey=106 pitch_keycenter=105 ampeg_release=4
+<region> sample=audio/C8v2.flac lokey=107 hikey=108 pitch_keycenter=108 ampeg_release=4
+<group> lovel=35 hivel=43 amp_veltrack=30 ampeg_release=1 note_polyphony=2 group_volume=9
+<region> sample=audio/A0v4.flac lokey=21 hikey=22 pitch_keycenter=21
+<region> sample=audio/C1v4.flac lokey=23 hikey=25 pitch_keycenter=24
+<region> sample=audio/Ds1v4.flac lokey=26 hikey=28 pitch_keycenter=27
+<region> sample=audio/Fs1v4.flac lokey=29 hikey=31 pitch_keycenter=30
+<region> sample=audio/A1v4.flac lokey=32 hikey=34 pitch_keycenter=33
+<region> sample=audio/C2v4.flac lokey=35 hikey=37 pitch_keycenter=36
+<region> sample=audio/Ds2v4.flac lokey=38 hikey=40 pitch_keycenter=39
+<region> sample=audio/Fs2v4.flac lokey=41 hikey=43 pitch_keycenter=42
+<region> sample=audio/A2v4.flac lokey=44 hikey=46 pitch_keycenter=45
+<region> sample=audio/C3v4.flac lokey=47 hikey=49 pitch_keycenter=48
+<region> sample=audio/Ds3v4.flac lokey=50 hikey=52 pitch_keycenter=51
+<region> sample=audio/Fs3v4.flac lokey=53 hikey=55 pitch_keycenter=54
+<region> sample=audio/A3v4.flac lokey=56 hikey=58 pitch_keycenter=57
+<region> sample=audio/C4v4.flac lokey=59 hikey=61 pitch_keycenter=60
+<region> sample=audio/Ds4v4.flac lokey=62 hikey=64 pitch_keycenter=63
+<region> sample=audio/Fs4v4.flac lokey=65 hikey=67 pitch_keycenter=66
+<region> sample=audio/A4v4.flac lokey=68 hikey=70 pitch_keycenter=69
+<region> sample=audio/C5v4.flac lokey=71 hikey=73 pitch_keycenter=72
+<region> sample=audio/Ds5v4.flac lokey=74 hikey=76 pitch_keycenter=75
+<region> sample=audio/Fs5v4.flac lokey=77 hikey=79 pitch_keycenter=78
+<region> sample=audio/A5v4.flac lokey=80 hikey=82 pitch_keycenter=81
+<region> sample=audio/C6v4.flac lokey=83 hikey=85 pitch_keycenter=84
+<region> sample=audio/Ds6v4.flac lokey=86 hikey=88 pitch_keycenter=87
+<region> sample=audio/Fs6v4.flac lokey=89 hikey=91 pitch_keycenter=90 ampeg_release=3
+<region> sample=audio/A6v4.flac lokey=92 hikey=94 pitch_keycenter=93 ampeg_release=3
+<region> sample=audio/C7v4.flac lokey=95 hikey=97 pitch_keycenter=96 ampeg_release=4
+<region> sample=audio/Ds7v4.flac lokey=98 hikey=100 pitch_keycenter=99 ampeg_release=4
+<region> sample=audio/Fs7v4.flac lokey=101 hikey=103 pitch_keycenter=102 ampeg_release=4
+<region> sample=audio/A7v4.flac lokey=104 hikey=106 pitch_keycenter=105 ampeg_release=4
+<region> sample=audio/C8v4.flac lokey=107 hikey=108 pitch_keycenter=108 ampeg_release=4
+<group> lovel=44 hivel=50 amp_veltrack=30 ampeg_release=1 note_polyphony=2 group_volume=9
+<region> sample=audio/A0v6.flac lokey=21 hikey=22 pitch_keycenter=21
+<region> sample=audio/C1v6.flac lokey=23 hikey=25 pitch_keycenter=24
+<region> sample=audio/Ds1v6.flac lokey=26 hikey=28 pitch_keycenter=27
+<region> sample=audio/Fs1v6.flac lokey=29 hikey=31 pitch_keycenter=30
+<region> sample=audio/A1v6.flac lokey=32 hikey=34 pitch_keycenter=33
+<region> sample=audio/C2v6.flac lokey=35 hikey=37 pitch_keycenter=36
+<region> sample=audio/Ds2v6.flac lokey=38 hikey=40 pitch_keycenter=39
+<region> sample=audio/Fs2v6.flac lokey=41 hikey=43 pitch_keycenter=42
+<region> sample=audio/A2v6.flac lokey=44 hikey=46 pitch_keycenter=45
+<region> sample=audio/C3v6.flac lokey=47 hikey=49 pitch_keycenter=48
+<region> sample=audio/Ds3v6.flac lokey=50 hikey=52 pitch_keycenter=51
+<region> sample=audio/Fs3v6.flac lokey=53 hikey=55 pitch_keycenter=54
+<region> sample=audio/A3v6.flac lokey=56 hikey=58 pitch_keycenter=57
+<region> sample=audio/C4v6.flac lokey=59 hikey=61 pitch_keycenter=60
+<region> sample=audio/Ds4v6.flac lokey=62 hikey=64 pitch_keycenter=63
+<region> sample=audio/Fs4v6.flac lokey=65 hikey=67 pitch_keycenter=66
+<region> sample=audio/A4v6.flac lokey=68 hikey=70 pitch_keycenter=69
+<region> sample=audio/C5v6.flac lokey=71 hikey=73 pitch_keycenter=72
+<region> sample=audio/Ds5v6.flac lokey=74 hikey=76 pitch_keycenter=75
+<region> sample=audio/Fs5v6.flac lokey=77 hikey=79 pitch_keycenter=78
+<region> sample=audio/A5v6.flac lokey=80 hikey=82 pitch_keycenter=81
+<region> sample=audio/C6v6.flac lokey=83 hikey=85 pitch_keycenter=84
+<region> sample=audio/Ds6v6.flac lokey=86 hikey=88 pitch_keycenter=87
+<region> sample=audio/Fs6v6.flac lokey=89 hikey=91 pitch_keycenter=90 ampeg_release=3
+<region> sample=audio/A6v6.flac lokey=92 hikey=94 pitch_keycenter=93 ampeg_release=3
+<region> sample=audio/C7v6.flac lokey=95 hikey=97 pitch_keycenter=96 ampeg_release=4
+<region> sample=audio/Ds7v6.flac lokey=98 hikey=100 pitch_keycenter=99 ampeg_release=4
+<region> sample=audio/Fs7v6.flac lokey=101 hikey=103 pitch_keycenter=102 ampeg_release=4
+<region> sample=audio/A7v6.flac lokey=104 hikey=106 pitch_keycenter=105 ampeg_release=4
+<region> sample=audio/C8v6.flac lokey=107 hikey=108 pitch_keycenter=108 ampeg_release=4
+<group> lovel=51 hivel=64 amp_veltrack=30 ampeg_release=1 note_polyphony=2 group_volume=9
+<region> sample=audio/A0v8.flac lokey=21 hikey=22 pitch_keycenter=21
+<region> sample=audio/C1v8.flac lokey=23 hikey=25 pitch_keycenter=24
+<region> sample=audio/Ds1v8.flac lokey=26 hikey=28 pitch_keycenter=27
+<region> sample=audio/Fs1v8.flac lokey=29 hikey=31 pitch_keycenter=30
+<region> sample=audio/A1v8.flac lokey=32 hikey=34 pitch_keycenter=33
+<region> sample=audio/C2v8.flac lokey=35 hikey=37 pitch_keycenter=36
+<region> sample=audio/Ds2v8.flac lokey=38 hikey=40 pitch_keycenter=39
+<region> sample=audio/Fs2v8.flac lokey=41 hikey=43 pitch_keycenter=42
+<region> sample=audio/A2v8.flac lokey=44 hikey=46 pitch_keycenter=45
+<region> sample=audio/C3v8.flac lokey=47 hikey=49 pitch_keycenter=48
+<region> sample=audio/Ds3v8.flac lokey=50 hikey=52 pitch_keycenter=51
+<region> sample=audio/Fs3v8.flac lokey=53 hikey=55 pitch_keycenter=54
+<region> sample=audio/A3v8.flac lokey=56 hikey=58 pitch_keycenter=57
+<region> sample=audio/C4v8.flac lokey=59 hikey=61 pitch_keycenter=60
+<region> sample=audio/Ds4v8.flac lokey=62 hikey=64 pitch_keycenter=63
+<region> sample=audio/Fs4v8.flac lokey=65 hikey=67 pitch_keycenter=66
+<region> sample=audio/A4v8.flac lokey=68 hikey=70 pitch_keycenter=69
+<region> sample=audio/C5v8.flac lokey=71 hikey=73 pitch_keycenter=72
+<region> sample=audio/Ds5v8.flac lokey=74 hikey=76 pitch_keycenter=75
+<region> sample=audio/Fs5v8.flac lokey=77 hikey=79 pitch_keycenter=78
+<region> sample=audio/A5v8.flac lokey=80 hikey=82 pitch_keycenter=81
+<region> sample=audio/C6v8.flac lokey=83 hikey=85 pitch_keycenter=84
+<region> sample=audio/Ds6v8.flac lokey=86 hikey=88 pitch_keycenter=87
+<region> sample=audio/Fs6v8.flac lokey=89 hikey=91 pitch_keycenter=90 ampeg_release=3
+<region> sample=audio/A6v8.flac lokey=92 hikey=94 pitch_keycenter=93 ampeg_release=3
+<region> sample=audio/C7v8.flac lokey=95 hikey=97 pitch_keycenter=96 ampeg_release=4
+<region> sample=audio/Ds7v8.flac lokey=98 hikey=100 pitch_keycenter=99 ampeg_release=4
+<region> sample=audio/Fs7v8.flac lokey=101 hikey=103 pitch_keycenter=102 ampeg_release=4
+<region> sample=audio/A7v8.flac lokey=104 hikey=106 pitch_keycenter=105 ampeg_release=4
+<region> sample=audio/C8v8.flac lokey=107 hikey=108 pitch_keycenter=108 ampeg_release=4
+<group> lovel=65 hivel=80 amp_veltrack=30 ampeg_release=1 note_polyphony=2 group_volume=9
+<region> sample=audio/A0v10.flac lokey=21 hikey=22 pitch_keycenter=21
+<region> sample=audio/C1v10.flac lokey=23 hikey=25 pitch_keycenter=24
+<region> sample=audio/Ds1v10.flac lokey=26 hikey=28 pitch_keycenter=27
+<region> sample=audio/Fs1v10.flac lokey=29 hikey=31 pitch_keycenter=30
+<region> sample=audio/A1v10.flac lokey=32 hikey=34 pitch_keycenter=33
+<region> sample=audio/C2v10.flac lokey=35 hikey=37 pitch_keycenter=36
+<region> sample=audio/Ds2v10.flac lokey=38 hikey=40 pitch_keycenter=39
+<region> sample=audio/Fs2v10.flac lokey=41 hikey=43 pitch_keycenter=42
+<region> sample=audio/A2v10.flac lokey=44 hikey=46 pitch_keycenter=45
+<region> sample=audio/C3v10.flac lokey=47 hikey=49 pitch_keycenter=48
+<region> sample=audio/Ds3v10.flac lokey=50 hikey=52 pitch_keycenter=51
+<region> sample=audio/Fs3v10.flac lokey=53 hikey=55 pitch_keycenter=54
+<region> sample=audio/A3v10.flac lokey=56 hikey=58 pitch_keycenter=57
+<region> sample=audio/C4v10.flac lokey=59 hikey=61 pitch_keycenter=60
+<region> sample=audio/Ds4v10.flac lokey=62 hikey=64 pitch_keycenter=63
+<region> sample=audio/Fs4v10.flac lokey=65 hikey=67 pitch_keycenter=66
+<region> sample=audio/A4v10.flac lokey=68 hikey=70 pitch_keycenter=69
+<region> sample=audio/C5v10.flac lokey=71 hikey=73 pitch_keycenter=72
+<region> sample=audio/Ds5v10.flac lokey=74 hikey=76 pitch_keycenter=75
+<region> sample=audio/Fs5v10.flac lokey=77 hikey=79 pitch_keycenter=78
+<region> sample=audio/A5v10.flac lokey=80 hikey=82 pitch_keycenter=81
+<region> sample=audio/C6v10.flac lokey=83 hikey=85 pitch_keycenter=84
+<region> sample=audio/Ds6v10.flac lokey=86 hikey=88 pitch_keycenter=87
+<region> sample=audio/Fs6v10.flac lokey=89 hikey=91 pitch_keycenter=90 ampeg_release=3
+<region> sample=audio/A6v10.flac lokey=92 hikey=94 pitch_keycenter=93 ampeg_release=3
+<region> sample=audio/C7v10.flac lokey=95 hikey=97 pitch_keycenter=96 ampeg_release=4
+<region> sample=audio/Ds7v10.flac lokey=98 hikey=100 pitch_keycenter=99 ampeg_release=4
+<region> sample=audio/Fs7v10.flac lokey=101 hikey=103 pitch_keycenter=102 ampeg_release=4
+<region> sample=audio/A7v10.flac lokey=104 hikey=106 pitch_keycenter=105 ampeg_release=4
+<region> sample=audio/C8v10.flac lokey=107 hikey=108 pitch_keycenter=108 ampeg_release=4
+<group> lovel=81 hivel=96 amp_veltrack=30 ampeg_release=1 note_polyphony=2 group_volume=9
+<region> sample=audio/A0v12.flac lokey=21 hikey=22 pitch_keycenter=21
+<region> sample=audio/C1v12.flac lokey=23 hikey=25 pitch_keycenter=24
+<region> sample=audio/Ds1v12.flac lokey=26 hikey=28 pitch_keycenter=27
+<region> sample=audio/Fs1v12.flac lokey=29 hikey=31 pitch_keycenter=30
+<region> sample=audio/A1v12.flac lokey=32 hikey=34 pitch_keycenter=33
+<region> sample=audio/C2v12.flac lokey=35 hikey=37 pitch_keycenter=36
+<region> sample=audio/Ds2v12.flac lokey=38 hikey=40 pitch_keycenter=39
+<region> sample=audio/Fs2v12.flac lokey=41 hikey=43 pitch_keycenter=42
+<region> sample=audio/A2v12.flac lokey=44 hikey=46 pitch_keycenter=45
+<region> sample=audio/C3v12.flac lokey=47 hikey=49 pitch_keycenter=48
+<region> sample=audio/Ds3v12.flac lokey=50 hikey=52 pitch_keycenter=51
+<region> sample=audio/Fs3v12.flac lokey=53 hikey=55 pitch_keycenter=54
+<region> sample=audio/A3v12.flac lokey=56 hikey=58 pitch_keycenter=57
+<region> sample=audio/C4v12.flac lokey=59 hikey=61 pitch_keycenter=60
+<region> sample=audio/Ds4v12.flac lokey=62 hikey=64 pitch_keycenter=63
+<region> sample=audio/Fs4v12.flac lokey=65 hikey=67 pitch_keycenter=66
+<region> sample=audio/A4v12.flac lokey=68 hikey=70 pitch_keycenter=69
+<region> sample=audio/C5v12.flac lokey=71 hikey=73 pitch_keycenter=72
+<region> sample=audio/Ds5v12.flac lokey=74 hikey=76 pitch_keycenter=75
+<region> sample=audio/Fs5v12.flac lokey=77 hikey=79 pitch_keycenter=78
+<region> sample=audio/A5v12.flac lokey=80 hikey=82 pitch_keycenter=81
+<region> sample=audio/C6v12.flac lokey=83 hikey=85 pitch_keycenter=84
+<region> sample=audio/Ds6v12.flac lokey=86 hikey=88 pitch_keycenter=87
+<region> sample=audio/Fs6v12.flac lokey=89 hikey=91 pitch_keycenter=90 ampeg_release=3
+<region> sample=audio/A6v12.flac lokey=92 hikey=94 pitch_keycenter=93 ampeg_release=3
+<region> sample=audio/C7v12.flac lokey=95 hikey=97 pitch_keycenter=96 ampeg_release=4
+<region> sample=audio/Ds7v12.flac lokey=98 hikey=100 pitch_keycenter=99 ampeg_release=4
+<region> sample=audio/Fs7v12.flac lokey=101 hikey=103 pitch_keycenter=102 ampeg_release=4
+<region> sample=audio/A7v12.flac lokey=104 hikey=106 pitch_keycenter=105 ampeg_release=4
+<region> sample=audio/C8v12.flac lokey=107 hikey=108 pitch_keycenter=108 ampeg_release=4
+<group> lovel=97 hivel=112 amp_veltrack=30 ampeg_release=1 note_polyphony=2 group_volume=9
+<region> sample=audio/A0v14.flac lokey=21 hikey=22 pitch_keycenter=21
+<region> sample=audio/C1v14.flac lokey=23 hikey=25 pitch_keycenter=24
+<region> sample=audio/Ds1v14.flac lokey=26 hikey=28 pitch_keycenter=27
+<region> sample=audio/Fs1v14.flac lokey=29 hikey=31 pitch_keycenter=30
+<region> sample=audio/A1v14.flac lokey=32 hikey=34 pitch_keycenter=33
+<region> sample=audio/C2v14.flac lokey=35 hikey=37 pitch_keycenter=36
+<region> sample=audio/Ds2v14.flac lokey=38 hikey=40 pitch_keycenter=39
+<region> sample=audio/Fs2v14.flac lokey=41 hikey=43 pitch_keycenter=42
+<region> sample=audio/A2v14.flac lokey=44 hikey=46 pitch_keycenter=45
+<region> sample=audio/C3v14.flac lokey=47 hikey=49 pitch_keycenter=48
+<region> sample=audio/Ds3v14.flac lokey=50 hikey=52 pitch_keycenter=51
+<region> sample=audio/Fs3v14.flac lokey=53 hikey=55 pitch_keycenter=54
+<region> sample=audio/A3v14.flac lokey=56 hikey=58 pitch_keycenter=57
+<region> sample=audio/C4v14.flac lokey=59 hikey=61 pitch_keycenter=60
+<region> sample=audio/Ds4v14.flac lokey=62 hikey=64 pitch_keycenter=63
+<region> sample=audio/Fs4v14.flac lokey=65 hikey=67 pitch_keycenter=66
+<region> sample=audio/A4v14.flac lokey=68 hikey=70 pitch_keycenter=69
+<region> sample=audio/C5v14.flac lokey=71 hikey=73 pitch_keycenter=72
+<region> sample=audio/Ds5v14.flac lokey=74 hikey=76 pitch_keycenter=75
+<region> sample=audio/Fs5v14.flac lokey=77 hikey=79 pitch_keycenter=78
+<region> sample=audio/A5v14.flac lokey=80 hikey=82 pitch_keycenter=81
+<region> sample=audio/C6v14.flac lokey=83 hikey=85 pitch_keycenter=84
+<region> sample=audio/Ds6v14.flac lokey=86 hikey=88 pitch_keycenter=87
+<region> sample=audio/Fs6v14.flac lokey=89 hikey=91 pitch_keycenter=90 ampeg_release=3
+<region> sample=audio/A6v14.flac lokey=92 hikey=94 pitch_keycenter=93 ampeg_release=3
+<region> sample=audio/C7v14.flac lokey=95 hikey=97 pitch_keycenter=96 ampeg_release=4
+<region> sample=audio/Ds7v14.flac lokey=98 hikey=100 pitch_keycenter=99 ampeg_release=4
+<region> sample=audio/Fs7v14.flac lokey=101 hikey=103 pitch_keycenter=102 ampeg_release=4
+<region> sample=audio/A7v14.flac lokey=104 hikey=106 pitch_keycenter=105 ampeg_release=4
+<region> sample=audio/C8v14.flac lokey=107 hikey=108 pitch_keycenter=108 ampeg_release=4
+<group> lovel=113 hivel=127 amp_veltrack=30 ampeg_release=1 note_polyphony=2 group_volume=9
+<region> sample=audio/A0v16.flac lokey=21 hikey=22 pitch_keycenter=21
+<region> sample=audio/C1v16.flac lokey=23 hikey=25 pitch_keycenter=24
+<region> sample=audio/Ds1v16.flac lokey=26 hikey=28 pitch_keycenter=27
+<region> sample=audio/Fs1v16.flac lokey=29 hikey=31 pitch_keycenter=30
+<region> sample=audio/A1v16.flac lokey=32 hikey=34 pitch_keycenter=33
+<region> sample=audio/C2v16.flac lokey=35 hikey=37 pitch_keycenter=36
+<region> sample=audio/Ds2v16.flac lokey=38 hikey=40 pitch_keycenter=39
+<region> sample=audio/Fs2v16.flac lokey=41 hikey=43 pitch_keycenter=42
+<region> sample=audio/A2v16.flac lokey=44 hikey=46 pitch_keycenter=45
+<region> sample=audio/C3v16.flac lokey=47 hikey=49 pitch_keycenter=48
+<region> sample=audio/Ds3v16.flac lokey=50 hikey=52 pitch_keycenter=51
+<region> sample=audio/Fs3v16.flac lokey=53 hikey=55 pitch_keycenter=54
+<region> sample=audio/A3v16.flac lokey=56 hikey=58 pitch_keycenter=57
+<region> sample=audio/C4v16.flac lokey=59 hikey=61 pitch_keycenter=60
+<region> sample=audio/Ds4v16.flac lokey=62 hikey=64 pitch_keycenter=63
+<region> sample=audio/Fs4v16.flac lokey=65 hikey=67 pitch_keycenter=66
+<region> sample=audio/A4v16.flac lokey=68 hikey=70 pitch_keycenter=69
+<region> sample=audio/C5v16.flac lokey=71 hikey=73 pitch_keycenter=72
+<region> sample=audio/Ds5v16.flac lokey=74 hikey=76 pitch_keycenter=75
+<region> sample=audio/Fs5v16.flac lokey=77 hikey=79 pitch_keycenter=78
+<region> sample=audio/A5v16.flac lokey=80 hikey=82 pitch_keycenter=81
+<region> sample=audio/C6v16.flac lokey=83 hikey=85 pitch_keycenter=84
+<region> sample=audio/Ds6v16.flac lokey=86 hikey=88 pitch_keycenter=87
+<region> sample=audio/Fs6v16.flac lokey=89 hikey=91 pitch_keycenter=90 ampeg_release=3
+<region> sample=audio/A6v16.flac lokey=92 hikey=94 pitch_keycenter=93 ampeg_release=3
+<region> sample=audio/C7v16.flac lokey=95 hikey=97 pitch_keycenter=96 ampeg_release=4
+<region> sample=audio/Ds7v16.flac lokey=98 hikey=100 pitch_keycenter=99 ampeg_release=4
+<region> sample=audio/Fs7v16.flac lokey=101 hikey=103 pitch_keycenter=102 ampeg_release=4
+<region> sample=audio/A7v16.flac lokey=104 hikey=106 pitch_keycenter=105 ampeg_release=4
+<region> sample=audio/C8v16.flac lokey=107 hikey=108 pitch_keycenter=108 ampeg_release=4

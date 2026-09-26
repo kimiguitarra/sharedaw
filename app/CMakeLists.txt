@@ -1,4 +1,4 @@
-# CollabDAW デスクトップアプリ（JUCE + Tracktion Engine + sfizz）
+# ShareDAW デスクトップアプリ（JUCE + Tracktion Engine + sfizz）
 
 # --- sfizz（内蔵音源の SFZ プレイヤー）-------------------------------------
 set(SFIZZ_JACK OFF CACHE BOOL "" FORCE)
@@ -22,10 +22,10 @@ add_subdirectory(external/tracktion_engine/modules)
 # ASIO（Windows）: Steinberg の ASIO SDK のパスを渡したときだけ有効にする（§3.5, M2）
 set(COLLAB_ASIO_SDK_DIR "" CACHE PATH "Path to the Steinberg ASIO SDK (contains common/iasiodrv.h)")
 
-juce_add_gui_app(CollabDAW
-    PRODUCT_NAME "CollabDAW"
-    COMPANY_NAME "CollabDAW"
-    BUNDLE_ID "local.collabdaw.app"
+juce_add_gui_app(ShareDAW
+    PRODUCT_NAME "ShareDAW"
+    COMPANY_NAME "ShareDAW"
+    BUNDLE_ID "local.sharedaw.app"
     VERSION ${PROJECT_VERSION}
     MICROPHONE_PERMISSION_ENABLED TRUE
     MICROPHONE_PERMISSION_TEXT "録音のためにマイク（オーディオ入力）を使用します。"
@@ -34,7 +34,7 @@ juce_add_gui_app(CollabDAW
     HARDENED_RUNTIME_OPTIONS com.apple.security.device.audio-input com.apple.security.cs.disable-library-validation
     PLUGINHOST_AU TRUE)
 
-target_sources(CollabDAW PRIVATE
+target_sources(ShareDAW PRIVATE
     src/Main.cpp
     src/AppPaths.cpp
     src/audio/AudioFiles.cpp
@@ -66,11 +66,11 @@ target_sources(CollabDAW PRIVATE
     src/ui/InstrumentPanel.cpp
     src/ui/Dialogs.cpp)
 
-target_include_directories(CollabDAW PRIVATE src)
+target_include_directories(ShareDAW PRIVATE src)
 
-target_compile_definitions(CollabDAW PRIVATE
-    JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:CollabDAW,JUCE_PRODUCT_NAME>"
-    JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:CollabDAW,JUCE_VERSION>"
+target_compile_definitions(ShareDAW PRIVATE
+    JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:ShareDAW,JUCE_PRODUCT_NAME>"
+    JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:ShareDAW,JUCE_VERSION>"
     JUCE_WEB_BROWSER=0
     JUCE_MODAL_LOOPS_PERMITTED=1
     JUCE_STRICT_REFCOUNTEDPOINTER=1
@@ -82,11 +82,11 @@ target_compile_definitions(CollabDAW PRIVATE
     TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH=1)
 
 if(COLLAB_ASIO_SDK_DIR)
-    target_compile_definitions(CollabDAW PRIVATE JUCE_ASIO=1)
-    target_include_directories(CollabDAW PRIVATE "${COLLAB_ASIO_SDK_DIR}/common")
+    target_compile_definitions(ShareDAW PRIVATE JUCE_ASIO=1)
+    target_include_directories(ShareDAW PRIVATE "${COLLAB_ASIO_SDK_DIR}/common")
 endif()
 
-target_link_libraries(CollabDAW PRIVATE
+target_link_libraries(ShareDAW PRIVATE
     collab::core
     sfizz::sfizz
     tracktion::tracktion_core
@@ -98,37 +98,37 @@ target_link_libraries(CollabDAW PRIVATE
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags)
 
-set_target_properties(CollabDAW PROPERTIES
+set_target_properties(ShareDAW PROPERTIES
     C_VISIBILITY_PRESET hidden
     CXX_VISIBILITY_PRESET hidden)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    target_compile_options(CollabDAW PRIVATE -Wno-unknown-pragmas)
+    target_compile_options(ShareDAW PRIVATE -Wno-unknown-pragmas)
 endif()
 
 if(APPLE)
-    target_compile_options(CollabDAW PRIVATE -fno-aligned-allocation)
+    target_compile_options(ShareDAW PRIVATE -fno-aligned-allocation)
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    target_link_libraries(CollabDAW PRIVATE atomic)
+    target_link_libraries(ShareDAW PRIVATE atomic)
     # Linux は開発・CI 用。HTTP（同期）に libcurl を使う
-    target_compile_definitions(CollabDAW PRIVATE JUCE_USE_CURL=1)
-    target_link_libraries(CollabDAW PRIVATE curl)
+    target_compile_definitions(ShareDAW PRIVATE JUCE_USE_CURL=1)
+    target_link_libraries(ShareDAW PRIVATE curl)
 endif()
 
 if(APPLE)
-    target_link_libraries(CollabDAW PRIVATE "-framework Security")   # キーチェーン（§6.2）
+    target_link_libraries(ShareDAW PRIVATE "-framework Security")   # キーチェーン（§6.2）
 endif()
 
 # --- 内蔵音源などのアセットを実行ファイルの隣（Mac はバンドルの Resources）へコピー ---
 if(APPLE)
-    set(COLLAB_ASSETS_DEST "$<TARGET_BUNDLE_CONTENT_DIR:CollabDAW>/Resources/assets")
+    set(COLLAB_ASSETS_DEST "$<TARGET_BUNDLE_CONTENT_DIR:ShareDAW>/Resources/assets")
 else()
-    set(COLLAB_ASSETS_DEST "$<TARGET_FILE_DIR:CollabDAW>/assets")
+    set(COLLAB_ASSETS_DEST "$<TARGET_FILE_DIR:ShareDAW>/assets")
 endif()
 
-add_custom_command(TARGET CollabDAW POST_BUILD
+add_custom_command(TARGET ShareDAW POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${PROJECT_SOURCE_DIR}/assets" "${COLLAB_ASSETS_DEST}"
     COMMENT "Copying assets")
 

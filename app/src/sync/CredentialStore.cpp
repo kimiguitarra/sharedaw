@@ -23,7 +23,7 @@ namespace
    #if JUCE_WINDOWS || JUCE_MAC
     juce::String targetName (const juce::String& serverUrl)
     {
-        return "CollabDAW:" + serverUrl.trimCharactersAtEnd ("/");
+        return "ShareDAW:" + serverUrl.trimCharactersAtEnd ("/");
     }
    #endif
 
@@ -48,7 +48,7 @@ bool saveToken (const juce::String& serverUrl, const juce::String& token)
     cred.CredentialBlobSize = (DWORD) utf8.size();
     cred.CredentialBlob = reinterpret_cast<LPBYTE> (utf8.data());
     cred.Persist = CRED_PERSIST_LOCAL_MACHINE;
-    cred.UserName = const_cast<LPWSTR> (L"CollabDAW");
+    cred.UserName = const_cast<LPWSTR> (L"ShareDAW");
     return CredWriteW (&cred, 0) != FALSE;
    #elif JUCE_MAC
     removeToken (serverUrl);
@@ -59,7 +59,7 @@ bool saveToken (const juce::String& serverUrl, const juce::String& token)
     CFDataRef data = CFDataCreate (nullptr, reinterpret_cast<const UInt8*> (utf8.data()), (CFIndex) utf8.size());
 
     const void* keys[] = { kSecClass, kSecAttrService, kSecAttrAccount, kSecValueData };
-    const void* values[] = { kSecClassGenericPassword, serviceRef, CFSTR ("CollabDAW"), data };
+    const void* values[] = { kSecClassGenericPassword, serviceRef, CFSTR ("ShareDAW"), data };
     CFDictionaryRef query = CFDictionaryCreate (nullptr, keys, values, 4, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
 
     const auto status = SecItemAdd (query, nullptr);
@@ -95,7 +95,7 @@ juce::String loadToken (const juce::String& serverUrl)
     CFStringRef serviceRef = CFStringCreateWithCString (nullptr, service.c_str(), kCFStringEncodingUTF8);
 
     const void* keys[] = { kSecClass, kSecAttrService, kSecAttrAccount, kSecReturnData, kSecMatchLimit };
-    const void* values[] = { kSecClassGenericPassword, serviceRef, CFSTR ("CollabDAW"), kCFBooleanTrue, kSecMatchLimitOne };
+    const void* values[] = { kSecClassGenericPassword, serviceRef, CFSTR ("ShareDAW"), kCFBooleanTrue, kSecMatchLimitOne };
     CFDictionaryRef query = CFDictionaryCreate (nullptr, keys, values, 5, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
 
     CFTypeRef result = nullptr;
@@ -123,7 +123,7 @@ void removeToken (const juce::String& serverUrl)
     auto service = targetName (serverUrl).toStdString();
     CFStringRef serviceRef = CFStringCreateWithCString (nullptr, service.c_str(), kCFStringEncodingUTF8);
     const void* keys[] = { kSecClass, kSecAttrService, kSecAttrAccount };
-    const void* values[] = { kSecClassGenericPassword, serviceRef, CFSTR ("CollabDAW") };
+    const void* values[] = { kSecClassGenericPassword, serviceRef, CFSTR ("ShareDAW") };
     CFDictionaryRef query = CFDictionaryCreate (nullptr, keys, values, 3, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
     SecItemDelete (query);
     CFRelease (query);

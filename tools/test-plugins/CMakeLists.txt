@@ -5,7 +5,7 @@
 juce_add_plugin(CollabTestSynth
     PLUGIN_MANUFACTURER_CODE Cldw
     PLUGIN_CODE Ctsy
-    COMPANY_NAME "CollabDAW Test"
+    COMPANY_NAME "ShareDAW Test"
     PRODUCT_NAME "CollabTestSynth"
     FORMATS VST3
     IS_SYNTH TRUE
@@ -18,7 +18,7 @@ target_link_libraries(CollabTestSynth PRIVATE juce::juce_audio_utils juce::juce_
 juce_add_plugin(CollabCrashPlugin
     PLUGIN_MANUFACTURER_CODE Cldw
     PLUGIN_CODE Ccrs
-    COMPANY_NAME "CollabDAW Test"
+    COMPANY_NAME "ShareDAW Test"
     PRODUCT_NAME "CollabCrashPlugin"
     FORMATS VST3
     IS_SYNTH FALSE

@@ -1,0 +1,6 @@
+// サブベース: サイン波中心の太く丸い音（小さいスピーカーでも聞こえるよう少しだけ倍音を足す）
+<group> group_volume=-11.5 lokey=0 hikey=127 amp_veltrack=50 note_polyphony=1 ampeg_release=0.12
+<region> sample=*sine volume=0
+ ampeg_attack=0.006 ampeg_decay=1.0 ampeg_sustain=90
+<region> sample=*triangle volume=-16
+ ampeg_attack=0.006 ampeg_decay=1.0 ampeg_sustain=90

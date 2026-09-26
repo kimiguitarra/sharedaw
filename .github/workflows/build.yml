@@ -109,30 +109,44 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           cp -r shared/fixtures/demo-project /tmp/demo
-          xvfb-run -a ./build/app/CollabDAW_artefacts/Release/CollabDAW --render /tmp/demo /tmp/demo.wav
+          xvfb-run -a ./build/app/ShareDAW_artefacts/Release/ShareDAW --render /tmp/demo /tmp/demo.wav
 
       - name: Plugin smoke test (Linux)
         if: runner.os == 'Linux'
-        run: tools/plugin-smoke-test.sh "$PWD/build/app/CollabDAW_artefacts/Release/CollabDAW" "$PWD/build"
+        run: tools/plugin-smoke-test.sh "$PWD/build/app/ShareDAW_artefacts/Release/ShareDAW" "$PWD/build"
 
       - name: Check universal binary (macOS)
         if: runner.os == 'macOS'
-        run: lipo -info build/app/CollabDAW_artefacts/Release/CollabDAW.app/Contents/MacOS/CollabDAW
+        run: lipo -info build/app/ShareDAW_artefacts/Release/ShareDAW.app/Contents/MacOS/ShareDAW
+
+      # Apple Developer に登録しないので、アドホック署名（証明書なし）にする。Apple Silicon は署名のないアプリを起動できない。
+      # Hardened Runtime とマイク・他社プラグイン読み込みの entitlements も付ける（仕様書 §8.3, §11）
+      - name: Ad-hoc sign (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          app=build/app/ShareDAW_artefacts/Release/ShareDAW.app
+          entitlements="$(find build -name 'ShareDAW.entitlements' | head -1)"
+          echo "entitlements: $entitlements"
+          codesign --force --deep --options runtime --entitlements "$entitlements" --sign - "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -d --entitlements - "$app"
 
       - name: Package
         shell: bash
         run: |
           mkdir -p dist
           if [ "$RUNNER_OS" = "Windows" ]; then
-            cp -r build/app/CollabDAW_artefacts/Release/CollabDAW.exe build/app/CollabDAW_artefacts/Release/assets dist/
+            cp -r build/app/ShareDAW_artefacts/Release/ShareDAW.exe build/app/ShareDAW_artefacts/Release/assets dist/
           elif [ "$RUNNER_OS" = "macOS" ]; then
-            ditto build/app/CollabDAW_artefacts/Release/CollabDAW.app dist/CollabDAW.app
+            # アーティファクトの zip は実行権限を保持しないので、dmg にして渡す
+            mkdir -p dmg && ditto build/app/ShareDAW_artefacts/Release/ShareDAW.app dmg/ShareDAW.app && ln -s /Applications dmg/Applications
+            hdiutil create -volname ShareDAW -srcfolder dmg -ov -format UDZO dist/ShareDAW.dmg
           else
-            cp -r build/app/CollabDAW_artefacts/Release/CollabDAW build/app/CollabDAW_artefacts/Release/assets dist/
+            cp -r build/app/ShareDAW_artefacts/Release/ShareDAW build/app/ShareDAW_artefacts/Release/assets dist/
           fi
 
       - uses: actions/upload-artifact@v4
         with:
-          name: CollabDAW-${{ matrix.name }}
+          name: ShareDAW-${{ matrix.name }}
           path: dist
           retention-days: 14

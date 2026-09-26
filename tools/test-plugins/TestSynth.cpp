@@ -2,12 +2,12 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 
 #if COLLAB_TEST_CRASH
-// CollabDAW（スキャン用の子プロセスを含む）にモジュールが読み込まれた時点でクラッシュする
+// ShareDAW（スキャン用の子プロセスを含む）にモジュールが読み込まれた時点でクラッシュする
 static struct CrashOnLoad
 {
     CrashOnLoad()
     {
-        if (juce::File::getSpecialLocation (juce::File::hostApplicationPath).getFileName().contains ("CollabDAW"))
+        if (juce::File::getSpecialLocation (juce::File::hostApplicationPath).getFileName().contains ("ShareDAW"))
         {
             volatile int* p = nullptr;
             *p = 1;

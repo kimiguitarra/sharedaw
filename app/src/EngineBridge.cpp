@@ -647,7 +647,7 @@ juce::Result EngineBridge::renderTrack (const std::string& trackId, const juce::
     {
         const te::Edit::ScopedRenderStatus renderStatus (*edit, true);
         output.deleteFile();
-        ok = te::Renderer::renderToFile ("CollabDAW bounce", params).existsAsFile();
+        ok = te::Renderer::renderToFile ("ShareDAW bounce", params).existsAsFile();
     }
 
     if (vol != nullptr)
@@ -966,7 +966,7 @@ bool EngineBridge::renderToFile (const juce::File& output, collab::Tick endTick,
 
     // レンダリング中はオーディオデバイスから切り離す（終了後に再接続される）
     const te::Edit::ScopedRenderStatus renderStatus (*edit, true);
-    return te::Renderer::renderToFile ("CollabDAW render", params).existsAsFile();
+    return te::Renderer::renderToFile ("ShareDAW render", params).existsAsFile();
 }
 
 //==============================================================================

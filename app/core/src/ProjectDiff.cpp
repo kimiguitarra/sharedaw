@@ -67,7 +67,7 @@ namespace
     void diffParams (const nlohmann::json& a, const nlohmann::json& b, std::vector<std::string>& out)
     {
         static const std::map<std::string, std::string> topNames = {
-            { "volumeDb", "音源の音量" }, { "pan", "音源のパン" }, { "tone", "トーン" }, { "kit", "キット" }
+            { "volumeDb", "音源の音量" }, { "pan", "音源のパン" }, { "tone", "トーン" }, { "kit", "キット" }, { "preset", "音色" }
         };
 
         static const std::map<std::string, std::string> pieceFields = {

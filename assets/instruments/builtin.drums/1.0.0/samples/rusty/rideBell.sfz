@@ -1,0 +1,21 @@
+// rideBell: Big Rusty Drums（CC0）ride_22 / rd_bl_cl.sfz のマイクを作者の既定のバランスでまとめたもの
+<group> hivel=31 amp_velcurve_31=1 seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 group_volume=7
+<region> sample=audio/rusty/rideBell/rd_bl_vl1_rr1.flac seq_position=1
+<region> sample=audio/rusty/rideBell/rd_bl_vl1_rr2.flac seq_position=2
+<region> sample=audio/rusty/rideBell/rd_bl_vl1_rr3.flac seq_position=3
+<region> sample=audio/rusty/rideBell/rd_bl_vl1_rr4.flac seq_position=4
+<group> lovel=32 hivel=63 amp_velcurve_63=1 seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 group_volume=7
+<region> sample=audio/rusty/rideBell/rd_bl_vl2_rr1.flac seq_position=1
+<region> sample=audio/rusty/rideBell/rd_bl_vl2_rr2.flac seq_position=2
+<region> sample=audio/rusty/rideBell/rd_bl_vl2_rr3.flac seq_position=3
+<region> sample=audio/rusty/rideBell/rd_bl_vl2_rr4.flac seq_position=4
+<group> lovel=64 hivel=95 amp_velcurve_95=1 seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 group_volume=7
+<region> sample=audio/rusty/rideBell/rd_bl_vl3_rr1.flac seq_position=1
+<region> sample=audio/rusty/rideBell/rd_bl_vl3_rr2.flac seq_position=2
+<region> sample=audio/rusty/rideBell/rd_bl_vl3_rr3.flac seq_position=3
+<region> sample=audio/rusty/rideBell/rd_bl_vl3_rr4.flac seq_position=4
+<group> lovel=96 seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 group_volume=7
+<region> sample=audio/rusty/rideBell/rd_bl_vl4_rr1.flac seq_position=1
+<region> sample=audio/rusty/rideBell/rd_bl_vl4_rr2.flac seq_position=2
+<region> sample=audio/rusty/rideBell/rd_bl_vl4_rr3.flac seq_position=3
+<region> sample=audio/rusty/rideBell/rd_bl_vl4_rr4.flac seq_position=4

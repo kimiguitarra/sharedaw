@@ -1,3 +1,5 @@
+#include <sstream>
+
 #include <doctest/doctest.h>
 
 #include "collab/BuiltinInstruments.h"
@@ -21,20 +23,37 @@ namespace
 
 TEST_CASE ("bundled manifests are valid and reference existing files")
 {
-    for (auto id : { builtin::drums, builtin::bass, builtin::piano })
+    for (auto [id, version] : { std::pair (builtin::drums, "0.1.0"), std::pair (builtin::bass, "0.1.0"), std::pair (builtin::piano, "0.1.0"),
+                                std::pair (builtin::drums, "1.0.0"), std::pair (builtin::bass, "1.0.0"), std::pair (builtin::piano, "1.0.0") })
     {
         CAPTURE (id);
-        auto m = loadManifest (id, "0.1.0");
+        CAPTURE (version);
+        auto m = loadManifest (id, version);
         CHECK (m.id == id);
-        const auto dir = std::string (COLLAB_ASSETS_DIR) + "/instruments/" + id + "/0.1.0/";
+        CHECK (m.version == version);
+        const auto dir = std::string (COLLAB_ASSETS_DIR) + "/instruments/" + id + "/" + version + "/";
 
-        if (m.type == "melodic")
+        if (m.type == "melodic" && ! m.mainSfz.empty())
             CHECK (fileExists (dir + m.mainSfz));
+
+        for (auto& p : m.presets)
+            CHECK (fileExists (dir + p.sfz));
 
         for (auto& s : m.samples)
         {
             CAPTURE (s);
             CHECK (fileExists (dir + "samples/" + s + ".sfz"));
+
+            // サンプルのファイル（sample= はマニフェストのフォルダからの相対パス）
+            std::istringstream in (readTextFile (dir + "samples/" + s + ".sfz"));
+            std::string token;
+
+            while (in >> token)
+                if (token.rfind ("sample=", 0) == 0 && token[7] != '*')
+                {
+                    CAPTURE (token);
+                    CHECK (fileExists (dir + token.substr (7)));
+                }
         }
 
         for (auto& [kit, pieces] : m.kits)
@@ -44,7 +63,22 @@ TEST_CASE ("bundled manifests are valid and reference existing files")
                 CHECK (m.findPiece (piece) != nullptr);
                 CHECK (std::find (m.samples.begin(), m.samples.end(), sample) != m.samples.end());
             }
+
+        for (auto& p : m.pieces)
+            for (auto& [kit, map] : m.kits)
+            {
+                CAPTURE (p.key);
+                CHECK (map.count (p.key) == 1);   // どのキットでも全パーツが鳴る
+            }
     }
+}
+
+TEST_CASE ("melodic presets select the sfz")
+{
+    auto m = loadManifest (builtin::bass, "1.0.0");
+    CHECK (generateSfz (m, nlohmann::json::object()).find ("#include \"fingered.sfz\"") != std::string::npos);
+    CHECK (generateSfz (m, nlohmann::json::parse (R"({ "preset": "synth" })")).find ("#include \"synth.sfz\"") != std::string::npos);
+    CHECK (resolveInstrumentParams (m, nlohmann::json::parse (R"({ "preset": "nope" })")).preset == "fingered");
 }
 
 TEST_CASE ("drum params resolve with defaults and overrides")

@@ -1,4 +1,4 @@
-# collab_chord: コード表記のパーサーとボイシング（他の CollabDAW のコードに依存しない独立ライブラリ）
+# collab_chord: コード表記のパーサーとボイシング（他の ShareDAW のコードに依存しない独立ライブラリ）
 add_library(collab_chord STATIC src/Chord.cpp)
 add_library(collab::chord ALIAS collab_chord)
 target_include_directories(collab_chord PUBLIC include)

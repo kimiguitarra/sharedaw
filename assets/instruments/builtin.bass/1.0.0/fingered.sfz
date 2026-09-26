@@ -1,0 +1,9 @@
+// エレキベース風（指弾き）: 三角波の胴鳴り + フィルターの閉じていくノコギリ波 + 指の当たる音
+<group> group_volume=-1 lokey=0 hikey=127 amp_veltrack=75 note_polyphony=1 ampeg_release=0.1
+<region> sample=*triangle volume=0
+ ampeg_attack=0.003 ampeg_hold=0.04 ampeg_decay=1.8 ampeg_sustain=40
+<region> sample=*saw volume=-7 fil_type=lpf_2p cutoff=220 resonance=1 fil_keytrack=100 fil_veltrack=1200
+ fileg_attack=0 fileg_decay=0.2 fileg_sustain=10 fileg_depth=2400
+ ampeg_attack=0.003 ampeg_decay=1.2 ampeg_sustain=30
+<region> sample=*noise volume=-26 fil_type=bpf_2p cutoff=1600 resonance=3 amp_veltrack=100
+ ampeg_attack=0 ampeg_decay=0.012 ampeg_sustain=0 ampeg_release=0.01

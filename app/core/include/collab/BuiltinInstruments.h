@@ -22,13 +22,22 @@ struct DrumPiece
     std::string sfzExtra;     // チョーク等、SFZ の追加オプコード
 };
 
+/** 旋律楽器の音色（プリセット）。params.preset で選ぶ。 */
+struct InstrumentPreset
+{
+    std::string key;          // params.preset の値
+    std::string displayName;
+    std::string sfz;          // 音色の SFZ（マニフェストのフォルダからの相対パス）
+};
+
 struct BuiltinInstrumentManifest
 {
     std::string id;           // "builtin.drums"
     std::string version;      // "0.1.0"
     std::string displayName;
     std::string type;         // "drums" | "melodic"
-    std::string mainSfz;      // melodic のときのメイン SFZ（相対パス）
+    std::string mainSfz;      // melodic のときのメイン SFZ（相対パス。presets があれば不要）
+    std::vector<InstrumentPreset> presets;                            // melodic の音色
     std::vector<DrumPiece> pieces;                                    // drums のみ
     std::map<std::string, std::map<std::string, std::string>> kits;   // kit -> piece -> sample
     std::vector<std::string> samples;                                 // 差し替え可能なサンプル ID
@@ -59,6 +68,8 @@ struct ResolvedInstrumentParams
 
     std::string kit;
     std::map<std::string, Piece> pieces;
+
+    std::string preset;           // melodic で presets があるとき
 };
 
 ResolvedInstrumentParams resolveInstrumentParams (const BuiltinInstrumentManifest&, const nlohmann::json& params);

@@ -1,4 +1,4 @@
-// CollabDAW 同期サーバー（仕様書 §6）。Cloudflare Workers + D1 + R2。
+// ShareDAW 同期サーバー（仕様書 §6）。Cloudflare Workers + D1 + R2。
 
 import { directDownload, directUpload, registeredHashes, transferUrl, verifyAndRegister } from "./blobs";
 import { ProjectJson, changedScopes, referencedBlobs, validateProject } from "./project";

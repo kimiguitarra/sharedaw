@@ -35,9 +35,9 @@ push の検証（サーバー側）:
 cd server
 npm install
 npx wrangler login
-npx wrangler d1 create collabdaw-sync          # 表示された database_id を wrangler.jsonc に書く
-npx wrangler r2 bucket create collabdaw-sync-blobs
-npx wrangler d1 migrations apply collabdaw-sync --remote
+npx wrangler d1 create sharedaw-sync          # 表示された database_id を wrangler.jsonc に書く
+npx wrangler r2 bucket create sharedaw-sync-blobs
+npx wrangler d1 migrations apply sharedaw-sync --remote
 npx wrangler deploy
 ```
 

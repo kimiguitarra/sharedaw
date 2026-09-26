@@ -21,7 +21,7 @@ const now = new Date().toISOString();
 const escaped = name.replaceAll("'", "''");
 const sql = `INSERT INTO users (id, display_name, token_hash, created_at) VALUES ('${id}', '${escaped}', '${hash}', '${now}');`;
 
-execFileSync("npx", ["wrangler", "d1", "execute", "collabdaw-sync", remote ? "--remote" : "--local", "--command", sql], { stdio: "inherit" });
+execFileSync("npx", ["wrangler", "d1", "execute", "sharedaw-sync", remote ? "--remote" : "--local", "--command", sql], { stdio: "inherit" });
 
 console.log("\nユーザーを作成しました");
 console.log(`  ID:     ${id}`);

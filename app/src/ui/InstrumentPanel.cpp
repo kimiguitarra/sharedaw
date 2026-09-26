@@ -28,7 +28,7 @@ InstrumentPanel::InstrumentPanel (AppContext& c, const std::string& id)
     pan.onValueChange = [this] { auto v = pan.getValue(); setParam ("音源のパン"_ju, [v] (nlohmann::json& p) { p["pan"] = v; }, true); };
     tone.onValueChange = [this] { auto v = tone.getValue(); setParam ("音源のトーン"_ju, [v] (nlohmann::json& p) { p["tone"] = v; }, true); };
 
-    for (auto* l : { &volumeLabel, &panLabel, &toneLabel, &kitLabel })
+    for (auto* l : { &volumeLabel, &panLabel, &toneLabel, &kitLabel, &presetLabel })
         addAndMakeVisible (l);
 
     credits.setColour (juce::Label::textColourId, Theme::textDim);
@@ -36,6 +36,31 @@ InstrumentPanel::InstrumentPanel (AppContext& c, const std::string& id)
     addAndMakeVisible (credits);
 
     int height = 40 + 3 * rowHeight + 10;
+
+    if (manifest != nullptr && ! manifest->presets.empty())
+    {
+        int presetId = 1;
+
+        for (auto& preset : manifest->presets)
+            presetBox.addItem (toJuce (preset.displayName), presetId++);
+
+        presetBox.onChange = [this]
+        {
+            const int index = presetBox.getSelectedItemIndex();
+
+            if (index < 0 || index >= (int) manifest->presets.size())
+                return;
+
+            auto key = manifest->presets[(size_t) index].key;
+            setParam ("音色の変更"_ju, [key] (nlohmann::json& p) { p["preset"] = key; });
+        };
+        addAndMakeVisible (presetBox);
+        height += rowHeight + 6;
+    }
+    else
+    {
+        presetLabel.setVisible (false);
+    }
 
     if (manifest != nullptr && manifest->type == "drums")
     {
@@ -197,6 +222,10 @@ void InstrumentPanel::refresh()
     if (! manifest->credits.empty())
         credits.setText ("クレジット: "_ju + toJuce (manifest->credits.front()), juce::dontSendNotification);
 
+    for (size_t i = 0; i < manifest->presets.size(); ++i)
+        if (manifest->presets[i].key == r.preset)
+            presetBox.setSelectedItemIndex ((int) i, juce::dontSendNotification);
+
     for (int i = 0; i < kitBox.getNumItems(); ++i)
         if (kitBox.getItemText (i) == toJuce (r.kit))
             kitBox.setSelectedItemIndex (i, juce::dontSendNotification);
@@ -245,6 +274,12 @@ void InstrumentPanel::resized()
         l.setBounds (row.removeFromLeft (80));
         c.setBounds (row.removeFromLeft (360).reduced (0, 2));
     };
+
+    if (presetBox.isVisible())
+    {
+        place (presetLabel, presetBox);
+        area.removeFromTop (6);
+    }
 
     place (volumeLabel, volume);
     place (panLabel, pan);

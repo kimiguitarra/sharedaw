@@ -1,4 +1,4 @@
-# CollabDAW（仮称）
+# ShareDAW
 
 友人と楽曲を共同制作するための、アイデア出しとラフ録音に特化した軽量 DAW。
 仕様は [docs/spec.md](docs/spec.md)、実装メモは [docs/architecture.md](docs/architecture.md)。
@@ -74,7 +74,7 @@ cmake -S . -B build -G Xcode -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
 cmake --build build --config Release
 ```
 
-成果物は `build/app/CollabDAW_artefacts/Release/` にできる（内蔵音源の `assets` フォルダも隣にコピーされる。
+成果物は `build/app/ShareDAW_artefacts/Release/` にできる（内蔵音源の `assets` フォルダも隣にコピーされる。
 Mac はアプリの `Contents/Resources/assets`）。
 
 単体テストだけなら JUCE なしでビルドできる:
@@ -98,9 +98,27 @@ GitHub Actions（`.github/workflows/build.yml`）で Windows / macOS（Universal
 
 ## 初回起動（署名なしの配布物）
 
-- **Mac**: 公証していないため、初回は Finder でアプリを右クリック →「開く」。それでも開けない場合は
-  「システム設定 → プライバシーとセキュリティ」で「このまま開く」を押す。録音時にマイクの許可を求められたら許可する。
+Apple Developer には登録していないので、Mac 版は公証なしのアドホック署名、Windows 版は署名なしで配布する。
+
+- **Mac**:
+  1. `ShareDAW.dmg` を開き、`ShareDAW.app` を「アプリケーション」フォルダへドラッグする。
+  2. 一度アプリを開こうとする（「開けません」と表示されるので「完了」で閉じる）。
+  3. 「システム設定 → プライバシーとセキュリティ」の下のほうにある「このまま開く」を押し、確認でもう一度「このまま開く」。
+     - macOS 14 以前は、Finder でアプリを右クリック →「開く」でもよい。
+     - ターミナルで `xattr -dr com.apple.quarantine /Applications/ShareDAW.app` を実行しても開けるようになる。
+  4. 録音するときにマイクの許可を求められたら「許可」する。新しいビルドに入れ替えたときは、もう一度聞かれることがある
+     （アドホック署名はビルドごとに変わるため）。聞かれずに無音で録音される場合は「システム設定 → プライバシーとセキュリティ →
+     マイク」で ShareDAW をオンにする。
 - **Windows**: 署名していないため SmartScreen の警告が出る。「詳細情報」→「実行」で起動する。
+
+## 内蔵音源のクレジット
+
+- ドラム: [Big Rusty Drums](https://github.com/sfzinstruments/karoryfer.big-rusty-drums) by Karoryfer Samples x bigcat（CC0 1.0）
+- ピアノ: [Salamander Grand Piano V3](https://github.com/sfzinstruments/SalamanderGrandPiano) by Alexander Holm（CC BY 3.0）。
+  ShareDAW 用に縮小（8 ベロシティレイヤー、16bit、減衰を 10 秒で打ち切り、ノイズ類なし）
+- ベース: sfizz の内蔵オシレーターによるシンセ（サンプルなし）
+
+作り方は `tools/build-instruments/` を参照。
 
 ## ライセンス
 

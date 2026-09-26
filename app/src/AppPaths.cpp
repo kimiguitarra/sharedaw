@@ -28,7 +28,7 @@ juce::File getAssetsDir()
 juce::File getAppDataDir()
 {
     auto dir = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-                  .getChildFile ("CollabDAW");
+                  .getChildFile ("ShareDAW");
     dir.createDirectory();
     return dir;
 }

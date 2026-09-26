@@ -33,7 +33,7 @@ ServerSettings::ServerSettings (const juce::String& url, bool hasToken,
     : onTestAndSave (std::move (cb))
 {
     urlEditor.setText (url);
-    urlEditor.setTextToShowWhenEmpty ("https://collabdaw-sync.<アカウント>.workers.dev"_ju, Theme::textDim);
+    urlEditor.setTextToShowWhenEmpty ("https://sharedaw-sync.<アカウント>.workers.dev"_ju, Theme::textDim);
     tokenEditor.setPasswordCharacter ((juce::juce_wchar) 0x2022);
     tokenEditor.setTextToShowWhenEmpty (hasToken ? "（保存済み。変更するときだけ入力）"_ju : "オーナーから受け取ったトークン"_ju, Theme::textDim);
 

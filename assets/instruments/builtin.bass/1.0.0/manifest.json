@@ -1,0 +1,14 @@
+{
+  "id": "builtin.bass",
+  "version": "1.0.0",
+  "displayName": "ベース（シンセ）",
+  "type": "melodic",
+  "credits": [],
+  "presets": [
+    { "key": "fingered", "name": "エレキベース風（指弾き）", "sfz": "fingered.sfz" },
+    { "key": "picked",   "name": "エレキベース風（ピック弾き）", "sfz": "picked.sfz" },
+    { "key": "synth",    "name": "シンセベース", "sfz": "synth.sfz" },
+    { "key": "sub",      "name": "サブベース", "sfz": "sub.sfz" }
+  ],
+  "defaultParams": { "preset": "fingered", "volumeDb": 0.0, "pan": 0.0, "tone": 0.0 }
+}

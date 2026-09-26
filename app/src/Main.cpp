@@ -92,7 +92,7 @@ public:
 };
 
 //==============================================================================
-class CollabDawApplication  : public juce::JUCEApplication
+class ShareDawApplication  : public juce::JUCEApplication
 {
 public:
     const juce::String getApplicationName() override       { return JUCE_APPLICATION_NAME_STRING; }
@@ -113,9 +113,9 @@ public:
         installJapaneseTranslations();
 
         juce::PropertiesFile::Options opts;
-        opts.applicationName = "CollabDAW";
+        opts.applicationName = "ShareDAW";
         opts.filenameSuffix = ".settings";
-        opts.folderName = "CollabDAW";
+        opts.folderName = "ShareDAW";
         opts.osxLibrarySubFolder = "Application Support";
         settings = std::make_unique<juce::PropertiesFile> (opts);
 
@@ -676,4 +676,4 @@ private:
     }
 };
 
-START_JUCE_APPLICATION (CollabDawApplication)
+START_JUCE_APPLICATION (ShareDawApplication)

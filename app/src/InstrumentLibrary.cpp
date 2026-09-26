@@ -58,7 +58,7 @@ juce::File InstrumentLibrary::getInstrumentDir (const collab::BuiltinInstrumentM
 
 juce::File InstrumentLibrary::getVirtualSfzPath (const collab::BuiltinInstrumentManifest& m) const
 {
-    return getInstrumentDir (m).getChildFile ("_collabdaw_generated.sfz");
+    return getInstrumentDir (m).getChildFile ("_sharedaw_generated.sfz");
 }
 
 std::vector<const collab::BuiltinInstrumentManifest*> InstrumentLibrary::getAll() const

@@ -95,7 +95,7 @@
 ## 動作確認用のコマンドライン
 
 ```
-CollabDAW --render <プロジェクトフォルダ> <出力.wav>
+ShareDAW --render <プロジェクトフォルダ> <出力.wav>
 ```
 
 プロジェクトを読み込み、先頭から末尾＋2秒を 48kHz / 32bit float WAV に書き出して終了する
