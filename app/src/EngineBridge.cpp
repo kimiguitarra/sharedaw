@@ -36,6 +36,13 @@ namespace
             s << ']';
         }
 
+        for (auto& c : t.audioClips)
+            s << "A" << c.id << '@' << c.startTick << ':' << c.audioHash << ':' << c.sourceOffsetSamples << ':' << c.lengthSamples
+              << ':' << c.gainDb << ':' << c.fadeInSamples << ':' << c.fadeOutSamples << ';';
+
+        if (t.render)
+            s << "R" << t.render->audioHash;
+
         return s.str();
     }
 }
@@ -175,6 +182,34 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
 
     const auto& map = document.getTempoMap();
 
+    // オーディオクリップ（非破壊: 実体は audio/<hash>.wav、クリップはオフセット・長さ・音量・フェードの参照）
+    b.missingAudio = 0;
+
+    for (auto& c : t.audioClips)
+    {
+        auto file = document.getProjectDir().getChildFile ("audio").getChildFile (toJuce (c.audioHash) + ".wav");
+
+        if (! document.hasLocation() || ! file.existsAsFile())
+        {
+            ++b.missingAudio;
+            continue;
+        }
+
+        const double start = map.tickToSeconds ((double) c.startTick);
+        const double length = (double) c.lengthSamples / collab::kSampleRate;
+        const te::ClipPosition pos { te::TimeRange (secondsToTime (start), te::TimeDuration::fromSeconds (length)),
+                                     te::TimeDuration::fromSeconds ((double) c.sourceOffsetSamples / collab::kSampleRate) };
+
+        if (auto clip = track.insertWaveClip (toJuce (c.displayName), file, pos, false))
+        {
+            clip->setAutoTempo (false);
+            clip->setAutoPitch (false);
+            clip->setGainDB ((float) c.gainDb);
+            clip->setFadeIn (te::TimeDuration::fromSeconds ((double) c.fadeInSamples / collab::kSampleRate));
+            clip->setFadeOut (te::TimeDuration::fromSeconds ((double) c.fadeOutSamples / collab::kSampleRate));
+        }
+    }
+
     for (auto& c : t.midiClips)
     {
         const double start = map.tickToSeconds ((double) c.startTick);
@@ -261,7 +296,14 @@ void EngineBridge::syncInstrument (const collab::Track& t, Binding& b)
 juce::String EngineBridge::getInstrumentProblem (const std::string& trackId) const
 {
     auto it = bindings.find (trackId);
-    return it != bindings.end() ? it->second.problem : juce::String();
+
+    if (it == bindings.end())
+        return {};
+
+    if (it->second.missingAudio > 0)
+        return "オーディオが "_ju + juce::String (it->second.missingAudio) + " 個見つかりません（取り込みが必要です）"_ju;
+
+    return it->second.problem;
 }
 
 //==============================================================================

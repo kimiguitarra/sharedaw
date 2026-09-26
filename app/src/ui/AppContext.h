@@ -6,6 +6,7 @@
 #include "ui/EditorState.h"
 
 class SyncManager;
+class AudioFileCache;
 
 /** UI の各部品が共有する参照。 */
 struct AppContext
@@ -15,6 +16,7 @@ struct AppContext
     EngineBridge& engine;
     const InstrumentLibrary& library;
     SyncManager& sync;
+    AudioFileCache& audioCache;
 
     /** 選択中のトラック・クリップ（無ければ nullptr）。 */
     const collab::Track* selectedTrack() const      { return document.getProject().findTrack (state.selectedTrackId); }
@@ -30,4 +32,16 @@ struct AppContext
 
     /** 新しい MIDI トラック（内蔵音源）を追加して選択する。 */
     void addBuiltinMidiTrack (const std::string& instrumentId, const juce::String& name);
+
+    /** 空のオーディオトラックを追加して選択する。 */
+    std::string addAudioTrack (const juce::String& name);
+
+    /**
+        オーディオファイルを読み込んでクリップを作る（§3.6: 48kHz / 32bit float WAV に変換）。
+        trackId が空ならオーディオトラックを新しく作る。複数のファイルは順に並べる。
+    */
+    void importAudioFiles (const juce::Array<juce::File>&, std::string trackId, collab::Tick atTick);
+
+    /** 選択中のトラックで、再生位置にあるクリップを分割する。 */
+    void splitAtPlayhead();
 };

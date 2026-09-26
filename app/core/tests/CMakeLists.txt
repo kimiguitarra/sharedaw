@@ -2,6 +2,7 @@ add_executable(collab_core_tests
     main.cpp
     BuiltinInstrumentsTests.cpp
     ChordPlaybackTests.cpp
+    ClipEditingTests.cpp
     GridTests.cpp
     ProjectDiffTests.cpp
     ProjectJsonTests.cpp

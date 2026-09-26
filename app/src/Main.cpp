@@ -11,6 +11,9 @@
 #include "sync/SyncManager.h"
 #include "collab/ProjectDiff.h"
 #include "collab/ChordPlayback.h"
+#include "collab/ClipEditing.h"
+#include "collab/Uuid.h"
+#include "audio/AudioFiles.h"
 #include "ui/Dialogs.h"
 #include "ui/MainComponent.h"
 #include "ui/Theme.h"
@@ -120,6 +123,14 @@ public:
             return;
         }
 
+        // --import-audio <プロジェクトフォルダ> <ファイル>...（動作確認用）
+        if (auto args = getCommandLineParameterArray(); args.size() >= 3 && args[0] == "--import-audio")
+        {
+            setApplicationReturnValue (importAudioCommand (args));
+            quit();
+            return;
+        }
+
         // 同期のコマンドライン操作（動作確認・スクリプト用）
         if (auto args = getCommandLineParameterArray(); ! args.isEmpty() && args[0].startsWith ("--sync-"))
         {
@@ -207,6 +218,51 @@ private:
     std::unique_ptr<MainWindow> mainWindow;
     MainComponent* mainComponent = nullptr;
     SessionGuard sessionGuard;
+
+    int importAudioCommand (const juce::StringArray& args)
+    {
+        try
+        {
+            document->load (juce::File (args[1]));
+        }
+        catch (const std::exception& e)
+        {
+            std::cerr << "load failed: " << e.what() << std::endl;
+            return 2;
+        }
+
+        collab::Track track;
+        track.id = collab::generateUuid();
+        track.type = collab::TrackType::audio;
+        track.name = "Audio";
+
+        collab::Tick tick = 0;
+
+        for (int i = 2; i < args.size(); ++i)
+        {
+            AudioFiles::Imported im;
+
+            if (auto r = AudioFiles::importFile (juce::File (args[i]), document->getProjectDir().getChildFile ("audio"), im); r.failed())
+            {
+                std::cerr << r.getErrorMessage() << std::endl;
+                return 3;
+            }
+
+            collab::AudioClip c;
+            c.id = collab::generateUuid();
+            c.startTick = tick;
+            c.audioHash = im.hash;
+            c.displayName = toStd (im.displayName);
+            c.lengthSamples = im.lengthSamples;
+            c.fadeOutSamples = 2400;
+            track.audioClips.push_back (c);
+            tick = collab::audioClipEndTick (c, document->getTempoMap());
+            std::cout << "imported " << im.hash << " " << im.lengthSamples << " samples" << std::endl;
+        }
+
+        document->perform ("import", [track] (collab::Project& p) { p.tracks.push_back (track); });
+        return document->save().wasOk() ? 0 : 4;
+    }
 
     int renderProject (const juce::File& folder, const juce::File& output)
     {

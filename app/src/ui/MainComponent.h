@@ -6,6 +6,7 @@
 #include "ui/TransportBar.h"
 #include "collab/ProjectDiff.h"
 #include "sync/SyncManager.h"
+#include "audio/AudioFiles.h"
 
 /** メインウィンドウの中身。メニュー、ショートカット（コマンド）、各ビューの配置を受け持つ。 */
 class MainComponent  : public juce::Component,
@@ -52,7 +53,8 @@ private:
     juce::PropertiesFile& settings;
 
     EditorState state;
-    AppContext ctx { document, state, bridge, library, sync, {} };
+    AudioFileCache audioCache;
+    AppContext ctx { document, state, bridge, library, sync, audioCache, {} };
 
     juce::ApplicationCommandManager commandManager;
     TransportBar transport { ctx };
@@ -79,6 +81,7 @@ private:
     void deleteSelection();
     void duplicateClip();
     void updateTitle();
+    void importAudio();
 
     // 同期（§4）
     std::unique_ptr<juce::DocumentWindow> diffWindow;

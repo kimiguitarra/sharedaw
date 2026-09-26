@@ -59,6 +59,7 @@ private:
         juce::String sfzText;
         std::string clipsKey;
         juce::String problem;
+        int missingAudio = 0;
     };
 
     te::Engine& engine;

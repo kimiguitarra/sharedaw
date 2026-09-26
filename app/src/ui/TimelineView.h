@@ -6,9 +6,10 @@
 #include "ui/TempoMeterLanes.h"
 #include "ui/TrackHeader.h"
 
-/** トラックのレーン（クリップの表示・作成・移動・長さ変更）。 */
+/** トラックのレーン（クリップの表示・作成・移動・長さ変更、オーディオの非破壊編集）。 */
 class TrackLanes  : public juce::Component,
-                    public juce::SettableTooltipClient
+                    public juce::SettableTooltipClient,
+                    public juce::FileDragAndDropTarget
 {
 public:
     explicit TrackLanes (AppContext&);
@@ -27,23 +28,30 @@ public:
     void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
+    bool isInterestedInFileDrag (const juce::StringArray&) override;
+    void filesDropped (const juce::StringArray&, int x, int y) override;
+
     int getContentHeight() const;
 
 private:
     AppContext& ctx;
 
-    enum class DragMode { none, move, resize };
+    enum class Zone { none, body, leftEdge, rightEdge, fadeIn, fadeOut };
+    enum class DragMode { none, move, resizeMidi, trimStart, trimEnd, fadeIn, fadeOut };
 
     struct Hit
     {
         int trackIndex = -1;
         std::string clipId;
-        bool nearRightEdge = false;
+        bool audio = false;
+        Zone zone = Zone::none;
     };
 
     DragMode dragMode = DragMode::none;
     std::string dragTrackId, dragClipId;
+    bool dragAudio = false;
     collab::Tick dragOrigStart = 0, dragOrigLength = 0;
+    collab::AudioClip dragOrigAudio;
     double dragDownTick = 0;
     juce::String mergeId;
 
@@ -51,6 +59,9 @@ private:
     int rowAt (float y) const;
     collab::Tick snap (double tick, const juce::ModifierKeys&) const;
     void paintMidiClip (juce::Graphics&, const collab::MidiClip&, juce::Rectangle<float>, juce::Colour, bool selected) const;
+    void paintAudioClip (juce::Graphics&, const collab::AudioClip&, juce::Rectangle<float>, juce::Colour, bool selected);
+    void showClipMenu (const collab::Track&, const std::string& clipId, bool audio);
+    void editClip (const juce::String& description, std::function<void (collab::Track&)> fn, const juce::String& merge = {});
 };
 
 /** タイムライン全体（ルーラー、テンポ・拍子トラック、トラックヘッダー、レーン）。 */

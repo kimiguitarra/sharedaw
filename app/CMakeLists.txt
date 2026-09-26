@@ -36,6 +36,7 @@ juce_add_gui_app(CollabDAW
 target_sources(CollabDAW PRIVATE
     src/Main.cpp
     src/AppPaths.cpp
+    src/audio/AudioFiles.cpp
     src/EngineBridge.cpp
     src/InstrumentLibrary.cpp
     src/ProjectDocument.cpp

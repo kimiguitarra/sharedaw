@@ -15,7 +15,8 @@ namespace
         cmdAddDrums, cmdAddBass, cmdAddPiano,
         cmdAudioSettings, cmdCredits, cmdAbout,
         cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
-        cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory, cmdSyncRefreshLocks
+        cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory, cmdSyncRefreshLocks,
+        cmdAddAudioTrack, cmdImportAudio, cmdSplit
     };
 
     constexpr float fontScales[] = { 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
@@ -44,6 +45,7 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     statusBar.setColour (juce::Label::backgroundColourId, Theme::panel);
 
     transport.onAudioSettings = [this] { showAudioSettings(); };
+    audioCache.onThumbnailChanged = [this] { timeline.repaint(); };
     timeline.onOpenClip = [this] { pianoRoll.focusEditor(); };
 
     commandManager.registerAllCommandsForTarget (this);
@@ -297,6 +299,30 @@ void MainComponent::saveProject (std::function<void (bool)> onDone)
     });
 }
 
+void MainComponent::importAudio()
+{
+    chooser = std::make_unique<juce::FileChooser> ("オーディオを読み込む"_ju, juce::File(), AudioFiles::supportedWildcard());
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles
+                            | juce::FileBrowserComponent::canSelectMultipleItems,
+                          [this] (const juce::FileChooser& fc)
+    {
+        auto files = fc.getResults();
+
+        if (files.isEmpty())
+            return;
+
+        // 選択中のオーディオトラックの、再生位置（小節の頭）に置く
+        const auto& map = document.getTempoMap();
+        const auto tick = map.barToTick (map.tickToBar ((collab::Tick) state.playheadTick));
+        std::string trackId;
+
+        if (auto* t = ctx.selectedTrack(); t != nullptr && t->type == collab::TrackType::audio)
+            trackId = t->id;
+
+        ctx.importAudioFiles (files, trackId, tick);
+    });
+}
+
 void MainComponent::showAudioSettings()
 {
     auto& dm = engine.getDeviceManager().deviceManager;
@@ -359,14 +385,16 @@ void MainComponent::deleteSelection()
         return;
     }
 
-    if (auto* clip = ctx.selectedClip())
+    if (! state.selectedClipId.empty() && ctx.selectedTrack() != nullptr)
     {
-        auto trackId = state.selectedTrackId, clipId = clip->id;
+        auto trackId = state.selectedTrackId, clipId = state.selectedClipId;
         document.perform ("クリップの削除"_ju, [trackId, clipId] (collab::Project& p)
         {
             if (auto* t = p.findTrack (trackId))
-                t->midiClips.erase (std::remove_if (t->midiClips.begin(), t->midiClips.end(),
-                                                    [&] (auto& c) { return c.id == clipId; }), t->midiClips.end());
+            {
+                std::erase_if (t->midiClips, [&] (auto& c) { return c.id == clipId; });
+                std::erase_if (t->audioClips, [&] (auto& c) { return c.id == clipId; });
+            }
         });
     }
 }
@@ -403,7 +431,8 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
                          cmdPlay, cmdToStart, cmdLoop, cmdMetronome, cmdQuantise,
                          cmdAddDrums, cmdAddBass, cmdAddPiano, cmdAudioSettings, cmdCredits, cmdAbout,
                          cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
-                         cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory, cmdSyncRefreshLocks });
+                         cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory, cmdSyncRefreshLocks,
+                         cmdAddAudioTrack, cmdImportAudio, cmdSplit });
 }
 
 void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommandInfo& info)
@@ -452,6 +481,9 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdAddDrums:   info.setInfo ("MIDIトラックを追加（ドラム）"_ju, {}, "Track", 0); break;
         case cmdAddBass:    info.setInfo ("MIDIトラックを追加（ベース）"_ju, {}, "Track", 0); break;
         case cmdAddPiano:   info.setInfo ("MIDIトラックを追加（ピアノ）"_ju, {}, "Track", 0); break;
+        case cmdAddAudioTrack: info.setInfo ("オーディオトラックを追加"_ju, {}, "Track", 0); break;
+        case cmdImportAudio:   info.setInfo ("オーディオを読み込む…"_ju, {}, "File", 0); info.addDefaultKeypress ('i', cmd); break;
+        case cmdSplit:         info.setInfo ("再生位置で分割"_ju, {}, "Edit", 0); info.addDefaultKeypress ('s', 0); break;
         case cmdAudioSettings: info.setInfo ("オーディオ設定…"_ju, {}, "Options", 0); break;
         case cmdSyncSettings:  info.setInfo ("サーバー設定…"_ju, {}, "Sync", 0); break;
         case cmdSyncRegister:  info.setInfo ("このプロジェクトをサーバーに登録…"_ju, {}, "Sync", 0); info.setActive (! sync.isLinked()); break;
@@ -493,6 +525,9 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdAddDrums:   ctx.addBuiltinMidiTrack (collab::builtin::drums, "Drums"); break;
         case cmdAddBass:    ctx.addBuiltinMidiTrack (collab::builtin::bass, "Bass"); break;
         case cmdAddPiano:   ctx.addBuiltinMidiTrack (collab::builtin::piano, "Piano"); break;
+        case cmdAddAudioTrack: ctx.addAudioTrack ("Audio"); break;
+        case cmdImportAudio:   importAudio(); break;
+        case cmdSplit:         ctx.splitAtPlayhead(); break;
         case cmdAudioSettings: showAudioSettings(); break;
         case cmdSyncSettings:  showServerSettings(); break;
         case cmdSyncRegister:  registerProject(); break;
@@ -543,6 +578,8 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addCommandItem (cm, cmdOpen);
             m.addCommandItem (cm, cmdSave);
             m.addSeparator();
+            m.addCommandItem (cm, cmdImportAudio);
+            m.addSeparator();
             m.addCommandItem (cm, cmdAudioSettings);
            #if ! JUCE_MAC
             m.addSeparator();
@@ -556,6 +593,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addCommandItem (cm, cmdDelete);
             m.addCommandItem (cm, cmdSelectAll);
             m.addCommandItem (cm, cmdDuplicate);
+            m.addCommandItem (cm, cmdSplit);
             m.addCommandItem (cm, cmdQuantise);
             break;
         case 2:
@@ -568,6 +606,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addCommandItem (cm, cmdAddDrums);
             m.addCommandItem (cm, cmdAddBass);
             m.addCommandItem (cm, cmdAddPiano);
+            m.addCommandItem (cm, cmdAddAudioTrack);
             break;
         case 4:
         {

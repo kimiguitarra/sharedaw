@@ -2,6 +2,9 @@
 
 #include "TimeGrid.h"
 #include "collab/Uuid.h"
+#include "collab/ClipEditing.h"
+#include "Dialogs.h"
+#include "audio/AudioFiles.h"
 
 namespace
 {
@@ -17,7 +20,7 @@ namespace
 TrackLanes::TrackLanes (AppContext& c) : ctx (c)
 {
     setWantsKeyboardFocus (true);
-    setTooltip ("ダブルクリック: クリップを作成／ピアノロールで開く　ドラッグ: 移動　右端: 長さ変更　Alt: スナップなし"_ju);
+    setTooltip ("ダブルクリック: クリップを作成／ピアノロールで開く　ドラッグ: 移動　端: 長さ・トリム　上の角: フェード　Alt: スナップなし　オーディオはドラッグ＆ドロップで読み込み"_ju);
 }
 
 int TrackLanes::getContentHeight() const
@@ -41,6 +44,8 @@ TrackLanes::Hit TrackLanes::findHit (juce::Point<float> p) const
 
     const auto& track = ctx.document.getProject().tracks[(size_t) hit.trackIndex];
     const auto& axis = ctx.state.timeline;
+    const auto& map = ctx.document.getTempoMap();
+    const float rowTop = (float) (hit.trackIndex * rowHeight - scrollY) + 3.0f;
 
     for (auto it = track.midiClips.rbegin(); it != track.midiClips.rend(); ++it)
     {
@@ -50,9 +55,41 @@ TrackLanes::Hit TrackLanes::findHit (juce::Point<float> p) const
         if (p.x >= x1 && p.x <= x2)
         {
             hit.clipId = it->id;
-            hit.nearRightEdge = x2 - p.x <= edgeGrab && x2 - x1 > edgeGrab * 2;
-            break;
+            hit.zone = x2 - p.x <= edgeGrab && x2 - x1 > edgeGrab * 2 ? Zone::rightEdge : Zone::body;
+            return hit;
         }
+    }
+
+    for (auto it = track.audioClips.rbegin(); it != track.audioClips.rend(); ++it)
+    {
+        const float x1 = (float) axis.tickToX ((double) it->startTick);
+        const float x2 = (float) axis.tickToX ((double) collab::audioClipEndTick (*it, map));
+
+        if (p.x < x1 || p.x > x2)
+            continue;
+
+        hit.clipId = it->id;
+        hit.audio = true;
+
+        // フェードのつまみ（paintAudioClip と同じ位置）
+        const float width = x2 - x1;
+        const float lengthSamples = (float) juce::jmax<collab::SampleCount> (1, it->lengthSamples);
+        const float fadeInHandle = x1 + juce::jmax (4.0f, width * (float) it->fadeInSamples / lengthSamples);
+        const float fadeOutHandle = x2 - juce::jmax (4.0f, width * (float) it->fadeOutSamples / lengthSamples);
+        const bool nearTop = p.y - rowTop < 10.0f;
+
+        if (nearTop && std::abs (p.x - fadeInHandle) <= 6.0f)
+            hit.zone = Zone::fadeIn;
+        else if (nearTop && std::abs (p.x - fadeOutHandle) <= 6.0f)
+            hit.zone = Zone::fadeOut;
+        else if (p.x - x1 <= edgeGrab && x2 - x1 > edgeGrab * 3)
+            hit.zone = Zone::leftEdge;
+        else if (x2 - p.x <= edgeGrab && x2 - x1 > edgeGrab * 3)
+            hit.zone = Zone::rightEdge;
+        else
+            hit.zone = Zone::body;
+
+        return hit;
     }
 
     return hit;
@@ -99,6 +136,18 @@ void TrackLanes::paint (juce::Graphics& g)
             paintMidiClip (g, c, juce::Rectangle<float> (x1, (float) row.getY() + 3.0f, x2 - x1, (float) rowHeight - 7.0f),
                            colour, c.id == ctx.state.selectedClipId);
         }
+
+        for (auto& c : t.audioClips)
+        {
+            const float x1 = (float) axis.tickToX ((double) c.startTick);
+            const float x2 = (float) axis.tickToX ((double) collab::audioClipEndTick (c, map));
+
+            if (x2 < 0 || x1 > (float) getWidth())
+                continue;
+
+            paintAudioClip (g, c, juce::Rectangle<float> (x1, (float) row.getY() + 3.0f, juce::jmax (2.0f, x2 - x1), (float) rowHeight - 7.0f),
+                            colour, c.id == ctx.state.selectedClipId);
+        }
     }
 
     // ループ範囲
@@ -114,7 +163,8 @@ void TrackLanes::paint (juce::Graphics& g)
     {
         g.setColour (Theme::textDim);
         g.setFont (juce::FontOptions (15.0f));
-        g.drawText ("左下の「+ トラックを追加」からトラックを作成してください"_ju, getLocalBounds(), juce::Justification::centred);
+        g.drawText ("左下の「+ トラックを追加」からトラックを作成してください（オーディオファイルはここへドラッグ＆ドロップ）"_ju,
+                    getLocalBounds(), juce::Justification::centred);
     }
 }
 
@@ -155,39 +205,121 @@ void TrackLanes::paintMidiClip (juce::Graphics& g, const collab::MidiClip& c, ju
     }
 }
 
+void TrackLanes::paintAudioClip (juce::Graphics& g, const collab::AudioClip& c, juce::Rectangle<float> r,
+                                 juce::Colour colour, bool selected)
+{
+    g.setColour (colour.withAlpha (0.28f));
+    g.fillRoundedRectangle (r, 3.0f);
+
+    // 波形（元ファイルの offset 〜 offset + length の範囲）
+    const auto gain = juce::Decibels::decibelsToGain ((float) c.gainDb);
+
+    if (auto* thumb = ctx.audioCache.getThumbnail (ctx.document.getProjectDir(), c.audioHash))
+    {
+        g.setColour (colour.brighter (0.5f));
+        const double start = (double) c.sourceOffsetSamples / collab::kSampleRate;
+        const double end = start + (double) c.lengthSamples / collab::kSampleRate;
+        thumb->drawChannels (g, r.reduced (1.0f, 12.0f).toNearestInt(), start, end, gain);
+    }
+    else
+    {
+        g.setColour (Theme::warning);
+        g.setFont (juce::FontOptions (12.0f));
+        g.drawText ("オーディオが見つかりません"_ju, r, juce::Justification::centred);
+    }
+
+    // フェード（秒 → ピクセル。クリップの幅に対する割合で描く）
+    const float fadeInW = r.getWidth() * (float) c.fadeInSamples / (float) juce::jmax<collab::SampleCount> (1, c.lengthSamples);
+    const float fadeOutW = r.getWidth() * (float) c.fadeOutSamples / (float) juce::jmax<collab::SampleCount> (1, c.lengthSamples);
+
+    g.setColour (juce::Colours::black.withAlpha (0.35f));
+    juce::Path fades;
+    fades.startNewSubPath (r.getX(), r.getBottom());
+    fades.lineTo (r.getX() + fadeInW, r.getY());
+    fades.lineTo (r.getX(), r.getY());
+    fades.closeSubPath();
+    fades.startNewSubPath (r.getRight(), r.getBottom());
+    fades.lineTo (r.getRight() - fadeOutW, r.getY());
+    fades.lineTo (r.getRight(), r.getY());
+    fades.closeSubPath();
+    g.fillPath (fades);
+
+    g.setColour (Theme::text.withAlpha (0.8f));
+    g.fillRect (juce::Rectangle<float> (r.getX() + juce::jmax (4.0f, fadeInW) - 3.0f, r.getY(), 6.0f, 6.0f));
+    g.fillRect (juce::Rectangle<float> (r.getRight() - juce::jmax (4.0f, fadeOutW) - 3.0f, r.getY(), 6.0f, 6.0f));
+
+    g.setColour (selected ? Theme::selection : colour);
+    g.drawRoundedRectangle (r, 3.0f, selected ? 2.0f : 1.0f);
+
+    g.setColour (Theme::text);
+    g.setFont (juce::FontOptions (11.0f));
+    auto label = toJuce (c.displayName);
+
+    if (std::abs (c.gainDb) > 0.05)
+        label << "  " << juce::String (c.gainDb, 1) << " dB";
+
+    g.drawText (label, r.reduced (6.0f, 0.0f).removeFromBottom (14.0f), juce::Justification::centredLeft, true);
+}
+
 void TrackLanes::mouseMove (const juce::MouseEvent& e)
 {
     auto hit = findHit (e.position);
-    setMouseCursor (hit.nearRightEdge ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::NormalCursor);
+
+    switch (hit.zone)
+    {
+        case Zone::leftEdge:
+        case Zone::rightEdge:  setMouseCursor (juce::MouseCursor::LeftRightResizeCursor); break;
+        case Zone::fadeIn:
+        case Zone::fadeOut:    setMouseCursor (juce::MouseCursor::CrosshairCursor); break;
+        default:               setMouseCursor (juce::MouseCursor::NormalCursor); break;
+    }
 }
 
-void TrackLanes::mouseDown (const juce::MouseEvent& e)
+void TrackLanes::editClip (const juce::String& description, std::function<void (collab::Track&)> fn, const juce::String& merge)
 {
-    grabKeyboardFocus();
-    auto hit = findHit (e.position);
-    const auto& project = ctx.document.getProject();
-    dragMode = DragMode::none;
-
-    if (hit.trackIndex < 0)
+    const auto trackId = dragTrackId.empty() ? ctx.state.selectedTrackId : dragTrackId;
+    ctx.document.perform (description, [trackId, fn] (collab::Project& p)
     {
-        ctx.state.selectedClipId = {};
-        ctx.state.changed();
-        return;
-    }
+        if (auto* t = p.findTrack (trackId))
+            fn (*t);
+    }, merge);
+}
 
-    const auto& track = project.tracks[(size_t) hit.trackIndex];
-    ctx.state.selectedTrackId = track.id;
-    ctx.state.selectedClipId = hit.clipId;
-    ctx.state.changed();
+void TrackLanes::showClipMenu (const collab::Track& track, const std::string& clipId, bool audio)
+{
+    juce::PopupMenu m;
+    const auto trackId = track.id;
 
-    if (hit.clipId.empty())
-        return;
-
-    if (e.mods.isPopupMenu())
-    {
-        juce::PopupMenu m;
-        auto trackId = track.id, clipId = hit.clipId;
+    if (! audio)
         m.addItem ("ピアノロールで開く"_ju, [this] { if (onOpenClip) onOpenClip(); });
+
+    m.addItem ("再生位置で分割"_ju, [this] { ctx.splitAtPlayhead(); });
+
+    if (audio)
+    {
+        m.addItem ("クリップの音量…"_ju, [this, trackId, clipId]
+        {
+            double current = 0;
+            if (auto* t = ctx.document.getProject().findTrack (trackId))
+                for (auto& c : t->audioClips)
+                    if (c.id == clipId)
+                        current = c.gainDb;
+
+            Dialogs::askText ("クリップの音量"_ju, "dB（例: -3）"_ju, juce::String (current, 1), [this, trackId, clipId] (const juce::String& text)
+            {
+                const double db = juce::jlimit (-60.0, 24.0, text.getDoubleValue());
+                ctx.document.perform ("クリップの音量"_ju, [trackId, clipId, db] (collab::Project& p)
+                {
+                    if (auto* t = p.findTrack (trackId))
+                        for (auto& c : t->audioClips)
+                            if (c.id == clipId)
+                                c.gainDb = db;
+                });
+            });
+        });
+    }
+    else
+    {
         m.addItem ("複製"_ju, [this, trackId, clipId]
         {
             auto newId = collab::generateUuid();
@@ -209,28 +341,77 @@ void TrackLanes::mouseDown (const juce::MouseEvent& e)
             ctx.state.selectedClipId = newId;
             ctx.state.changed();
         });
-        m.addItem ("削除"_ju, [this, trackId, clipId]
+    }
+
+    m.addItem ("削除"_ju, [this, trackId, clipId]
+    {
+        ctx.document.perform ("クリップの削除"_ju, [trackId, clipId] (collab::Project& p)
         {
-            ctx.document.perform ("クリップの削除"_ju, [trackId, clipId] (collab::Project& p)
+            if (auto* t = p.findTrack (trackId))
             {
-                if (auto* t = p.findTrack (trackId))
-                    t->midiClips.erase (std::remove_if (t->midiClips.begin(), t->midiClips.end(),
-                                                        [&] (auto& c) { return c.id == clipId; }), t->midiClips.end());
-            });
+                std::erase_if (t->midiClips, [&] (auto& c) { return c.id == clipId; });
+                std::erase_if (t->audioClips, [&] (auto& c) { return c.id == clipId; });
+            }
         });
-        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this));
+    });
+
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this));
+}
+
+void TrackLanes::mouseDown (const juce::MouseEvent& e)
+{
+    grabKeyboardFocus();
+    auto hit = findHit (e.position);
+    const auto& project = ctx.document.getProject();
+    dragMode = DragMode::none;
+    dragTrackId = {};
+
+    if (hit.trackIndex < 0)
+    {
+        ctx.state.selectedClipId = {};
+        ctx.state.changed();
         return;
     }
 
-    if (auto* clip = track.findMidiClip (hit.clipId))
+    const auto& track = project.tracks[(size_t) hit.trackIndex];
+    ctx.state.selectedTrackId = track.id;
+    ctx.state.selectedClipId = hit.clipId;
+    ctx.state.changed();
+
+    if (hit.clipId.empty())
+        return;
+
+    if (e.mods.isPopupMenu())
+        return showClipMenu (track, hit.clipId, hit.audio);
+
+    dragTrackId = track.id;
+    dragClipId = hit.clipId;
+    dragAudio = hit.audio;
+    dragDownTick = ctx.state.timeline.xToTick (e.position.x);
+    mergeId = juce::Uuid().toString();
+
+    if (hit.audio)
     {
-        dragMode = hit.nearRightEdge ? DragMode::resize : DragMode::move;
-        dragTrackId = track.id;
-        dragClipId = clip->id;
+        for (auto& c : track.audioClips)
+            if (c.id == hit.clipId)
+                dragOrigAudio = c;
+
+        dragOrigStart = dragOrigAudio.startTick;
+
+        switch (hit.zone)
+        {
+            case Zone::leftEdge:  dragMode = DragMode::trimStart; break;
+            case Zone::rightEdge: dragMode = DragMode::trimEnd; break;
+            case Zone::fadeIn:    dragMode = DragMode::fadeIn; break;
+            case Zone::fadeOut:   dragMode = DragMode::fadeOut; break;
+            default:              dragMode = DragMode::move; break;
+        }
+    }
+    else if (auto* clip = track.findMidiClip (hit.clipId))
+    {
+        dragMode = hit.zone == Zone::rightEdge ? DragMode::resizeMidi : DragMode::move;
         dragOrigStart = clip->startTick;
         dragOrigLength = clip->lengthTick;
-        dragDownTick = ctx.state.timeline.xToTick (e.position.x);
-        mergeId = juce::Uuid().toString();
     }
 }
 
@@ -239,36 +420,84 @@ void TrackLanes::mouseDrag (const juce::MouseEvent& e)
     if (dragMode == DragMode::none || e.getDistanceFromDragStart() < 3)
         return;
 
-    const double delta = ctx.state.timeline.xToTick (e.position.x) - dragDownTick;
+    const auto& map = ctx.document.getTempoMap();
+    const double tickNow = ctx.state.timeline.xToTick (e.position.x);
+    const double delta = tickNow - dragDownTick;
     const auto clipId = dragClipId;
 
-    if (dragMode == DragMode::resize)
+    if (dragMode == DragMode::resizeMidi)
     {
         const auto minLen = juce::jmax<collab::Tick> (1, ctx.state.timelineGrid.stepTicks());
         const auto end = juce::jmax (dragOrigStart + minLen, snap ((double) (dragOrigStart + dragOrigLength) + delta, e.mods));
-        const auto trackId = dragTrackId;
 
-        ctx.document.perform ("クリップの長さ変更"_ju, [trackId, clipId, end] (collab::Project& p)
+        editClip ("クリップの長さ変更"_ju, [clipId, end] (collab::Track& t)
         {
-            if (auto* t = p.findTrack (trackId))
-                if (auto* c = t->findMidiClip (clipId))
-                    c->lengthTick = end - c->startTick;
+            if (auto* c = t.findMidiClip (clipId))
+                c->lengthTick = end - c->startTick;
         }, mergeId);
         return;
     }
 
+    if (dragAudio && dragMode != DragMode::move)
+    {
+        const auto orig = dragOrigAudio;
+        collab::AudioClip updated = orig;
+
+        switch (dragMode)
+        {
+            case DragMode::trimStart:
+                updated = collab::trimAudioClipStart (orig, snap ((double) orig.startTick + delta, e.mods), map);
+                break;
+
+            case DragMode::trimEnd:
+            {
+                const auto sourceLength = ctx.audioCache.getLengthSamples (ctx.document.getProjectDir(), orig.audioHash);
+                updated = collab::trimAudioClipEnd (orig, snap ((double) collab::audioClipEndTick (orig, map) + delta, e.mods),
+                                                    sourceLength, map);
+                break;
+            }
+
+            case DragMode::fadeIn:
+            {
+                const auto s = collab::samplesBetween (orig.startTick, (collab::Tick) std::llround (juce::jmax (0.0, tickNow)), map);
+                updated.fadeInSamples = juce::jlimit<collab::SampleCount> (0, orig.lengthSamples - orig.fadeOutSamples, s);
+                break;
+            }
+
+            case DragMode::fadeOut:
+            {
+                const auto s = collab::samplesBetween ((collab::Tick) std::llround (juce::jmax (0.0, tickNow)), collab::audioClipEndTick (orig, map), map);
+                updated.fadeOutSamples = juce::jlimit<collab::SampleCount> (0, orig.lengthSamples - orig.fadeInSamples, s);
+                break;
+            }
+
+            default: break;
+        }
+
+        editClip (dragMode == DragMode::fadeIn || dragMode == DragMode::fadeOut ? "フェード"_ju : "トリム"_ju,
+                  [updated] (collab::Track& t)
+        {
+            for (auto& c : t.audioClips)
+                if (c.id == updated.id)
+                    c = updated;
+        }, mergeId);
+        return;
+    }
+
+    // 移動（同じ種類のトラックへなら、トラックをまたいで移動できる）
     const auto newStart = snap ((double) dragOrigStart + delta, e.mods);
     const auto& project = ctx.document.getProject();
     auto targetTrackId = dragTrackId;
+    const auto wantType = dragAudio ? collab::TrackType::audio : collab::TrackType::midi;
 
-    // 別の MIDI トラックへの移動
     if (const int row = rowAt (e.position.y); row >= 0)
-        if (project.tracks[(size_t) row].type == collab::TrackType::midi)
+        if (project.tracks[(size_t) row].type == wantType)
             targetTrackId = project.tracks[(size_t) row].id;
 
     const auto fromId = dragTrackId;
+    const bool audio = dragAudio;
 
-    ctx.document.perform ("クリップの移動"_ju, [fromId, targetTrackId, clipId, newStart] (collab::Project& p)
+    ctx.document.perform ("クリップの移動"_ju, [fromId, targetTrackId, clipId, newStart, audio] (collab::Project& p)
     {
         auto* from = p.findTrack (fromId);
         auto* to = p.findTrack (targetTrackId);
@@ -276,18 +505,26 @@ void TrackLanes::mouseDrag (const juce::MouseEvent& e)
         if (from == nullptr || to == nullptr)
             return;
 
-        auto it = std::find_if (from->midiClips.begin(), from->midiClips.end(), [&] (auto& c) { return c.id == clipId; });
-
-        if (it == from->midiClips.end())
-            return;
-
-        it->startTick = newStart;
-
-        if (from != to)
+        auto moveIn = [&] (auto& fromClips, auto& toClips)
         {
-            to->midiClips.push_back (*it);
-            from->midiClips.erase (it);
-        }
+            auto it = std::find_if (fromClips.begin(), fromClips.end(), [&] (auto& c) { return c.id == clipId; });
+
+            if (it == fromClips.end())
+                return;
+
+            it->startTick = newStart;
+
+            if (from != to)
+            {
+                toClips.push_back (*it);
+                fromClips.erase (it);
+            }
+        };
+
+        if (audio)
+            moveIn (from->audioClips, to->audioClips);
+        else
+            moveIn (from->midiClips, to->midiClips);
     }, mergeId);
 
     if (targetTrackId != dragTrackId)
@@ -313,7 +550,7 @@ void TrackLanes::mouseDoubleClick (const juce::MouseEvent& e)
 
     if (! hit.clipId.empty())
     {
-        if (onOpenClip)
+        if (! hit.audio && onOpenClip)
             onOpenClip();
 
         return;
@@ -351,6 +588,43 @@ void TrackLanes::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWhe
 {
     if (onWheel)
         onWheel (e, w);
+}
+
+bool TrackLanes::isInterestedInFileDrag (const juce::StringArray& files)
+{
+    for (auto& f : files)
+        if (juce::File (f).hasFileExtension (AudioFiles::supportedWildcard().replace ("*", "")))
+            return true;
+
+    return false;
+}
+
+void TrackLanes::filesDropped (const juce::StringArray& paths, int x, int y)
+{
+    juce::Array<juce::File> files;
+
+    for (auto& p : paths)
+        files.add (juce::File (p));
+
+    std::string trackId;
+
+    if (const int row = rowAt ((float) y); row >= 0)
+    {
+        const auto& t = ctx.document.getProject().tracks[(size_t) row];
+
+        if (t.type == collab::TrackType::audio)
+            trackId = t.id;
+    }
+
+    const auto& map = ctx.document.getTempoMap();
+    const auto tick = map.barToTick (map.tickToBar ((collab::Tick) juce::jmax (0.0, ctx.state.timeline.xToTick ((double) x))));
+
+    // ドロップの処理中にモーダルな進捗表示を出さないよう、少し後で読み込む
+    juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<TrackLanes> (this), files, trackId, tick]
+    {
+        if (safe != nullptr)
+            safe->ctx.importAudioFiles (files, trackId, tick);
+    });
 }
 
 //==============================================================================
@@ -607,6 +881,6 @@ void TimelineView::showAddTrackMenu()
     m.addItem ("MIDIトラック（ベース）"_ju, [this] { ctx.addBuiltinMidiTrack (collab::builtin::bass, "Bass"); });
     m.addItem ("MIDIトラック（ピアノ）"_ju, [this] { ctx.addBuiltinMidiTrack (collab::builtin::piano, "Piano"); });
     m.addSeparator();
-    m.addItem ("オーディオトラック（M2 で対応）"_ju, false, false, nullptr);
+    m.addItem ("オーディオトラック"_ju, [this] { ctx.addAudioTrack ("Audio"); });
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&addTrackButton));
 }
