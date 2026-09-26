@@ -5,7 +5,7 @@
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
   "d1_databases": [
-    { "binding": "DB", "database_name": "sharedaw-sync", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }
+    { "binding": "DB", "database_name": "sharedaw-sync", "database_id": "1dd4ee90-6040-4e31-839f-33c6b9729d2a", "migrations_dir": "migrations" }
   ],
   "r2_buckets": [
     { "binding": "BLOBS", "bucket_name": "sharedaw-sync-blobs" }
