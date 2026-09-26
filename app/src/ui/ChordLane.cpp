@@ -20,7 +20,7 @@ namespace
 ChordLane::ChordLane (AppContext& c) : ctx (c)
 {
     setWantsKeyboardFocus (true);
-    setTooltip ("コード: ダブルクリックで追加・編集、ドラッグで移動（1拍単位、Alt で自由）、Delete で削除"_ju);
+    setTooltip ("コード: 鉛筆ツールでクリックして追加。選択ツールでドラッグして移動（1拍単位、Alt で自由）、ダブルクリックで編集、Delete で削除"_ju);
     ctx.document.addChangeListener (this);
     ctx.state.addChangeListener (this);
 }
@@ -99,6 +99,22 @@ std::string ChordLane::findHit (float x) const
     return hit;
 }
 
+std::string ChordLane::findStartHit (float x) const
+{
+    for (auto& e : ctx.document.getProject().chordTrack.events)
+        if (std::abs ((float) ctx.state.timeline.tickToX ((double) e.tick) - x) <= 6.0f)
+            return e.id;
+
+    return {};
+}
+
+void ChordLane::mouseMove (const juce::MouseEvent& e)
+{
+    setMouseCursor (ctx.state.pencil() ? Theme::pencilCursor()
+                                       : ! findStartHit (e.position.x).empty() ? juce::MouseCursor::LeftRightResizeCursor
+                                                                               : juce::MouseCursor::NormalCursor);
+}
+
 collab::Tick ChordLane::snapToBeat (double tick, const juce::ModifierKeys& mods) const
 {
     const auto& map = ctx.document.getTempoMap();
@@ -114,13 +130,32 @@ collab::Tick ChordLane::snapToBeat (double tick, const juce::ModifierKeys& mods)
 void ChordLane::mouseDown (const juce::MouseEvent& e)
 {
     grabKeyboardFocus();
-    dragId = findHit (e.position.x);
     mergeId = juce::Uuid().toString();
+
+    // 鉛筆ツール: イベントの先頭以外をクリックしたら、その拍に新しいコードを置く
+    if (ctx.state.pencil() && ! e.mods.isPopupMenu() && findStartHit (e.position.x).empty())
+    {
+        dragId = {};
+        addAt (snapToBeat (ctx.state.timeline.xToTick (e.position.x), e.mods));
+        return;
+    }
+
+    dragId = findHit (e.position.x);
     ctx.state.selectedChordId = dragId;
     ctx.state.changed();
 
     if (dragId.empty())
+    {
+        if (e.mods.isPopupMenu())
+        {
+            const auto tick = snapToBeat (ctx.state.timeline.xToTick (e.position.x), e.mods);
+            juce::PopupMenu m;
+            m.addItem ("ここにコードを追加…"_ju, [this, tick] { addAt (tick); });
+            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this));
+        }
+
         return;
+    }
 
     for (auto& ev : ctx.document.getProject().chordTrack.events)
         if (ev.id == dragId)
@@ -181,20 +216,12 @@ void ChordLane::mouseUp (const juce::MouseEvent&)
 
 void ChordLane::mouseDoubleClick (const juce::MouseEvent& e)
 {
-    // イベントの先頭近くをダブルクリックしたら編集、それ以外は新規作成
-    const auto tick = snapToBeat (ctx.state.timeline.xToTick (e.position.x), e.mods);
+    // 選択ツールでコードをダブルクリックしたらコードエディタ（鉛筆ツールは 1 回目のクリックで追加済み）
+    if (ctx.state.pencil())
+        return;
 
-    for (auto& ev : ctx.document.getProject().chordTrack.events)
-    {
-        if (ev.tick == tick || std::abs ((float) ctx.state.timeline.tickToX ((double) ev.tick) - e.position.x) <= 6.0f)
-        {
-            openEditor (ev.id);
-            return;
-        }
-    }
-
-    // 区間の中なら、その位置に新しいコードを置く
-    addAt (tick);
+    if (auto id = findHit (e.position.x); ! id.empty())
+        openEditor (id);
 }
 
 bool ChordLane::keyPressed (const juce::KeyPress& key)

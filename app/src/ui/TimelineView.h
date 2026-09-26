@@ -54,6 +54,7 @@ private:
     collab::AudioClip dragOrigAudio;
     double dragDownTick = 0;
     juce::String mergeId;
+    bool createdByPencil = false;
 
     Hit findHit (juce::Point<float>) const;
     int rowAt (float y) const;
@@ -61,6 +62,7 @@ private:
     void paintMidiClip (juce::Graphics&, const collab::MidiClip&, juce::Rectangle<float>, juce::Colour, bool selected) const;
     void paintAudioClip (juce::Graphics&, const collab::AudioClip&, juce::Rectangle<float>, juce::Colour, bool selected);
     void showClipMenu (const collab::Track&, const std::string& clipId, bool audio);
+    void createMidiClip (const std::string& trackId, int bar, bool thenDragLength);
     void editClip (const juce::String& description, std::function<void (collab::Track&)> fn, const juce::String& merge = {});
 };
 
@@ -79,6 +81,9 @@ public:
     void resized() override;
     void setPlayheadTick (double tick);
 
+    /** テンポ・拍子・コードのレーンにフォーカスがあれば、そこで選択中のものを削除する（削除したら true）。 */
+    bool deleteLaneSelection();
+
     /** 再生位置が見えるようにスクロールする。 */
     void followPlayhead (double tick);
 
@@ -94,9 +99,16 @@ private:
     juce::Slider chordVolume { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     juce::String chordVolumeMergeId;
     TrackLanes lanes;
-    juce::Component headerHolder;
+    /** トラックヘッダーを並べる所。空いている所を右クリックするとトラックを追加するメニュー（Cubase と同じ）。 */
+    struct HeaderArea  : public juce::Component
+    {
+        explicit HeaderArea (AppContext& c) : ctx (c) {}
+        void mouseDown (const juce::MouseEvent&) override;
+        AppContext& ctx;
+    };
+
+    HeaderArea headerHolder { ctx };
     juce::OwnedArray<TrackHeader> headers;
-    juce::TextButton addTrackButton { "+ トラックを追加"_ju };
     juce::ScrollBar hScroll { false }, vScroll { true };
     PlayheadOverlay playhead;
 
@@ -106,6 +118,6 @@ private:
     void rebuildHeaders();
     void layoutHeaders();
     void updateScrollBars();
-    void showAddTrackMenu();
+    void mouseDown (const juce::MouseEvent&) override;
     void updateChordControls();
 };

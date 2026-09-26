@@ -378,6 +378,13 @@ void TrackHeader::showMenu()
     }
 
     juce::PopupMenu m;
+
+    if (ctx.addTrackMenu)
+    {
+        m.addSubMenu ("トラックを追加"_ju, ctx.addTrackMenu());
+        m.addSeparator();
+    }
+
     m.addItem ("名前の変更…"_ju, [this]
     {
         nameLabel.showEditor();

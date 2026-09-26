@@ -48,6 +48,7 @@ private:
     int downPitch = 0;
     juce::Rectangle<float> rubberBand;
     juce::String mergeId;
+    bool drawingNote = false;   // 鉛筆で置いたノートの長さをドラッグで決めている
 
     const collab::Note* hitNote (juce::Point<float>, bool& nearRightEdge) const;
 };
@@ -89,6 +90,9 @@ public:
     void selectAllNotes();
     void quantiseSelection();
     void focusEditor();
+
+    /** ノートを短く鳴らす（クリック・入力したときの確認用）。 */
+    void previewNote (int pitch, int velocity);
 
     //==============================================================================
     AppContext& ctx;

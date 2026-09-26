@@ -1,8 +1,10 @@
 #include "MainComponent.h"
 
 #include "Dialogs.h"
+#include "MixerView.h"
 #include "SyncUI.h"
 #include "Theme.h"
+#include "collab/ClipEditing.h"
 #include "collab/Uuid.h"
 #include "audio/Takes.h"
 #include "sync/SyncManager.h"
@@ -18,7 +20,9 @@ namespace
         cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
         cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory, cmdSyncRefreshLocks,
         cmdAddAudioTrack, cmdImportAudio, cmdSplit, cmdPlugins,
-        cmdRecord, cmdCountIn0, cmdCountIn1, cmdCountIn2
+        cmdRecord, cmdCountIn0, cmdCountIn1, cmdCountIn2,
+        cmdToolSelect, cmdToolPencil, cmdModeCubase, cmdModeStudioOne, cmdMixer, cmdLoopToSelection,
+        cmdStop, cmdZoomIn, cmdZoomOut
     };
 
     constexpr float fontScales[] = { 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
@@ -73,6 +77,9 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     ctx.toggleRecord = [this] { toggleRecord(); };
 
     state.countInBars = juce::jlimit (0, 2, settings.getIntValue ("countInBars", 1));
+    state.mode = settings.getValue ("operationMode") == "studioOne" ? OperationMode::studioOne : OperationMode::cubase;
+    commandManager.getKeyMappings()->resetToDefaultMappings();
+    ctx.addTrackMenu = [this] { return addTrackMenu(); };
     bridge.onRecordingFinished = [this] (std::vector<EngineBridge::RecordedTake> takes) { importTakes (std::move (takes)); };
     engine.getDeviceManager().deviceManager.addChangeListener (this);
     applyLatencyOffset();
@@ -91,6 +98,7 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
 
 MainComponent::~MainComponent()
 {
+    mixerWindow = nullptr;
     bridge.onPluginRemoved = nullptr;
     bridge.onRecordingFinished = nullptr;
     engine.getDeviceManager().deviceManager.removeChangeListener (this);
@@ -610,6 +618,9 @@ void MainComponent::showCredits()
 //==============================================================================
 void MainComponent::deleteSelection()
 {
+    if (timeline.deleteLaneSelection())
+        return;
+
     if (pianoRoll.hasSelectedNotes() && ! timeline.hasKeyboardFocus (true))
     {
         pianoRoll.deleteSelectedNotes();
@@ -656,6 +667,123 @@ void MainComponent::duplicateClip()
 }
 
 //==============================================================================
+juce::PopupMenu MainComponent::addTrackMenu()
+{
+    juce::PopupMenu m, instruments;
+    instruments.addCommandItem (&commandManager, cmdAddDrums);
+    instruments.addCommandItem (&commandManager, cmdAddBass);
+    instruments.addCommandItem (&commandManager, cmdAddPiano);
+
+    m.addCommandItem (&commandManager, cmdAddAudioTrack);
+    m.addSubMenu ("音源トラックを追加"_ju, instruments);
+    return m;
+}
+
+void MainComponent::setOperationMode (OperationMode mode)
+{
+    state.mode = mode;
+    settings.setValue ("operationMode", mode == OperationMode::studioOne ? "studioOne" : "cubase");
+
+    // キー割り当てはモードごとの既定値から作り直す
+    commandManager.getKeyMappings()->resetToDefaultMappings();
+    commandManager.commandStatusChanged();
+    state.changed();
+    setStatus (mode == OperationMode::studioOne ? "Studio One モード（いまは Cubase と同じ操作）"_ju : "Cubase モード"_ju);
+}
+
+void MainComponent::toggleMixer()
+{
+    if (mixerWindow == nullptr)
+    {
+        struct Window  : public juce::DocumentWindow
+        {
+            Window (MainComponent& o)
+                : DocumentWindow ("ミキサー"_ju, Theme::panel, DocumentWindow::closeButton), owner (o) {}
+
+            void closeButtonPressed() override
+            {
+                setVisible (false);
+                owner.commandManager.commandStatusChanged();
+            }
+
+            MainComponent& owner;
+        };
+
+        auto window = std::make_unique<Window> (*this);
+        window->setUsingNativeTitleBar (true);
+        window->setContentOwned (new MixerView (ctx), true);
+        window->setResizable (true, false);
+        window->setResizeLimits (300, 280, 4000, 2000);
+        window->addKeyListener (commandManager.getKeyMappings());   // ミキサーの上でも F3 などが効くように
+
+        if (auto* top = getTopLevelComponent())
+            window->setTopLeftPosition (top->getX() + 80, top->getBottom() - window->getHeight() - 60);
+
+        mixerWindow = std::move (window);
+    }
+
+    mixerWindow->setVisible (! mixerWindow->isVisible());
+
+    if (mixerWindow->isVisible())
+        mixerWindow->toFront (true);
+
+    commandManager.commandStatusChanged();
+}
+
+void MainComponent::zoom (double factor)
+{
+    // ピアノロールにフォーカスがあればピアノロール、それ以外はタイムライン。再生位置を中心に拡大・縮小する
+    const bool piano = pianoRoll.hasKeyboardFocus (true);
+    auto& axis = piano ? state.pianoRoll : state.timeline;
+    const double x = axis.tickToX (bridge.getPositionTick());
+    const double width = piano ? pianoRoll.getWidth() : timeline.getWidth() - TimelineView::headerWidth;
+    axis.zoomAround (juce::jlimit (0.0, juce::jmax (0.0, width), x), factor);
+    state.changed();
+}
+
+void MainComponent::loopToSelection()
+{
+    // ピアノロールで選んだノート、なければタイムラインで選んだクリップの範囲
+    collab::Tick start = -1, end = -1;
+    const auto& map = document.getTempoMap();
+
+    if (auto* clip = ctx.selectedClip(); clip != nullptr && pianoRoll.hasSelectedNotes())
+    {
+        for (auto& n : clip->notes)
+            if (pianoRoll.selectedNotes.count (n.id) > 0)
+            {
+                start = start < 0 ? clip->startTick + n.tick : juce::jmin (start, clip->startTick + n.tick);
+                end = juce::jmax (end, clip->startTick + n.endTick());
+            }
+    }
+    else if (auto* track = ctx.selectedTrack(); track != nullptr && ! state.selectedClipId.empty())
+    {
+        if (auto* c = track->findMidiClip (state.selectedClipId))
+        {
+            start = c->startTick;
+            end = c->endTick();
+        }
+
+        for (auto& c : track->audioClips)
+            if (c.id == state.selectedClipId)
+            {
+                start = c.startTick;
+                end = collab::audioClipEndTick (c, map);
+            }
+    }
+
+    if (start < 0 || end <= start)
+        return setStatus ("ループ範囲にするクリップ（またはノート）を選択してください"_ju);
+
+    state.loopStart = start;
+    state.loopEnd = end;
+    state.loopEnabled = true;
+    state.changed();
+    setStatus ("ループ範囲: "_ju + juce::String (map.tickToBar (start)) + " 小節目から "_ju
+               + juce::String (map.tickToBar (juce::jmax<collab::Tick> (start, end - 1))) + " 小節目まで"_ju);
+}
+
+//==============================================================================
 void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
 {
     commands.addArray ({ cmdNew, cmdOpen, cmdSave, cmdUndo, cmdRedo, cmdDelete, cmdSelectAll, cmdDuplicate,
@@ -664,7 +792,9 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
                          cmdRecord, cmdCountIn0, cmdCountIn1, cmdCountIn2,
                          cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
                          cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory, cmdSyncRefreshLocks,
-                         cmdAddAudioTrack, cmdImportAudio, cmdSplit, cmdPlugins });
+                         cmdAddAudioTrack, cmdImportAudio, cmdSplit, cmdPlugins,
+                         cmdToolSelect, cmdToolPencil, cmdModeCubase, cmdModeStudioOne, cmdMixer, cmdLoopToSelection,
+                         cmdStop, cmdZoomIn, cmdZoomOut });
 }
 
 void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommandInfo& info)
@@ -699,10 +829,27 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdDuplicate:  info.setInfo ("クリップを複製"_ju, {}, "Edit", 0); info.addDefaultKeypress ('d', cmd); break;
         case cmdQuantise:   info.setInfo ("クオンタイズ"_ju, {}, "Edit", 0); info.addDefaultKeypress ('q', 0); break;
         case cmdPlay:       info.setInfo ("再生／停止"_ju, {}, "Transport", 0); info.addDefaultKeypress (KP::spaceKey, 0); break;
-        case cmdToStart:    info.setInfo ("先頭へ"_ju, {}, "Transport", 0); info.addDefaultKeypress (KP::homeKey, 0); break;
+        case cmdToStart:
+            info.setInfo ("先頭へ"_ju, {}, "Transport", 0);
+            info.addDefaultKeypress (KP::homeKey, 0);
+            info.defaultKeypresses.add (state.behaviour().toStartKey);
+            break;
+        case cmdStop:
+            info.setInfo ("停止（停止中なら先頭へ）"_ju, {}, "Transport", 0);
+            info.defaultKeypresses.add (state.behaviour().stopKey);
+            break;
+        case cmdZoomIn:
+            info.setInfo ("拡大（横）"_ju, {}, "View", 0);
+            info.defaultKeypresses.add (state.behaviour().zoomInKey);
+            break;
+        case cmdZoomOut:
+            info.setInfo ("縮小（横）"_ju, {}, "View", 0);
+            info.defaultKeypresses.add (state.behaviour().zoomOutKey);
+            break;
         case cmdRecord:
             info.setInfo ("録音"_ju, {}, "Transport", 0);
             info.addDefaultKeypress ('r', 0);
+            info.defaultKeypresses.add (state.behaviour().recordKey);
             info.setTicked (bridge.isRecording());
             break;
         case cmdCountIn0:
@@ -717,6 +864,7 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdLoop:
             info.setInfo ("ループ"_ju, {}, "Transport", 0);
             info.addDefaultKeypress ('l', 0);
+            info.defaultKeypresses.add (state.behaviour().loopKey);
             info.setTicked (state.loopEnabled);
             break;
         case cmdMetronome:
@@ -724,9 +872,36 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
             info.addDefaultKeypress ('c', 0);
             info.setTicked (state.metronomeEnabled);
             break;
-        case cmdAddDrums:   info.setInfo ("MIDIトラックを追加（ドラム）"_ju, {}, "Track", 0); break;
-        case cmdAddBass:    info.setInfo ("MIDIトラックを追加（ベース）"_ju, {}, "Track", 0); break;
-        case cmdAddPiano:   info.setInfo ("MIDIトラックを追加（ピアノ）"_ju, {}, "Track", 0); break;
+        case cmdAddDrums:   info.setInfo ("ドラム"_ju, {}, "Track", 0); break;
+        case cmdAddBass:    info.setInfo ("ベース"_ju, {}, "Track", 0); break;
+        case cmdAddPiano:   info.setInfo ("ピアノ"_ju, {}, "Track", 0); break;
+        case cmdToolSelect:
+            info.setInfo ("選択ツール"_ju, {}, "Edit", 0);
+            info.defaultKeypresses.add (state.behaviour().selectToolKey);
+            info.setTicked (state.tool == EditTool::select);
+            break;
+        case cmdToolPencil:
+            info.setInfo ("鉛筆ツール"_ju, {}, "Edit", 0);
+            info.defaultKeypresses.add (state.behaviour().pencilToolKey);
+            info.setTicked (state.tool == EditTool::pencil);
+            break;
+        case cmdModeCubase:
+            info.setInfo ("Cubase モード"_ju, {}, "View", 0);
+            info.setTicked (state.mode == OperationMode::cubase);
+            break;
+        case cmdModeStudioOne:
+            info.setInfo ("Studio One モード（いまは Cubase と同じ操作）"_ju, {}, "View", 0);
+            info.setTicked (state.mode == OperationMode::studioOne);
+            break;
+        case cmdMixer:
+            info.setInfo ("ミキサー"_ju, {}, "View", 0);
+            info.defaultKeypresses.add (state.behaviour().mixerKey);
+            info.setTicked (mixerWindow != nullptr && mixerWindow->isVisible());
+            break;
+        case cmdLoopToSelection:
+            info.setInfo ("ループ範囲を選択範囲に合わせる"_ju, {}, "Transport", 0);
+            info.defaultKeypresses.add (state.behaviour().loopToSelectionKey);
+            break;
         case cmdPlugins:       info.setInfo ("プラグイン（スキャン・一覧）…"_ju, {}, "Options", 0); break;
         case cmdAddAudioTrack: info.setInfo ("オーディオトラックを追加"_ju, {}, "Track", 0); break;
         case cmdImportAudio:   info.setInfo ("オーディオを読み込む…"_ju, {}, "File", 0); info.addDefaultKeypress ('i', cmd); break;
@@ -767,6 +942,14 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdQuantise:   pianoRoll.quantiseSelection(); break;
         case cmdPlay:       bridge.togglePlay(); break;
         case cmdToStart:    bridge.returnToStart(); break;
+        case cmdStop:
+            if (bridge.isPlaying())
+                bridge.stop();
+            else
+                bridge.returnToStart();
+            break;
+        case cmdZoomIn:     zoom (1.25); break;
+        case cmdZoomOut:    zoom (0.8); break;
         case cmdRecord:     toggleRecord(); break;
         case cmdCountIn0:
         case cmdCountIn1:
@@ -781,6 +964,12 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdAddBass:    ctx.addBuiltinMidiTrack (collab::builtin::bass, "Bass"); break;
         case cmdAddPiano:   ctx.addBuiltinMidiTrack (collab::builtin::piano, "Piano"); break;
         case cmdAddAudioTrack: ctx.addAudioTrack ("Audio"); break;
+        case cmdToolSelect:    state.tool = EditTool::select; state.changed(); break;
+        case cmdToolPencil:    state.tool = EditTool::pencil; state.changed(); break;
+        case cmdModeCubase:    setOperationMode (OperationMode::cubase); break;
+        case cmdModeStudioOne: setOperationMode (OperationMode::studioOne); break;
+        case cmdMixer:         toggleMixer(); break;
+        case cmdLoopToSelection: loopToSelection(); break;
         case cmdPlugins:       showPluginManager(); break;
         case cmdImportAudio:   importAudio(); break;
         case cmdSplit:         ctx.splitAtPlayhead(); break;
@@ -852,12 +1041,17 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addCommandItem (cm, cmdDuplicate);
             m.addCommandItem (cm, cmdSplit);
             m.addCommandItem (cm, cmdQuantise);
+            m.addSeparator();
+            m.addCommandItem (cm, cmdToolSelect);
+            m.addCommandItem (cm, cmdToolPencil);
             break;
         case 2:
             m.addCommandItem (cm, cmdPlay);
+            m.addCommandItem (cm, cmdStop);
             m.addCommandItem (cm, cmdRecord);
             m.addCommandItem (cm, cmdToStart);
             m.addCommandItem (cm, cmdLoop);
+            m.addCommandItem (cm, cmdLoopToSelection);
             m.addCommandItem (cm, cmdMetronome);
             m.addSeparator();
             m.addCommandItem (cm, cmdCountIn0);
@@ -865,10 +1059,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addCommandItem (cm, cmdCountIn2);
             break;
         case 3:
-            m.addCommandItem (cm, cmdAddDrums);
-            m.addCommandItem (cm, cmdAddBass);
-            m.addCommandItem (cm, cmdAddPiano);
-            m.addCommandItem (cm, cmdAddAudioTrack);
+            m = addTrackMenu();
             break;
         case 4:
         {
@@ -909,6 +1100,16 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             for (int c = cmdFont100; c <= cmdFont200; ++c)
                 sizes.addCommandItem (cm, c);
 
+            m.addCommandItem (cm, cmdMixer);
+            m.addSeparator();
+            m.addCommandItem (cm, cmdZoomIn);
+            m.addCommandItem (cm, cmdZoomOut);
+            m.addSeparator();
+
+            juce::PopupMenu modes;
+            modes.addCommandItem (cm, cmdModeCubase);
+            modes.addCommandItem (cm, cmdModeStudioOne);
+            m.addSubMenu ("操作モード"_ju, modes);
             m.addSubMenu ("文字サイズ（画面共有用）"_ju, sizes);
             break;
         }

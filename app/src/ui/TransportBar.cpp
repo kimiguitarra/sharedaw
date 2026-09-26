@@ -16,7 +16,7 @@ TransportBar::TransportBar (AppContext& c) : ctx (c)
     playButton.setTooltip ("再生／一時停止（Space）"_ju);
     stopButton.setTooltip ("停止"_ju);
     recordButton.setTooltip ("録音（R）。録音待機（●）にしたオーディオトラックに録音します"_ju);
-    loopButton.setTooltip ("ループ再生（範囲はルーラーをドラッグして指定）"_ju);
+    loopButton.setTooltip ("ループ再生（L）。範囲はクリップやノートを選んで P（トランスポート → ループ範囲を選択範囲に合わせる）"_ju);
     metronomeButton.setTooltip ("メトロノーム"_ju);
     metronomeVolume.setTooltip ("メトロノームの音量"_ju);
 
@@ -60,6 +60,14 @@ TransportBar::TransportBar (AppContext& c) : ctx (c)
     for (auto* b : { &toStartButton, &playButton, &stopButton, &recordButton, &loopButton, &metronomeButton, &settingsButton })
         addAndMakeVisible (b);
 
+    // ツール（Cubase と同じくテンキーの 1 / 2 でも切り替えられる）
+    selectTool.setTooltip ("選択ツール（テンキー 1）: 選択・移動・長さの変更"_ju);
+    pencilTool.setTooltip ("鉛筆ツール（テンキー 2）: テンポ・拍子・コード・クリップ・ノートを置く"_ju);
+    selectTool.onClick = [this] { ctx.state.tool = EditTool::select; ctx.state.changed(); };
+    pencilTool.onClick = [this] { ctx.state.tool = EditTool::pencil; ctx.state.changed(); };
+    addAndMakeVisible (selectTool);
+    addAndMakeVisible (pencilTool);
+
     addAndMakeVisible (metronomeVolume);
 
     for (auto* l : { &barBeatLabel, &timeLabel, &tempoLabel })
@@ -87,6 +95,8 @@ TransportBar::~TransportBar()
 
 void TransportBar::changeListenerCallback (juce::ChangeBroadcaster*)
 {
+    selectTool.setToggleState (ctx.state.tool == EditTool::select, juce::dontSendNotification);
+    pencilTool.setToggleState (ctx.state.tool == EditTool::pencil, juce::dontSendNotification);
     loopButton.setToggleState (ctx.state.loopEnabled, juce::dontSendNotification);
     metronomeButton.setToggleState (ctx.state.metronomeEnabled, juce::dontSendNotification);
 }
@@ -139,6 +149,11 @@ void TransportBar::resized()
         area.removeFromLeft (4);
     }
 
+    area.removeFromLeft (10);
+    selectTool.setBounds (area.removeFromLeft (34));
+    area.removeFromLeft (2);
+    pencilTool.setBounds (area.removeFromLeft (34));
+
     area.removeFromLeft (12);
     barBeatLabel.setBounds (area.removeFromLeft (150));
     area.removeFromLeft (6);
@@ -154,4 +169,20 @@ void TransportBar::resized()
     metronomeVolume.setBounds (area.removeFromLeft (90));
 
     settingsButton.setBounds (area.removeFromRight (130));
+}
+
+void TransportBar::ToolButton::paintButton (juce::Graphics& g, bool highlighted, bool down)
+{
+    auto r = getLocalBounds().toFloat().reduced (1.0f);
+    const bool on = getToggleState();
+
+    g.setColour (on ? Theme::accent.withAlpha (0.35f) : (highlighted || down ? Theme::panelLight : Theme::panel));
+    g.fillRoundedRectangle (r, 4.0f);
+    g.setColour (on ? Theme::accent : Theme::gridBar);
+    g.drawRoundedRectangle (r, 4.0f, 1.0f);
+
+    auto iconArea = r.reduced (r.getWidth() * 0.26f, r.getHeight() * 0.22f);
+    auto icon = pencil ? Theme::pencilToolIcon (iconArea) : Theme::selectToolIcon (iconArea);
+    g.setColour (on ? Theme::text : Theme::textDim);
+    g.fillPath (icon);
 }

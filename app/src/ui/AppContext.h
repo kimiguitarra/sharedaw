@@ -61,4 +61,7 @@ struct AppContext
 
     /** 録音の開始・停止（MainComponent が設定する）。 */
     std::function<void()> toggleRecord;
+
+    /** 「トラックを追加」のメニュー（オーディオ / 音源 → ドラム・ベース・ピアノ）。MainComponent が設定する。 */
+    std::function<juce::PopupMenu()> addTrackMenu;
 };

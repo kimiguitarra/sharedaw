@@ -34,7 +34,8 @@ TempoLane::TempoLane (ProjectDocument& d, EditorState& s) : document (d), state 
 {
     document.addChangeListener (this);
     state.addChangeListener (this);
-    setTooltip ("テンポ: ダブルクリックで追加・編集、ドラッグで移動、右クリックで削除"_ju);
+    setWantsKeyboardFocus (true);
+    setTooltip ("テンポ: 鉛筆ツールでクリックして追加。選択ツールでドラッグして移動、ダブルクリックで編集、Delete で削除"_ju);
 }
 
 TempoLane::~TempoLane()
@@ -63,8 +64,9 @@ void TempoLane::paint (juce::Graphics& g)
 
         g.setColour (Theme::tempo.withAlpha (0.25f));
         g.fillRect (juce::Rectangle<float> (x, 2.0f, next - x, (float) getHeight() - 4.0f));
-        g.setColour (Theme::tempo);
-        g.fillRect (juce::Rectangle<float> (x, 0.0f, 2.0f, (float) getHeight()));
+        const bool selected = e.id == state.selectedTempoId;
+        g.setColour (selected ? Theme::selection : Theme::tempo);
+        g.fillRect (juce::Rectangle<float> (x, 0.0f, selected ? 3.0f : 2.0f, (float) getHeight()));
         g.setColour (Theme::text);
         g.drawText (formatBpm (e.bpm), juce::Rectangle<float> (x + 4.0f, 0.0f, 80.0f, (float) getHeight()),
                     juce::Justification::centredLeft);
@@ -80,30 +82,89 @@ std::string TempoLane::findHit (float x) const
     return {};
 }
 
+void TempoLane::mouseMove (const juce::MouseEvent& e)
+{
+    setMouseCursor (state.pencil() ? Theme::pencilCursor()
+                                   : ! findHit (e.position.x).empty() ? juce::MouseCursor::LeftRightResizeCursor
+                                                                      : juce::MouseCursor::NormalCursor);
+}
+
 void TempoLane::mouseDown (const juce::MouseEvent& e)
 {
+    grabKeyboardFocus();
     dragId = findHit (e.position.x);
     mergeId = juce::Uuid().toString();
+    const auto tick = state.timelineGrid.snap ((collab::Tick) juce::jmax (0.0, state.timeline.xToTick (e.position.x)),
+                                               document.getTempoMap());
 
-    if (e.mods.isPopupMenu() && ! dragId.empty())
+    if (e.mods.isPopupMenu())
     {
         auto id = dragId;
         dragId = {};
+        return showMenu (id, tick);
+    }
+
+    state.selectedTempoId = dragId;
+    state.changed();
+
+    // 鉛筆ツールで空いている所をクリックしたら追加
+    if (dragId.empty() && state.pencil())
+        addEventAt (tick);
+}
+
+void TempoLane::showMenu (const std::string& id, collab::Tick tick)
+{
+    juce::PopupMenu m;
+
+    if (! id.empty())
+    {
         const auto& events = document.getProject().tempoTrack.events;
         const bool isFirst = ! events.empty() && events.front().id == id;
+        state.selectedTempoId = id;
+        state.changed();
 
-        juce::PopupMenu m;
         m.addItem ("テンポを編集…"_ju, [this, id] { editEvent (id); });
-        m.addItem ("削除"_ju, ! isFirst, false, [this, id]
-        {
-            document.perform ("テンポ変更の削除"_ju, [id] (collab::Project& p)
-            {
-                auto& ev = p.tempoTrack.events;
-                ev.erase (std::remove_if (ev.begin(), ev.end(), [&] (auto& x) { return x.id == id; }), ev.end());
-            });
-        });
-        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this));
+        m.addItem ("削除"_ju, ! isFirst, false, [this] { deleteSelected(); });
     }
+    else
+    {
+        m.addItem ("ここにテンポ変更を追加…"_ju, [this, tick] { addEventAt (tick); });
+    }
+
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this));
+}
+
+bool TempoLane::keyPressed (const juce::KeyPress& key)
+{
+    if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey)
+        return deleteSelected();
+
+    if (key == juce::KeyPress::returnKey && ! state.selectedTempoId.empty())
+    {
+        editEvent (state.selectedTempoId);
+        return true;
+    }
+
+    return false;
+}
+
+bool TempoLane::deleteSelected()
+{
+    const auto id = state.selectedTempoId;
+    const auto& events = document.getProject().tempoTrack.events;
+
+    if (id.empty() || events.empty() || events.front().id == id)
+        return false;   // 先頭（曲の最初のテンポ）は消せない
+
+    document.perform ("テンポ変更の削除"_ju, [id] (collab::Project& p)
+    {
+        auto& ev = p.tempoTrack.events;
+        ev.erase (std::remove_if (ev.begin(), ev.end(), [&] (auto& x) { return x.id == id; }), ev.end());
+    });
+
+    state.selectedTempoId = {};
+    state.changed();
+    return true;
 }
 
 void TempoLane::mouseDrag (const juce::MouseEvent& e)
@@ -137,9 +198,6 @@ void TempoLane::mouseDoubleClick (const juce::MouseEvent& e)
 {
     if (auto id = findHit (e.position.x); ! id.empty())
         editEvent (id);
-    else
-        addEventAt (state.timelineGrid.snap ((collab::Tick) juce::jmax (0.0, state.timeline.xToTick (e.position.x)),
-                                             document.getTempoMap()));
 }
 
 void TempoLane::editEvent (const std::string& id)
@@ -201,7 +259,8 @@ MeterLane::MeterLane (ProjectDocument& d, EditorState& s) : document (d), state 
 {
     document.addChangeListener (this);
     state.addChangeListener (this);
-    setTooltip ("拍子: ダブルクリックで追加・編集、ドラッグで移動、右クリックで削除"_ju);
+    setWantsKeyboardFocus (true);
+    setTooltip ("拍子: 鉛筆ツールでクリックして追加。選択ツールでドラッグして移動、ダブルクリックで編集、Delete で削除"_ju);
 }
 
 MeterLane::~MeterLane()
@@ -240,8 +299,9 @@ void MeterLane::paint (juce::Graphics& g)
         if (x < -60.0f || x > (float) getWidth())
             continue;
 
-        g.setColour (Theme::meter);
-        g.fillRect (juce::Rectangle<float> (x, 0.0f, 2.0f, (float) getHeight()));
+        const bool selected = e.id == state.selectedMeterId;
+        g.setColour (selected ? Theme::selection : Theme::meter);
+        g.fillRect (juce::Rectangle<float> (x, 0.0f, selected ? 3.0f : 2.0f, (float) getHeight()));
         g.setColour (Theme::text);
         g.drawText (juce::String (e.numerator) + "/" + juce::String (e.denominator),
                     juce::Rectangle<float> (x + 4.0f, 0.0f, 60.0f, (float) getHeight()), juce::Justification::centredLeft);
@@ -259,30 +319,92 @@ std::string MeterLane::findHit (float x) const
     return {};
 }
 
+void MeterLane::mouseMove (const juce::MouseEvent& e)
+{
+    setMouseCursor (state.pencil() ? Theme::pencilCursor()
+                                   : ! findHit (e.position.x).empty() ? juce::MouseCursor::LeftRightResizeCursor
+                                                                      : juce::MouseCursor::NormalCursor);
+}
+
+int MeterLane::barAt (float x) const
+{
+    return document.getTempoMap().tickToBar ((collab::Tick) juce::jmax (0.0, state.timeline.xToTick (x)));
+}
+
 void MeterLane::mouseDown (const juce::MouseEvent& e)
 {
+    grabKeyboardFocus();
     dragId = findHit (e.position.x);
     mergeId = juce::Uuid().toString();
 
-    if (e.mods.isPopupMenu() && ! dragId.empty())
+    if (e.mods.isPopupMenu())
     {
         auto id = dragId;
         dragId = {};
+        return showMenu (id, barAt (e.position.x));
+    }
+
+    state.selectedMeterId = dragId;
+    state.changed();
+
+    // 鉛筆ツールで空いている所をクリックしたら、その小節に追加
+    if (dragId.empty() && state.pencil())
+        addEventAt (barAt (e.position.x));
+}
+
+void MeterLane::showMenu (const std::string& id, int bar)
+{
+    juce::PopupMenu m;
+
+    if (! id.empty())
+    {
         const auto& events = document.getProject().meterTrack.events;
         const bool isFirst = ! events.empty() && events.front().id == id;
+        state.selectedMeterId = id;
+        state.changed();
 
-        juce::PopupMenu m;
         m.addItem ("拍子を編集…"_ju, [this, id] { editEvent (id); });
-        m.addItem ("削除"_ju, ! isFirst, false, [this, id]
-        {
-            document.perform ("拍子変更の削除"_ju, [id] (collab::Project& p)
-            {
-                auto& ev = p.meterTrack.events;
-                ev.erase (std::remove_if (ev.begin(), ev.end(), [&] (auto& x) { return x.id == id; }), ev.end());
-            });
-        });
-        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this));
+        m.addItem ("削除"_ju, ! isFirst, false, [this] { deleteSelected(); });
     }
+    else
+    {
+        m.addItem (juce::String (bar) + " 小節目に拍子変更を追加…"_ju, [this, bar] { addEventAt (bar); });
+    }
+
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this));
+}
+
+bool MeterLane::keyPressed (const juce::KeyPress& key)
+{
+    if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey)
+        return deleteSelected();
+
+    if (key == juce::KeyPress::returnKey && ! state.selectedMeterId.empty())
+    {
+        editEvent (state.selectedMeterId);
+        return true;
+    }
+
+    return false;
+}
+
+bool MeterLane::deleteSelected()
+{
+    const auto id = state.selectedMeterId;
+    const auto& events = document.getProject().meterTrack.events;
+
+    if (id.empty() || events.empty() || events.front().id == id)
+        return false;   // 1 小節目の拍子は消せない
+
+    document.perform ("拍子変更の削除"_ju, [id] (collab::Project& p)
+    {
+        auto& ev = p.meterTrack.events;
+        ev.erase (std::remove_if (ev.begin(), ev.end(), [&] (auto& x) { return x.id == id; }), ev.end());
+    });
+
+    state.selectedMeterId = {};
+    state.changed();
+    return true;
 }
 
 void MeterLane::mouseDrag (const juce::MouseEvent& e)
@@ -328,8 +450,6 @@ void MeterLane::mouseDoubleClick (const juce::MouseEvent& e)
 {
     if (auto id = findHit (e.position.x); ! id.empty())
         editEvent (id);
-    else
-        addEventAt (document.getTempoMap().tickToBar ((collab::Tick) juce::jmax (0.0, state.timeline.xToTick (e.position.x))));
 }
 
 void MeterLane::editEvent (const std::string& id)

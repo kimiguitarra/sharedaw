@@ -55,7 +55,7 @@ private:
 
     EditorState state;
     AudioFileCache audioCache;
-    AppContext ctx { document, state, bridge, library, sync, audioCache, {}, {}, {} };
+    AppContext ctx { document, state, bridge, library, sync, audioCache, {}, {}, {}, {} };
 
     juce::ApplicationCommandManager commandManager;
     TransportBar transport { ctx };
@@ -78,6 +78,14 @@ private:
     void openProject();
     void saveProject (std::function<void (bool)> onDone = {});
     void showAudioSettings();
+
+    // 操作（Cubase / Studio One モード、ツール、ループ、ミキサー）
+    juce::PopupMenu addTrackMenu();
+    void setOperationMode (OperationMode);
+    void loopToSelection();
+    void zoom (double factor);
+    void toggleMixer();
+    std::unique_ptr<juce::DocumentWindow> mixerWindow;
 
     // 録音（§3.5）
     void toggleRecord();

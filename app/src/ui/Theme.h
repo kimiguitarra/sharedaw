@@ -28,6 +28,13 @@ namespace Theme
 
     juce::Colour parseColour (const std::string& hex, juce::Colour fallback = juce::Colours::grey);
 
+    /** ツールのアイコン（矢印・鉛筆）。area に収まるように描いた Path。 */
+    juce::Path selectToolIcon (juce::Rectangle<float> area);
+    juce::Path pencilToolIcon (juce::Rectangle<float> area);
+
+    /** 鉛筆ツールのマウスカーソル（先端がホットスポット）。 */
+    const juce::MouseCursor& pencilCursor();
+
     class LookAndFeel  : public juce::LookAndFeel_V4
     {
     public:

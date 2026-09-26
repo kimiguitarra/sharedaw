@@ -71,6 +71,12 @@ public:
 
     te::Engine& getEngine() noexcept                { return engine; }
 
+    /** ノートを短く鳴らす（ピアノロールでクリック・入力したときの確認用）。 */
+    void previewNote (const std::string& trackId, int pitch, int velocity);
+
+    /** 前回呼んでからのトラックのピーク（dB、左右の大きいほう）。ミキサーのメーター用。trackId が空ならコードトラック。 */
+    float getTrackPeakDb (const std::string& trackId);
+
     //==============================================================================
     // 録音（§3.5）。入力の割り当て・録音待機・モニタリングはこの環境だけの設定なので JSON には入れない。
     struct TrackInput
@@ -111,9 +117,21 @@ public:
     void sync();
 
 private:
+    /** トラックの音量メーター（ミキサー用）。トラックを消す前に外す。 */
+    struct Meter
+    {
+        te::LevelMeasurer* measurer = nullptr;
+        te::LevelMeasurer::Client client;
+
+        void attach (te::AudioTrack&);
+        void detach();
+        ~Meter()    { detach(); }
+    };
+
     struct Binding
     {
         te::AudioTrack::Ptr track;
+        std::unique_ptr<Meter> meter;
         SfizzPlugin* synth = nullptr;
         juce::String sfzText;
         std::string clipsKey;
@@ -138,6 +156,7 @@ private:
     std::string tempoKey;
 
     te::AudioTrack::Ptr chordTrack;
+    std::unique_ptr<Meter> chordMeter;
     SfizzPlugin* chordSynth = nullptr;
     juce::String chordSfzText;
     std::string chordKey;

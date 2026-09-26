@@ -47,3 +47,60 @@ LookAndFeel::LookAndFeel()
 }
 
 }
+
+namespace Theme
+{
+
+juce::Path selectToolIcon (juce::Rectangle<float> area)
+{
+    // 左上を先端にした矢印
+    juce::Path p;
+    p.startNewSubPath (0.0f, 0.0f);
+    p.lineTo (0.0f, 14.0f);
+    p.lineTo (3.6f, 10.6f);
+    p.lineTo (6.2f, 16.0f);
+    p.lineTo (8.6f, 15.0f);
+    p.lineTo (6.0f, 9.6f);
+    p.lineTo (11.0f, 9.6f);
+    p.closeSubPath();
+    p.applyTransform (p.getTransformToScaleToFit (area, true));
+    return p;
+}
+
+juce::Path pencilToolIcon (juce::Rectangle<float> area)
+{
+    // 左下を先端にした鉛筆（45 度）
+    juce::Path p;
+    p.startNewSubPath (0.0f, 16.0f);      // 先端
+    p.lineTo (1.2f, 11.4f);
+    p.lineTo (11.6f, 1.0f);
+    p.lineTo (15.0f, 4.4f);
+    p.lineTo (4.6f, 14.8f);
+    p.closeSubPath();
+    p.startNewSubPath (10.0f, 2.6f);      // 消しゴムとの境目
+    p.lineTo (13.4f, 6.0f);
+    p.applyTransform (p.getTransformToScaleToFit (area, true));
+    return p;
+}
+
+const juce::MouseCursor& pencilCursor()
+{
+    static const juce::MouseCursor cursor = []
+    {
+        constexpr int size = 24;
+        juce::Image image (juce::Image::ARGB, size, size, true);
+        juce::Graphics g (image);
+        auto icon = pencilToolIcon ({ 1.0f, 1.0f, (float) size - 4.0f, (float) size - 4.0f });
+        g.setColour (juce::Colours::black);
+        g.strokePath (icon, juce::PathStrokeType (2.5f));
+        g.setColour (juce::Colours::white);
+        g.fillPath (icon);
+        g.setColour (juce::Colours::black);
+        g.strokePath (icon, juce::PathStrokeType (1.0f));
+        return juce::MouseCursor (image, 1, size - 3);
+    }();
+
+    return cursor;
+}
+
+}

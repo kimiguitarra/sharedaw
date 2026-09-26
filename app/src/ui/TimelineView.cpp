@@ -20,7 +20,7 @@ namespace
 TrackLanes::TrackLanes (AppContext& c) : ctx (c)
 {
     setWantsKeyboardFocus (true);
-    setTooltip ("ダブルクリック: クリップを作成／ピアノロールで開く　ドラッグ: 移動　端: 長さ・トリム　上の角: フェード　Alt: スナップなし　オーディオはドラッグ＆ドロップで読み込み"_ju);
+    setTooltip ("鉛筆ツール: MIDI トラックをクリック（ドラッグで長さ）してクリップを作成　選択ツール: ドラッグで移動、端で長さ・トリム、上の角でフェード、ダブルクリックでピアノロール　Alt: スナップなし　オーディオはドラッグ＆ドロップで読み込み"_ju);
 }
 
 int TrackLanes::getContentHeight() const
@@ -163,7 +163,7 @@ void TrackLanes::paint (juce::Graphics& g)
     {
         g.setColour (Theme::textDim);
         g.setFont (juce::FontOptions (15.0f));
-        g.drawText ("左下の「+ トラックを追加」からトラックを作成してください（オーディオファイルはここへドラッグ＆ドロップ）"_ju,
+        g.drawText ("左側（トラック名の欄）の空いている所を右クリックしてトラックを追加してください（オーディオファイルはここへドラッグ＆ドロップ）"_ju,
                     getLocalBounds(), juce::Justification::centred);
     }
 }
@@ -271,7 +271,7 @@ void TrackLanes::mouseMove (const juce::MouseEvent& e)
         case Zone::rightEdge:  setMouseCursor (juce::MouseCursor::LeftRightResizeCursor); break;
         case Zone::fadeIn:
         case Zone::fadeOut:    setMouseCursor (juce::MouseCursor::CrosshairCursor); break;
-        case Zone::none:
+        case Zone::none:       setMouseCursor (ctx.state.pencil() ? Theme::pencilCursor() : juce::MouseCursor::NormalCursor); break;
         case Zone::body:       setMouseCursor (juce::MouseCursor::NormalCursor); break;
     }
 }
@@ -371,6 +371,11 @@ void TrackLanes::mouseDown (const juce::MouseEvent& e)
     {
         ctx.state.selectedClipId = {};
         ctx.state.changed();
+
+        // トラックの下の空いている所: トラックの追加
+        if (e.mods.isPopupMenu() && ctx.addTrackMenu)
+            ctx.addTrackMenu().showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this));
+
         return;
     }
 
@@ -380,7 +385,26 @@ void TrackLanes::mouseDown (const juce::MouseEvent& e)
     ctx.state.changed();
 
     if (hit.clipId.empty())
+    {
+        if (track.type != collab::TrackType::midi)
+            return;
+
+        const auto bar = ctx.document.getTempoMap().tickToBar ((collab::Tick) juce::jmax (0.0, ctx.state.timeline.xToTick (e.position.x)));
+
+        if (e.mods.isPopupMenu())
+        {
+            juce::PopupMenu m;
+            m.addItem ("ここに MIDI クリップを作成"_ju, [this, trackId = track.id, bar] { createMidiClip (trackId, bar, false); });
+            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this));
+        }
+        else if (ctx.state.pencil())
+        {
+            // 鉛筆ツール: クリックした小節から 1 小節のクリップを作り、そのままドラッグで長さを決める
+            createMidiClip (track.id, bar, true);
+        }
+
         return;
+    }
 
     if (e.mods.isPopupMenu())
         return showClipMenu (track, hit.clipId, hit.audio);
@@ -419,7 +443,7 @@ void TrackLanes::mouseDown (const juce::MouseEvent& e)
 
 void TrackLanes::mouseDrag (const juce::MouseEvent& e)
 {
-    if (dragMode == DragMode::none || e.getDistanceFromDragStart() < 3)
+    if (dragMode == DragMode::none || (e.getDistanceFromDragStart() < 3 && ! createdByPencil))
         return;
 
     const auto& map = ctx.document.getTempoMap();
@@ -430,7 +454,14 @@ void TrackLanes::mouseDrag (const juce::MouseEvent& e)
     if (dragMode == DragMode::resizeMidi)
     {
         const auto minLen = juce::jmax<collab::Tick> (1, ctx.state.timelineGrid.stepTicks());
-        const auto end = juce::jmax (dragOrigStart + minLen, snap ((double) (dragOrigStart + dragOrigLength) + delta, e.mods));
+        auto end = juce::jmax (dragOrigStart + minLen, snap ((double) (dragOrigStart + dragOrigLength) + delta, e.mods));
+
+        if (createdByPencil)
+        {
+            // 鉛筆で作ったクリップは小節単位で伸ばす（最低 1 小節）
+            const int endBar = juce::jmax (map.tickToBar (dragOrigStart) + 1, map.tickToBar ((collab::Tick) juce::jmax (0.0, tickNow)) + 1);
+            end = map.barToTick (endBar);
+        }
 
         editClip ("クリップの長さ変更"_ju, [clipId, end] (collab::Track& t)
         {
@@ -543,50 +574,54 @@ void TrackLanes::mouseDrag (const juce::MouseEvent& e)
 void TrackLanes::mouseUp (const juce::MouseEvent&)
 {
     dragMode = DragMode::none;
+    createdByPencil = false;
     ctx.document.endMerge();
 }
 
 void TrackLanes::mouseDoubleClick (const juce::MouseEvent& e)
 {
+    // MIDI クリップをダブルクリックしたらピアノロールで開く（空いている所では何もしない。作成は鉛筆ツールで）
     auto hit = findHit (e.position);
 
-    if (hit.trackIndex < 0)
-        return;
+    if (hit.trackIndex >= 0 && ! hit.clipId.empty() && ! hit.audio && onOpenClip)
+        onOpenClip();
+}
 
-    if (! hit.clipId.empty())
-    {
-        if (! hit.audio && onOpenClip)
-            onOpenClip();
-
-        return;
-    }
-
-    const auto& track = ctx.document.getProject().tracks[(size_t) hit.trackIndex];
-
-    if (track.type != collab::TrackType::midi)
-        return;
-
-    // クリックした小節の頭から 4 小節のクリップを作る
+void TrackLanes::createMidiClip (const std::string& trackId, int bar, bool thenDragLength)
+{
     const auto& map = ctx.document.getTempoMap();
-    const int bar = map.tickToBar ((collab::Tick) juce::jmax (0.0, ctx.state.timeline.xToTick (e.position.x)));
     collab::MidiClip clip;
     clip.id = collab::generateUuid();
     clip.startTick = map.barToTick (bar);
-    clip.lengthTick = map.barToTick (bar + 4) - clip.startTick;
+    clip.lengthTick = map.barToTick (bar + 1) - clip.startTick;
+    mergeId = juce::Uuid().toString();
 
-    auto trackId = track.id;
     ctx.document.perform ("クリップの作成"_ju, [trackId, clip] (collab::Project& p)
     {
         if (auto* t = p.findTrack (trackId))
             t->midiClips.push_back (clip);
-    });
+    }, mergeId);
 
     ctx.state.selectedTrackId = trackId;
     ctx.state.selectedClipId = clip.id;
     ctx.state.changed();
 
-    if (onOpenClip)
-        onOpenClip();
+    if (thenDragLength)
+    {
+        // 作成と長さの変更を 1 回の操作として元に戻せるように、同じ mergeId で長さを変える
+        dragMode = DragMode::resizeMidi;
+        dragTrackId = trackId;
+        dragClipId = clip.id;
+        dragAudio = false;
+        dragOrigStart = clip.startTick;
+        dragOrigLength = clip.lengthTick;
+        dragDownTick = (double) (clip.startTick + clip.lengthTick);
+        createdByPencil = true;
+    }
+    else
+    {
+        ctx.document.endMerge();
+    }
 }
 
 void TrackLanes::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
@@ -674,7 +709,6 @@ TimelineView::TimelineView (AppContext& c)
     addAndMakeVisible (chordVolume);
     updateChordControls();
     addAndMakeVisible (headerHolder);
-    addAndMakeVisible (addTrackButton);
     addAndMakeVisible (hScroll);
     addAndMakeVisible (vScroll);
     addAndMakeVisible (playhead);
@@ -683,8 +717,6 @@ TimelineView::TimelineView (AppContext& c)
     ruler.onWheel = [this] (auto& e, auto& w) { handleWheel (e, w); };
     lanes.onWheel = [this] (auto& e, auto& w) { handleWheel (e, w); };
     lanes.onOpenClip = [this] { if (onOpenClip) onOpenClip(); };
-
-    addTrackButton.onClick = [this] { showAddTrackMenu(); };
 
     hScroll.addListener (this);
     vScroll.addListener (this);
@@ -746,7 +778,6 @@ void TimelineView::resized()
     }
 
     left.removeFromTop (topHeight);
-    addTrackButton.setBounds (left.removeFromBottom (scrollBarSize + 22).reduced (6, 2).withTrimmedBottom (scrollBarSize - 2));
     headerHolder.setBounds (left.withTrimmedRight (1));
 
     playhead.setBounds (ruler.getX(), ruler.getY(), ruler.getWidth(), lanes.getBottom() - ruler.getY());
@@ -862,6 +893,14 @@ void TimelineView::changeListenerCallback (juce::ChangeBroadcaster* source)
     playhead.refresh();
 }
 
+bool TimelineView::deleteLaneSelection()
+{
+    if (tempoLane.hasKeyboardFocus (false))  return tempoLane.deleteSelected();
+    if (meterLane.hasKeyboardFocus (false))  return meterLane.deleteSelected();
+    if (chordLane.hasKeyboardFocus (false))  return chordLane.deleteSelected();
+    return false;
+}
+
 void TimelineView::setPlayheadTick (double tick)
 {
     playhead.setTick (tick);
@@ -879,13 +918,15 @@ void TimelineView::followPlayhead (double tick)
     }
 }
 
-void TimelineView::showAddTrackMenu()
+void TimelineView::mouseDown (const juce::MouseEvent& e)
 {
-    juce::PopupMenu m;
-    m.addItem ("MIDIトラック（ドラム）"_ju, [this] { ctx.addBuiltinMidiTrack (collab::builtin::drums, "Drums"); });
-    m.addItem ("MIDIトラック（ベース）"_ju, [this] { ctx.addBuiltinMidiTrack (collab::builtin::bass, "Bass"); });
-    m.addItem ("MIDIトラック（ピアノ）"_ju, [this] { ctx.addBuiltinMidiTrack (collab::builtin::piano, "Piano"); });
-    m.addSeparator();
-    m.addItem ("オーディオトラック"_ju, [this] { ctx.addAudioTrack ("Audio"); });
-    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&addTrackButton));
+    // 左上（テンポ・拍子・コードの見出し）を右クリックしてもトラックを追加できる
+    if (e.mods.isPopupMenu() && e.x < headerWidth && ctx.addTrackMenu)
+        ctx.addTrackMenu().showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
+}
+
+void TimelineView::HeaderArea::mouseDown (const juce::MouseEvent& e)
+{
+    if (e.mods.isPopupMenu() && ctx.addTrackMenu)
+        ctx.addTrackMenu().showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
 }

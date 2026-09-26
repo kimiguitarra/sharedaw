@@ -19,7 +19,16 @@ public:
     void resized() override;
 
 private:
+    /** ツール（選択・鉛筆）のボタン。アイコンだけを描く。 */
+    struct ToolButton  : public juce::Button
+    {
+        ToolButton (bool pencilIcon) : juce::Button ({}), pencil (pencilIcon) {}
+        void paintButton (juce::Graphics&, bool highlighted, bool down) override;
+        bool pencil;
+    };
+
     AppContext& ctx;
+    ToolButton selectTool { false }, pencilTool { true };
     juce::TextButton toStartButton, playButton, stopButton, recordButton, loopButton, metronomeButton, settingsButton;
     juce::Slider metronomeVolume { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     juce::Label barBeatLabel, timeLabel, tempoLabel;

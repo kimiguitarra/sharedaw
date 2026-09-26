@@ -19,6 +19,18 @@ void askText (const juce::String& title, const juce::String& message, const juce
         if (result == 1 && onOk)
             onOk (w->getTextEditorContents ("text").trim());
     }), true);
+
+    // すぐに入力できるように入力欄にフォーカスを移す
+    juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<juce::AlertWindow> (w)]
+    {
+        if (safe != nullptr)
+            if (auto* ed = safe->getTextEditor ("text"))
+            {
+                safe->toFront (true);
+                ed->grabKeyboardFocus();
+                ed->selectAll();
+            }
+    });
 }
 
 void confirm (const juce::String& title, const juce::String& message, const juce::String& okText,

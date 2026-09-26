@@ -180,6 +180,9 @@ void NoteGrid::paint (juce::Graphics& g)
 
 void NoteGrid::mouseMove (const juce::MouseEvent& e)
 {
+    if (owner.ctx.state.pencil())
+        return setMouseCursor (Theme::pencilCursor());
+
     bool edge = false;
     auto* n = hitNote (e.position, edge);
     setMouseCursor (n != nullptr && edge ? juce::MouseCursor::LeftRightResizeCursor
@@ -199,6 +202,51 @@ void NoteGrid::mouseDown (const juce::MouseEvent& e)
     bool edge = false;
     auto* n = hitNote (e.position, edge);
     mergeId = juce::Uuid().toString();
+
+    if (owner.ctx.state.pencil() && ! e.mods.isPopupMenu())
+    {
+        // 鉛筆ツール: ノートをクリックしたら消す（Cubase のキーエディターと同じ）、空いている所なら置く
+        if (n != nullptr)
+        {
+            if (owner.ctx.state.behaviour().pencilClickOnNoteDeletes)
+            {
+                auto id = n->id;
+                owner.selectedNotes.erase (id);
+                owner.editNotes ("ノートの削除"_ju, [id] (collab::MidiClip& c)
+                {
+                    c.notes.erase (std::remove_if (c.notes.begin(), c.notes.end(), [&] (auto& x) { return x.id == id; }), c.notes.end());
+                });
+            }
+
+            return;
+        }
+
+        const auto abs = owner.snap (owner.axis().xToTick (e.position.x), true, e.mods);
+
+        if (abs < clip->startTick || abs >= clip->endTick())
+            return;
+
+        const auto step = owner.ctx.state.grid.stepTicks();
+        collab::Note note;
+        note.id = collab::generateUuid();
+        note.tick = abs - clip->startTick;
+        note.lengthTick = juce::jmax<collab::Tick> (10, e.mods.isAltDown() || step <= 0 ? owner.lastNoteLength : step);
+        note.pitch = owner.yToPitch (e.position.y);
+        note.velocity = owner.lastVelocity;
+
+        owner.editNotes ("ノートの追加"_ju, [note] (collab::MidiClip& c) { c.notes.push_back (note); }, mergeId);
+        owner.selectedNotes = { note.id };
+        owner.previewNote (note.pitch, note.velocity);
+
+        // そのまま右へドラッグすると長さを変えられる（追加と同じ 1 回の操作として元に戻る）
+        mode = Mode::resize;
+        anchorId = note.id;
+        downTick = (double) (clip->startTick + note.tick + note.lengthTick);
+        downPitch = note.pitch;
+        originals = { { note.id, { note.tick, note.lengthTick, note.pitch } } };
+        drawingNote = true;
+        return;
+    }
 
     if (n == nullptr)
     {
@@ -229,6 +277,7 @@ void NoteGrid::mouseDown (const juce::MouseEvent& e)
 
     owner.lastNoteLength = n->lengthTick;
     owner.lastVelocity = n->velocity;
+    owner.previewNote (n->pitch, n->velocity);
 
     mode = edge ? Mode::resize : Mode::move;
     anchorId = n->id;
@@ -271,7 +320,7 @@ void NoteGrid::mouseDrag (const juce::MouseEvent& e)
         return;
     }
 
-    if ((mode != Mode::move && mode != Mode::resize) || e.getDistanceFromDragStart() < 2)
+    if ((mode != Mode::move && mode != Mode::resize) || (e.getDistanceFromDragStart() < 2 && ! drawingNote))
         return;
 
     auto anchor = originals.find (anchorId);
@@ -336,44 +385,13 @@ void NoteGrid::mouseUp (const juce::MouseEvent&)
                 owner.lastNoteLength = n.lengthTick;
 
     mode = Mode::none;
+    drawingNote = false;
     owner.ctx.document.endMerge();
 }
 
-void NoteGrid::mouseDoubleClick (const juce::MouseEvent& e)
+void NoteGrid::mouseDoubleClick (const juce::MouseEvent&)
 {
-    auto* clip = owner.getClip();
-
-    if (clip == nullptr)
-        return;
-
-    bool edge = false;
-
-    if (auto* n = hitNote (e.position, edge))
-    {
-        auto id = n->id;
-        owner.selectedNotes.erase (id);
-        owner.editNotes ("ノートの削除"_ju, [id] (collab::MidiClip& c)
-        {
-            c.notes.erase (std::remove_if (c.notes.begin(), c.notes.end(), [&] (auto& x) { return x.id == id; }), c.notes.end());
-        });
-        return;
-    }
-
-    const auto abs = owner.snap (owner.axis().xToTick (e.position.x), true, e.mods);
-
-    if (abs < clip->startTick || abs >= clip->endTick())
-        return;
-
-    collab::Note note;
-    note.id = collab::generateUuid();
-    note.tick = abs - clip->startTick;
-    note.lengthTick = juce::jmax<collab::Tick> (10, owner.lastNoteLength);
-    note.pitch = owner.yToPitch (e.position.y);
-    note.velocity = owner.lastVelocity;
-
-    owner.editNotes ("ノートの追加"_ju, [note] (collab::MidiClip& c) { c.notes.push_back (note); });
-    owner.selectedNotes = { note.id };
-    mode = Mode::none;
+    // 追加・削除は鉛筆ツールで行う（選択ツールのダブルクリックでは何もしない）
 }
 
 void NoteGrid::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
@@ -543,7 +561,7 @@ PianoRollView::PianoRollView (AppContext& c)
     quantiseButton.onClick = [this] { quantiseSelection(); };
     addAndMakeVisible (quantiseButton);
 
-    hintLabel.setText ("ダブルクリック: ノート追加／削除　ドラッグ: 移動・範囲選択　右端: 長さ　↑↓: 移調　Del: 削除"_ju,
+    hintLabel.setText ("鉛筆: クリックでノート追加（ドラッグで長さ）・ノートをクリックで削除　選択: ドラッグで移動・範囲選択、右端で長さ　↑↓: 移調　Del: 削除"_ju,
                        juce::dontSendNotification);
     hintLabel.setColour (juce::Label::textColourId, Theme::textDim);
     hintLabel.setFont (juce::FontOptions (12.0f));
@@ -633,6 +651,12 @@ void PianoRollView::resized()
 void PianoRollView::setPlayheadTick (double tick)
 {
     playhead.setTick (tick);
+}
+
+void PianoRollView::previewNote (int pitch, int velocity)
+{
+    if (auto* t = getTrack())
+        ctx.engine.previewNote (t->id, pitch, velocity);
 }
 
 void PianoRollView::focusEditor()

@@ -59,48 +59,24 @@ void Ruler::paint (juce::Graphics& g)
     g.drawHorizontalLine (getHeight() - 1, 0.0f, (float) getWidth());
 }
 
-collab::Tick Ruler::snapToBeat (double tick) const
+void Ruler::seekTo (float x)
 {
-    const auto& map = document.getTempoMap();
-    const auto t = (collab::Tick) juce::jmax (0.0, tick);
-    const auto sig = map.timeSignatureAtTick (t);
-    collab::Grid beat { sig.denominator, false, true };
-    return beat.snap (t, map);
+    if (onSeek)
+        onSeek (juce::jmax (0.0, axis.xToTick (x)));
 }
 
 void Ruler::mouseDown (const juce::MouseEvent& e)
 {
-    dragStartTick = snapToBeat (axis.xToTick (e.position.x));
-    draggingLoop = false;
+    seekTo (e.position.x);
 }
 
 void Ruler::mouseDrag (const juce::MouseEvent& e)
 {
-    if (e.getDistanceFromDragStart() < 4 && ! draggingLoop)
-        return;
-
-    draggingLoop = true;
-    const auto t = snapToBeat (axis.xToTick (e.position.x));
-    state.loopStart = juce::jmin (dragStartTick, t);
-    state.loopEnd = juce::jmax (dragStartTick, t);
-    state.changed();
+    seekTo (e.position.x);
 }
 
-void Ruler::mouseUp (const juce::MouseEvent& e)
+void Ruler::mouseUp (const juce::MouseEvent&)
 {
-    if (draggingLoop)
-    {
-        if (state.loopEnd > state.loopStart)
-        {
-            state.loopEnabled = true;
-            state.changed();
-        }
-
-        return;
-    }
-
-    if (onSeek)
-        onSeek (juce::jmax (0.0, axis.xToTick (e.position.x)));
 }
 
 void Ruler::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w)

@@ -3,7 +3,10 @@
 #include "ProjectDocument.h"
 #include "EditorState.h"
 
-/** 小節番号のルーラー。クリックで再生位置の移動、ドラッグでループ範囲の設定。 */
+/**
+    小節番号のルーラー。クリック・ドラッグで再生位置を動かす。
+    ループ範囲は表示するだけで、ここでは設定しない（うっかりループが作られないように。範囲は「ループ範囲を選択範囲に合わせる」で設定する）。
+*/
 class Ruler  : public juce::Component,
                private juce::ChangeListener
 {
@@ -25,10 +28,7 @@ private:
     ProjectDocument& document;
     EditorState& state;
     TimeAxis& axis;
-    collab::Tick dragStartTick = 0;
-    bool draggingLoop = false;
-
-    collab::Tick snapToBeat (double tick) const;
+    void seekTo (float x);
     void changeListenerCallback (juce::ChangeBroadcaster*) override    { repaint(); }
 };
 

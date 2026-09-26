@@ -87,6 +87,10 @@ EngineBridge::EngineBridge (te::Engine& e, ProjectDocument& doc, const Instrumen
 
 EngineBridge::~EngineBridge()
 {
+    for (auto& [id, b] : bindings)
+        b.meter.reset();
+
+    chordMeter.reset();
     document.removeChangeListener (this);
     engine.getDeviceManager().removeChangeListener (this);
     edit->getTransport().removeListener (this);
@@ -150,6 +154,7 @@ void EngineBridge::sync()
         {
             removeInstrument (it->second);
             removeEffects (it->second);
+            it->second.meter.reset();   // メーターを外してからトラックを消す
             edit->deleteTrack (it->second.track.get());
             it = bindings.erase (it);
         }
@@ -166,7 +171,15 @@ void EngineBridge::sync()
         auto& b = bindings[t.id];
 
         if (b.track == nullptr)
+        {
             b.track = createTrack();
+
+            if (b.track != nullptr)
+            {
+                b.meter = std::make_unique<Meter>();
+                b.meter->attach (*b.track);
+            }
+        }
 
         if (b.track == nullptr)
             continue;
@@ -731,6 +744,8 @@ void EngineBridge::syncChordTrack (bool tempoChanged)
 
         chordTrack->setName ("Chord Track");
         chordSynth = addSynth (*chordTrack);
+        chordMeter = std::make_unique<Meter>();
+        chordMeter->attach (*chordTrack);
     }
 
     // 発音先（内蔵ピアノ）
@@ -1190,5 +1205,61 @@ void EngineBridge::recordingFinished (te::InputDeviceInstance&, te::EditItemID t
 
         if (onRecordingFinished)
             onRecordingFinished (std::move (takes));
+    });
+}
+
+//==============================================================================
+void EngineBridge::Meter::attach (te::AudioTrack& track)
+{
+    detach();
+
+    if (auto* plugin = track.getLevelMeterPlugin())
+    {
+        measurer = &plugin->measurer;
+        measurer->addClient (client);
+    }
+}
+
+void EngineBridge::Meter::detach()
+{
+    if (measurer != nullptr)
+        measurer->removeClient (client);
+
+    measurer = nullptr;
+}
+
+float EngineBridge::getTrackPeakDb (const std::string& trackId)
+{
+    Meter* meter = nullptr;
+
+    if (trackId.empty())
+        meter = chordMeter.get();
+    else if (auto it = bindings.find (trackId); it != bindings.end())
+        meter = it->second.meter.get();
+
+    if (meter == nullptr || meter->measurer == nullptr)
+        return -100.0f;
+
+    return juce::jmax (meter->client.getAndClearAudioLevel (0).dB, meter->client.getAndClearAudioLevel (1).dB);
+}
+
+void EngineBridge::previewNote (const std::string& trackId, int pitch, int velocity)
+{
+    auto it = bindings.find (trackId);
+
+    if (it == bindings.end() || it->second.track == nullptr || it->second.renderMode || isPlaying())
+        return;
+
+    it->second.track->injectLiveMidiMessage (juce::MidiMessage::noteOn (1, pitch, (juce::uint8) juce::jlimit (1, 127, velocity)),
+                                             te::MPESourceID());
+
+    // 少し後で止める（その間にトラックが消えたり、アプリが終了していたら何もしない）
+    juce::Timer::callAfterDelay (300, [this, alive = std::weak_ptr<bool> (aliveFlag), trackId, pitch]
+    {
+        if (alive.expired())
+            return;
+
+        if (auto b = bindings.find (trackId); b != bindings.end() && b->second.track != nullptr)
+            b->second.track->injectLiveMidiMessage (juce::MidiMessage::noteOff (1, pitch), te::MPESourceID());
     });
 }
