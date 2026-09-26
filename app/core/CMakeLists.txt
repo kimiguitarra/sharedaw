@@ -12,6 +12,7 @@ add_custom_command(
 
 add_library(collab_core STATIC
     src/BuiltinInstruments.cpp
+    src/ChordPlayback.cpp
     src/GmDrumMap.cpp
     src/Grid.cpp
     src/Project.cpp
@@ -29,7 +30,7 @@ target_include_directories(collab_core
     PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
 target_link_libraries(collab_core
-    PUBLIC nlohmann_json::nlohmann_json
+    PUBLIC nlohmann_json::nlohmann_json collab::chord
     PRIVATE nlohmann_json_schema_validator utf8proc)
 
 target_compile_features(collab_core PUBLIC cxx_std_20)

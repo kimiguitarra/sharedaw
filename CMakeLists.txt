@@ -23,6 +23,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 include(cmake/Dependencies.cmake)
 
 add_subdirectory(app/core)
+add_subdirectory(app/chord)
 
 if(COLLAB_BUILD_TESTS)
     enable_testing()
