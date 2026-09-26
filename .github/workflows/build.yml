@@ -27,6 +27,23 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
+  # 同期サーバー（Cloudflare Workers）の型チェックと結合テスト
+  server:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
   app:
     name: app (${{ matrix.name }})
     runs-on: ${{ matrix.os }}

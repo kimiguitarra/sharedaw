@@ -1,0 +1,19 @@
+{
+  // CollabDAW 同期サーバー（作業スペース専用。正式データ置き場とは別の Worker / R2 / D1 を使う: 仕様書 §6.1）
+  "name": "collabdaw-sync",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    { "binding": "DB", "database_name": "collabdaw-sync", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }
+  ],
+  "r2_buckets": [
+    { "binding": "BLOBS", "bucket_name": "collabdaw-sync-blobs" }
+  ],
+  "vars": {
+    // 署名付き URL（R2 の S3 互換 API）を使うときに設定する。未設定なら Worker 経由のアップロード（開発用）になる
+    "R2_BUCKET_NAME": "collabdaw-sync-blobs",
+    "R2_ACCOUNT_ID": ""
+  }
+  // シークレット（wrangler secret put）: R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
+}
