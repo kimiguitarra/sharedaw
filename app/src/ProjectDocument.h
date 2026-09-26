@@ -84,6 +84,9 @@ public:
     */
     std::function<bool (const collab::Project& before, const collab::Project& after)> editGuard;
 
+    /** 保存・自動保存の直前に呼ばれる（外部プラグインの状態を書き出すため）。 */
+    std::function<void()> beforeSave;
+
     /** pull の結果でプロジェクトを置き換える（元に戻す履歴は消える）。 */
     void replaceFromSync (collab::Project);
 

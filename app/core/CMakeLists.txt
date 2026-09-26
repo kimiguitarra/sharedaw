@@ -19,8 +19,10 @@ add_library(collab_core STATIC
     src/Project.cpp
     src/ProjectDiff.cpp
     src/ProjectJson.cpp
+    src/Render.cpp
     src/Sha256.cpp
     src/TempoMap.cpp
+    src/Time.cpp
     src/Unicode.cpp
     src/Uuid.cpp
     "${COLLAB_SCHEMA_HEADER}")

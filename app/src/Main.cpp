@@ -12,8 +12,10 @@
 #include "collab/ProjectDiff.h"
 #include "collab/ChordPlayback.h"
 #include "collab/ClipEditing.h"
+#include "collab/Render.h"
 #include "collab/Uuid.h"
 #include "audio/AudioFiles.h"
+#include "plugins/PluginHost.h"
 #include "ui/Dialogs.h"
 #include "ui/MainComponent.h"
 #include "ui/Theme.h"
@@ -24,6 +26,9 @@ namespace
     struct CollabEngineBehaviour  : public te::EngineBehaviour
     {
         bool autoInitialiseDeviceManager() override   { return true; }
+
+        // プラグインのスキャンは別プロセスで行う（§3.4: クラッシュしても本体は落ちない）
+        bool canScanPluginsOutOfProcess() override    { return true; }
     };
 
     /** Tracktion からの UI 要求。書き出しなどの重い処理は、いまは同期実行する（進捗表示は M2 で追加）。 */
@@ -90,10 +95,17 @@ public:
     const juce::String getApplicationName() override       { return JUCE_APPLICATION_NAME_STRING; }
     const juce::String getApplicationVersion() override    { return JUCE_APPLICATION_VERSION_STRING; }
     // コマンドライン操作（--render / --sync-*）は GUI と同時に動かせるようにする
-    bool moreThanOneInstanceAllowed() override             { return getCommandLineParameters().startsWith ("--"); }
+    bool moreThanOneInstanceAllowed() override             { return getCommandLineParameters().isNotEmpty(); }
 
-    void initialise (const juce::String&) override
+    void initialise (const juce::String& commandLine) override
     {
+        // プラグインのスキャン用の子プロセスとして起動された場合（§3.4: スキャンは別プロセス）
+        if (te::PluginManager::startChildProcessPluginScan (commandLine))
+        {
+            childProcessMode = true;
+            return;
+        }
+
         juce::LookAndFeel::setDefaultLookAndFeel (&lookAndFeel);
 
         juce::PropertiesFile::Options opts;
@@ -108,12 +120,14 @@ public:
         engine = std::make_unique<te::Engine> (getApplicationName(), std::make_unique<CollabUIBehaviour>(),
                                                std::make_unique<CollabEngineBehaviour>());
         engine->getPluginManager().createBuiltInType<SfizzPlugin>();
+        engine->getPluginManager().setUsesSeparateProcessForScanning (true);
         preferProjectSampleRate();
 
         library = std::make_unique<InstrumentLibrary> (AppPaths::getAssetsDir());
         document = std::make_unique<ProjectDocument>();
         bridge = std::make_unique<EngineBridge> (*engine, *document, *library);
         sync = std::make_unique<SyncManager> (*document, *settings);
+        document->beforeSave = [this] { bridge->flushPluginStates(); };
 
         // コマンドライン: --render <プロジェクトフォルダ> <出力.wav>（動作確認・CI 用）
         if (auto args = getCommandLineParameterArray(); args.size() >= 3 && args[0] == "--render")
@@ -127,6 +141,28 @@ public:
         if (auto args = getCommandLineParameterArray(); args.size() >= 3 && args[0] == "--import-audio")
         {
             setApplicationReturnValue (importAudioCommand (args));
+            quit();
+            return;
+        }
+
+        // --scan-plugins（動作確認用: 別プロセスでスキャンし、クラッシュしたものはブラックリストへ）
+        if (auto args = getCommandLineParameterArray(); ! args.isEmpty() && args[0] == "--scan-plugins")
+        {
+            auto result = PluginHost::scan (*engine, nullptr);
+            std::cout << "found " << result.found << " plugin(s)" << std::endl;
+
+            for (auto& f : result.blacklisted)
+                std::cout << "blacklisted: " << f << std::endl;
+
+            setApplicationReturnValue (0);
+            quit();
+            return;
+        }
+
+        // --bounce <プロジェクトフォルダ> [トラック名]  /  --render-status <プロジェクトフォルダ>（動作確認用）
+        if (auto args = getCommandLineParameterArray(); args.size() >= 2 && (args[0] == "--bounce" || args[0] == "--render-status"))
+        {
+            setApplicationReturnValue (bounceCommand (args));
             quit();
             return;
         }
@@ -184,6 +220,9 @@ public:
 
     void shutdown() override
     {
+        if (childProcessMode)
+            return;
+
         if (document != nullptr)
             document->writeAutosave();
 
@@ -199,6 +238,9 @@ public:
 
     void systemRequestedQuit() override
     {
+        if (childProcessMode)
+            return quit();
+
         if (mainComponent == nullptr)
             return quit();
 
@@ -218,6 +260,7 @@ private:
     std::unique_ptr<MainWindow> mainWindow;
     MainComponent* mainComponent = nullptr;
     SessionGuard sessionGuard;
+    bool childProcessMode = false;
 
     int importAudioCommand (const juce::StringArray& args)
     {
@@ -262,6 +305,64 @@ private:
 
         document->perform ("import", [track] (collab::Project& p) { p.tracks.push_back (track); });
         return document->save().wasOk() ? 0 : 4;
+    }
+
+    int bounceCommand (const juce::StringArray& args)
+    {
+        try
+        {
+            document->load (juce::File (args[1]));
+        }
+        catch (const std::exception& e)
+        {
+            std::cerr << "load failed: " << e.what() << std::endl;
+            return 2;
+        }
+
+        bridge->sync();
+
+        if (args[0] == "--bounce")
+        {
+            bridge->flushPluginStates();
+
+            for (const auto& t : document->getProject().tracks)
+            {
+                if (args.size() >= 3 ? toJuce (t.name) != args[2] : ! collab::usesExternalPlugin (t))
+                    continue;
+
+                collab::Render render;
+
+                if (auto r = bridge->bounceTrack (t.id, render); r.failed())
+                {
+                    std::cerr << "bounce failed: " << t.name << ": " << r.getErrorMessage() << std::endl;
+                    return 3;
+                }
+
+                const auto id = t.id;
+                document->perform ("bounce", [id, render] (collab::Project& p)
+                {
+                    if (auto* track = p.findTrack (id))
+                        track->render = render;
+                });
+                std::cout << "bounced " << t.name << " -> " << render.audioHash << std::endl;
+            }
+
+            if (auto r = document->save(); r.failed())
+            {
+                std::cerr << "save failed: " << r.getErrorMessage() << std::endl;
+                return 4;
+            }
+        }
+
+        for (const auto& t : document->getProject().tracks)
+        {
+            static const char* names[] = { "notNeeded", "missing", "stale", "upToDate" };
+            const auto status = collab::renderStatus (t, bridge->trackFingerprint (t));
+            std::cout << t.name << ": " << names[(int) status]
+                      << (bridge->isPlayingRender (t.id) ? " (playing render)" : "") << std::endl;
+        }
+
+        return 0;
     }
 
     int renderProject (const juce::File& folder, const juce::File& output)
@@ -404,6 +505,7 @@ private:
             if (auto r = sync->fetchPushPlan (document->getProject(), plan); r.failed()) return fail (r.getErrorMessage());
             if (plan.needsPull) return fail ("pull required (head " + juce::String (plan.head) + ")");
             if (! plan.notLocked.empty()) return fail ("lock required: " + juce::String (plan.notLocked.front()));
+            if (! plan.staleRenders.empty()) return fail ("bounce required: " + juce::String (plan.staleRenders.front()));
 
             for (auto& c : plan.diff.changes)
                 std::cout << "  " << c.scopeName << ": " << c.summary << std::endl;

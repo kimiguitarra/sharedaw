@@ -48,6 +48,30 @@ public:
     /** 先頭から endTick + tailSeconds までをオフラインで WAV に書き出す（メトロノームは含めない）。 */
     bool renderToFile (const juce::File& output, collab::Tick endTick, double tailSeconds = 2.0);
 
+    /** トラック1本をバウンスする（§3.7: 48kHz / 32bit float、先頭から末尾 + 余白）。 */
+    juce::Result renderTrack (const std::string& trackId, const juce::File& output, double tailSeconds = 2.0);
+
+    /** バウンスして audio/<hash>.wav に保存し、Project に書き込む render 情報を返す（プロジェクトの保存先が必要）。
+        先に flushPluginStates() を呼んでおくこと（フィンガープリントに状態ファイルのハッシュが入る）。 */
+    juce::Result bounceTrack (const std::string& trackId, collab::Render& result);
+
+    /** トラックの音の元（MIDI・音源・エフェクト・プラグインの状態）のフィンガープリント（§3.7）。 */
+    std::string trackFingerprint (const collab::Track&) const;
+
+    /** 外部プラグインの状態を plugins-state/ に書き出す（保存・バウンス・push の前に呼ぶ）。変わったら true。 */
+    bool flushPluginStates();
+
+    /** 外部プラグイン（音源は effectId を空に）。エディタを開くため。 */
+    te::Plugin* getExternalPlugin (const std::string& trackId, const std::string& effectId = {}) const;
+
+    /** このトラックをバウンスした音で再生しているか（プラグインを鳴らせない環境）。 */
+    bool isPlayingRender (const std::string& trackId) const;
+
+    te::Engine& getEngine() noexcept                { return engine; }
+
+    /** プラグインを削除する直前に呼ばれる（エディタのウィンドウを閉じるため）。 */
+    std::function<void (te::Plugin*)> onPluginRemoved;
+
     /** 今すぐ Project を Edit に反映する。 */
     void sync();
 
@@ -60,6 +84,14 @@ private:
         std::string clipsKey;
         juce::String problem;
         int missingAudio = 0;
+
+        bool renderMode = false;
+        te::Plugin::Ptr externalInstrument;
+        std::string instrumentKey, instrumentStateRef;
+
+        struct Effect { std::string id, stateRef; te::Plugin::Ptr plugin; };
+        std::vector<Effect> effects;
+        std::string effectsKey;
     };
 
     te::Engine& engine;
@@ -89,6 +121,11 @@ private:
     SfizzPlugin* addSynth (te::AudioTrack&);
     void syncTrack (const collab::Track&, Binding&, bool tempoChanged);
     void syncInstrument (const collab::Track&, Binding&);
+    void syncEffects (const collab::Track&, Binding&);
+    void removeInstrument (Binding&);
+    void removeEffects (Binding&);
+    bool canPlayLive (const collab::Track&, juce::String& why) const;
+    te::Plugin::Ptr createExternal (const collab::ExternalPlugin&, const std::string& stateRef);
     void syncMetronome (bool tempoChanged);
     void syncChordTrack (bool tempoChanged);
     void applyLoop();

@@ -178,6 +178,10 @@ juce::Result ProjectDocument::save()
         return juce::Result::fail ("保存先が決まっていません"_ju);
 
     createFolderStructure (projectDir);
+
+    if (beforeSave)
+        beforeSave();
+
     auto r = writeTextAtomically (getProjectFile(), collab::serialiseProject (project));
 
     if (r.wasOk())
@@ -229,6 +233,9 @@ void ProjectDocument::writeAutosave (bool force)
 {
     if (! force && ! autosaveDirty)
         return;
+
+    if (beforeSave && hasLocation())
+        beforeSave();
 
     auto r = writeTextAtomically (getAutosaveFile(), collab::serialiseProject (project));
 

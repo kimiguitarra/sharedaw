@@ -259,8 +259,20 @@ void MainComponent::push()
         return Dialogs::showError ("ロックが必要です"_ju, "次のトラックのロックを持っていません: "_ju + joinNames (sync, plan->notLocked));
 
     if (! plan->staleRenders.empty())
-        return Dialogs::showError ("バウンスが必要です"_ju, "外部プラグインを使うトラックはバウンスしてから push してください: "_ju
-                                                             + joinNames (sync, plan->staleRenders));
+    {
+        auto message = "外部プラグインを使うトラックはバウンスしてから push してください: "_ju + joinNames (sync, plan->staleRenders);
+
+        for (auto& id : plan->staleRenders)
+            if (bridge.isPlayingRender (id))
+            {
+                message << "\n\n"
+                        << "この環境で鳴らせないプラグインのトラックは、ここではバウンスできません。"_ju
+                        << "ノートなど音の元の変更を元に戻すか、プラグインの持ち主にバウンスしてもらってください。"_ju;
+                break;
+            }
+
+        return Dialogs::showError ("バウンスが必要です"_ju, message);
+    }
 
     const auto headline = "リビジョン "_ju + juce::String (sync.getMeta().baseRevision) + " からの変更（ベース → ローカル）"_ju;
 

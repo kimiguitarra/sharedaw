@@ -59,7 +59,7 @@ jobs:
             configure: -G Xcode -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
           - name: linux
             os: ubuntu-24.04
-            configure: -G Ninja -DCMAKE_BUILD_TYPE=Release
+            configure: -G Ninja -DCMAKE_BUILD_TYPE=Release -DCOLLAB_BUILD_TEST_PLUGINS=ON
 
     steps:
       - uses: actions/checkout@v4
@@ -96,6 +96,10 @@ jobs:
         run: |
           cp -r shared/fixtures/demo-project /tmp/demo
           xvfb-run -a ./build/app/CollabDAW_artefacts/Release/CollabDAW --render /tmp/demo /tmp/demo.wav
+
+      - name: Plugin smoke test (Linux)
+        if: runner.os == 'Linux'
+        run: tools/plugin-smoke-test.sh "$PWD/build/app/CollabDAW_artefacts/Release/CollabDAW" "$PWD/build"
 
       - name: Check universal binary (macOS)
         if: runner.os == 'macOS'

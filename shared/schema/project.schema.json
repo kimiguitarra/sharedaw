@@ -290,7 +290,8 @@
         "os": {
           "enum": [
             "windows",
-            "mac"
+            "mac",
+            "linux"
           ]
         }
       }

@@ -16,7 +16,7 @@ namespace
         cmdAudioSettings, cmdCredits, cmdAbout,
         cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
         cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory, cmdSyncRefreshLocks,
-        cmdAddAudioTrack, cmdImportAudio, cmdSplit
+        cmdAddAudioTrack, cmdImportAudio, cmdSplit, cmdPlugins
     };
 
     constexpr float fontScales[] = { 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
@@ -46,6 +46,16 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
 
     transport.onAudioSettings = [this] { showAudioSettings(); };
     audioCache.onThumbnailChanged = [this] { timeline.repaint(); };
+
+    // 外部プラグインのエディタ
+    ctx.openPluginEditor = [this] (const std::string& trackId, const std::string& effectId)
+    {
+        if (auto* plugin = bridge.getExternalPlugin (trackId, effectId))
+            pluginWindows.show (*plugin, plugin->getName());
+        else if (bridge.isPlayingRender (trackId))
+            Dialogs::showInfo ("プラグイン"_ju, "この環境ではプラグインを鳴らせないため、バウンスした音で再生しています。"_ju);
+    };
+    bridge.onPluginRemoved = [this] (te::Plugin* p) { pluginWindows.closeFor (p); };
     timeline.onOpenClip = [this] { pianoRoll.focusEditor(); };
 
     commandManager.registerAllCommandsForTarget (this);
@@ -73,6 +83,8 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
 
 MainComponent::~MainComponent()
 {
+    bridge.onPluginRemoved = nullptr;
+    pluginWindows.closeAll();
     sync.onLockRequired = nullptr;
     sync.removeChangeListener (this);
     document.removeChangeListener (this);
@@ -323,6 +335,69 @@ void MainComponent::importAudio()
     });
 }
 
+void MainComponent::showPluginManager()
+{
+    struct Manager  : public juce::Component
+    {
+        Manager (te::Engine& e, juce::PropertiesFile& props)
+            : engine (e),
+              list (e.getPluginManager().pluginFormatManager, e.getPluginManager().knownPluginList,
+                    e.getTemporaryFileManager().getTempDirectory().getChildFile ("plugin-scan-dead-mans-pedal"), &props, true)
+        {
+            scanButton.setButtonText ("プラグインをスキャン"_ju);
+            scanButton.onClick = [this]
+            {
+                PluginHost::ScanResult result;
+                SyncUI::runWithProgress ("プラグインをスキャンしています（別プロセス）"_ju, [&]
+                {
+                    result = PluginHost::scan (engine, nullptr);
+                    return juce::Result::ok();
+                });
+
+                juce::String text = juce::String (result.found) + " 個のプラグインがあります。"_ju;
+
+                if (! result.blacklisted.isEmpty())
+                    text << "\n" << "スキャン中に問題が起きたため、次のプラグインは読み込みません: "_ju
+                         << result.blacklisted.joinIntoString ("、"_ju);
+
+                info.setText (text, juce::dontSendNotification);
+            };
+
+            info.setText ("VST3（Windows / Mac）と AU（Mac）に対応しています。スキャンは別プロセスで行います。"_ju, juce::dontSendNotification);
+            info.setColour (juce::Label::textColourId, Theme::textDim);
+            addAndMakeVisible (scanButton);
+            addAndMakeVisible (info);
+            addAndMakeVisible (list);
+            setSize (640, 480);
+        }
+
+        void resized() override
+        {
+            auto r = getLocalBounds().reduced (8);
+            auto top = r.removeFromTop (30);
+            scanButton.setBounds (top.removeFromLeft (180));
+            top.removeFromLeft (8);
+            info.setBounds (top);
+            r.removeFromTop (6);
+            list.setBounds (r);
+        }
+
+        te::Engine& engine;
+        juce::TextButton scanButton;
+        juce::Label info;
+        juce::PluginListComponent list;
+    };
+
+    juce::DialogWindow::LaunchOptions o;
+    o.content.setOwned (new Manager (engine, settings));
+    o.dialogTitle = "プラグイン"_ju;
+    o.dialogBackgroundColour = Theme::panel;
+    o.escapeKeyTriggersCloseButton = true;
+    o.useNativeTitleBar = true;
+    o.resizable = true;
+    o.launchAsync();
+}
+
 void MainComponent::showAudioSettings()
 {
     auto& dm = engine.getDeviceManager().deviceManager;
@@ -432,7 +507,7 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
                          cmdAddDrums, cmdAddBass, cmdAddPiano, cmdAudioSettings, cmdCredits, cmdAbout,
                          cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
                          cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory, cmdSyncRefreshLocks,
-                         cmdAddAudioTrack, cmdImportAudio, cmdSplit });
+                         cmdAddAudioTrack, cmdImportAudio, cmdSplit, cmdPlugins });
 }
 
 void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommandInfo& info)
@@ -481,6 +556,7 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdAddDrums:   info.setInfo ("MIDIトラックを追加（ドラム）"_ju, {}, "Track", 0); break;
         case cmdAddBass:    info.setInfo ("MIDIトラックを追加（ベース）"_ju, {}, "Track", 0); break;
         case cmdAddPiano:   info.setInfo ("MIDIトラックを追加（ピアノ）"_ju, {}, "Track", 0); break;
+        case cmdPlugins:       info.setInfo ("プラグイン（スキャン・一覧）…"_ju, {}, "Options", 0); break;
         case cmdAddAudioTrack: info.setInfo ("オーディオトラックを追加"_ju, {}, "Track", 0); break;
         case cmdImportAudio:   info.setInfo ("オーディオを読み込む…"_ju, {}, "File", 0); info.addDefaultKeypress ('i', cmd); break;
         case cmdSplit:         info.setInfo ("再生位置で分割"_ju, {}, "Edit", 0); info.addDefaultKeypress ('s', 0); break;
@@ -526,6 +602,7 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdAddBass:    ctx.addBuiltinMidiTrack (collab::builtin::bass, "Bass"); break;
         case cmdAddPiano:   ctx.addBuiltinMidiTrack (collab::builtin::piano, "Piano"); break;
         case cmdAddAudioTrack: ctx.addAudioTrack ("Audio"); break;
+        case cmdPlugins:       showPluginManager(); break;
         case cmdImportAudio:   importAudio(); break;
         case cmdSplit:         ctx.splitAtPlayhead(); break;
         case cmdAudioSettings: showAudioSettings(); break;
@@ -581,6 +658,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addCommandItem (cm, cmdImportAudio);
             m.addSeparator();
             m.addCommandItem (cm, cmdAudioSettings);
+            m.addCommandItem (cm, cmdPlugins);
            #if ! JUCE_MAC
             m.addSeparator();
             m.addCommandItem (cm, juce::StandardApplicationCommandIDs::quit);

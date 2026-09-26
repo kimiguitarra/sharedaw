@@ -42,6 +42,7 @@ target_sources(CollabDAW PRIVATE
     src/ProjectDocument.cpp
     src/SessionGuard.cpp
     src/SfizzPlugin.cpp
+    src/plugins/PluginHost.cpp
     src/sync/CredentialStore.cpp
     src/sync/SyncClient.cpp
     src/sync/SyncManager.cpp
@@ -126,3 +127,10 @@ endif()
 add_custom_command(TARGET CollabDAW POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${PROJECT_SOURCE_DIR}/assets" "${COLLAB_ASSETS_DEST}"
     COMMENT "Copying assets")
+
+# 動作確認用のテストプラグイン（既定ではビルドしない）
+option(COLLAB_BUILD_TEST_PLUGINS "Build test VST3 plugins for manual/automated testing" OFF)
+
+if(COLLAB_BUILD_TEST_PLUGINS)
+    add_subdirectory(${PROJECT_SOURCE_DIR}/tools/test-plugins ${CMAKE_BINARY_DIR}/test-plugins)
+endif()

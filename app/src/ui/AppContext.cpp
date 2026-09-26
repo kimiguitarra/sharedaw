@@ -6,6 +6,9 @@
 #include "Dialogs.h"
 #include "SyncUI.h"
 #include "audio/AudioFiles.h"
+#include "collab/Render.h"
+#include "collab/Time.h"
+#include "plugins/PluginHost.h"
 
 void AppContext::addBuiltinMidiTrack (const std::string& instrumentId, const juce::String& name)
 {
@@ -194,5 +197,96 @@ void AppContext::splitAtPlayhead()
                     t->midiClips.push_back (r->second);
                     return;
                 }
+    });
+}
+
+//==============================================================================
+void AppContext::setBuiltinInstrument (const std::string& trackId, const std::string& instrumentId)
+{
+    auto* manifest = library.findLatest (instrumentId);
+
+    collab::Instrument inst;
+    inst.kind = collab::Instrument::Kind::builtin;
+    inst.id = instrumentId;
+    inst.version = manifest != nullptr ? manifest->version : "0.1.0";
+    inst.params = manifest != nullptr ? manifest->defaultParams : nlohmann::json::object();
+
+    document.perform ("音源の変更"_ju, [trackId, inst] (collab::Project& p)
+    {
+        if (auto* t = p.findTrack (trackId))
+            t->instrument = inst;
+    });
+}
+
+void AppContext::setExternalInstrument (const std::string& trackId, const juce::PluginDescription& desc)
+{
+    collab::Instrument inst;
+    inst.kind = collab::Instrument::Kind::external;
+    inst.plugin = PluginHost::describe (desc);
+    inst.stateRef = PluginHost::stateRefFor (collab::generateUuid());
+
+    document.perform ("音源の変更"_ju, [trackId, inst] (collab::Project& p)
+    {
+        if (auto* t = p.findTrack (trackId))
+            t->instrument = inst;
+    });
+}
+
+void AppContext::addEffect (const std::string& trackId, const juce::PluginDescription& desc)
+{
+    collab::Effect e;
+    e.id = collab::generateUuid();
+    e.plugin = PluginHost::describe (desc);
+    e.stateRef = PluginHost::stateRefFor (e.id);
+
+    document.perform ("エフェクトの追加"_ju, [trackId, e] (collab::Project& p)
+    {
+        if (auto* t = p.findTrack (trackId))
+            t->effects.push_back (e);
+    });
+}
+
+void AppContext::removeEffect (const std::string& trackId, const std::string& effectId)
+{
+    document.perform ("エフェクトの削除"_ju, [trackId, effectId] (collab::Project& p)
+    {
+        if (auto* t = p.findTrack (trackId))
+            std::erase_if (t->effects, [&] (auto& e) { return e.id == effectId; });
+    });
+}
+
+void AppContext::toggleEffectBypass (const std::string& trackId, const std::string& effectId)
+{
+    document.perform ("エフェクトのバイパス"_ju, [trackId, effectId] (collab::Project& p)
+    {
+        if (auto* t = p.findTrack (trackId))
+            for (auto& e : t->effects)
+                if (e.id == effectId)
+                    e.bypass = ! e.bypass;
+    });
+}
+
+std::string AppContext::fingerprint (const collab::Track& t) const
+{
+    return engine.trackFingerprint (t);
+}
+
+void AppContext::bounceTrack (const std::string& trackId)
+{
+    if (! document.hasLocation())
+        return Dialogs::showInfo ("バウンス"_ju, "バウンスした音はプロジェクトのフォルダに保存するので、先にプロジェクトを保存してください。"_ju);
+
+    engine.flushPluginStates();
+
+    collab::Render render;
+    auto r = SyncUI::runWithProgress ("バウンスしています"_ju, [&] { return engine.bounceTrack (trackId, render); });
+
+    if (r.failed())
+        return Dialogs::showError ("バウンスできませんでした"_ju, r.getErrorMessage());
+
+    document.perform ("バウンス"_ju, [trackId, render] (collab::Project& p)
+    {
+        if (auto* t = p.findTrack (trackId))
+            t->render = render;
     });
 }

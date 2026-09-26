@@ -4,6 +4,10 @@
 
 #include "SfizzPlugin.h"
 #include "collab/ChordPlayback.h"
+#include "collab/Render.h"
+#include "audio/AudioFiles.h"
+#include "collab/Time.h"
+#include "plugins/PluginHost.h"
 
 namespace
 {
@@ -108,6 +112,8 @@ void EngineBridge::sync()
     {
         if (project.findTrack (it->first) == nullptr)
         {
+            removeInstrument (it->second);
+            removeEffects (it->second);
             edit->deleteTrack (it->second.track.get());
             it = bindings.erase (it);
         }
@@ -166,11 +172,31 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
     if (track.isSolo (false) != t.solo)
         track.setSolo (t.solo);
 
-    if (t.type == collab::TrackType::midi)
-        syncInstrument (t, b);
+    // 外部プラグインを使うトラックは、この環境でプラグインを鳴らせなければバウンスした音で再生する（§3.7）
+    juce::String liveProblem;
+    const bool external = collab::usesExternalPlugin (t);
+    const bool renderMode = external && ! canPlayLive (t, liveProblem);
+    b.renderMode = renderMode;
+
+    if (renderMode)
+    {
+        removeInstrument (b);
+        removeEffects (b);
+        b.problem = t.render ? "プラグインを鳴らせないため、バウンスした音で再生しています（"_ju + liveProblem + "）"_ju
+                             : "プラグインを鳴らせず、バウンスもありません（"_ju + liveProblem + "）"_ju;
+    }
+    else
+    {
+        b.problem = {};
+
+        if (t.type == collab::TrackType::midi)
+            syncInstrument (t, b);
+
+        syncEffects (t, b);
+    }
 
     // クリップ（tick → 秒 → Tracktion の拍）
-    auto key = makeClipsKey (t);
+    auto key = makeClipsKey (t) + (renderMode ? "#render" : "");
 
     if (key == b.clipsKey && ! tempoChanged)
         return;
@@ -181,10 +207,35 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
         c->removeFromParent();
 
     const auto& map = document.getTempoMap();
-
-    // オーディオクリップ（非破壊: 実体は audio/<hash>.wav、クリップはオフセット・長さ・音量・フェードの参照）
     b.missingAudio = 0;
 
+    if (renderMode)
+    {
+        if (! t.render)
+            return;
+
+        auto file = document.getProjectDir().getChildFile ("audio").getChildFile (toJuce (t.render->audioHash) + ".wav");
+
+        if (! document.hasLocation() || ! file.existsAsFile())
+        {
+            b.missingAudio = 1;
+            return;
+        }
+
+        // バウンスは曲の先頭から書き出しているので、0 秒に置く
+        te::AudioFile audioFile (engine, file);
+        const te::ClipPosition pos { te::TimeRange (secondsToTime (0), te::TimeDuration::fromSeconds (audioFile.getLength())), {} };
+
+        if (auto clip = track.insertWaveClip ("render", file, pos, false))
+        {
+            clip->setAutoTempo (false);
+            clip->setAutoPitch (false);
+        }
+
+        return;
+    }
+
+    // オーディオクリップ（非破壊: 実体は audio/<hash>.wav、クリップはオフセット・長さ・音量・フェードの参照）
     for (auto& c : t.audioClips)
     {
         auto file = document.getProjectDir().getChildFile ("audio").getChildFile (toJuce (c.audioHash) + ".wav");
@@ -236,27 +287,178 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
     }
 }
 
+//==============================================================================
+bool EngineBridge::canPlayLive (const collab::Track& t, juce::String& why) const
+{
+    auto check = [&] (const collab::ExternalPlugin& plugin, const std::string& stateRef)
+    {
+        if (! PluginHost::find (engine, plugin))
+        {
+            why = "プラグイン「"_ju + toJuce (plugin.name) + "」が見つかりません"_ju;
+            return false;
+        }
+
+        // 状態ファイルは持ち主の環境にだけある（§7.2）。他の人の環境ではバウンスした音で再生する。
+        // バウンスがまだなければ、追加したばかり（状態ファイルは保存時に書かれる）なので鳴らす。
+        if (! stateRef.empty() && t.render && ! PluginHost::stateFile (document.getProjectDir(), stateRef).existsAsFile())
+        {
+            why = "他の人のプラグイン設定です"_ju;
+            return false;
+        }
+
+        return true;
+    };
+
+    if (t.instrument && t.instrument->kind == collab::Instrument::Kind::external)
+        if (! check (t.instrument->plugin, t.instrument->stateRef))
+            return false;
+
+    for (auto& e : t.effects)
+        if (! e.bypass && ! check (e.plugin, e.stateRef))
+            return false;
+
+    return true;
+}
+
+te::Plugin::Ptr EngineBridge::createExternal (const collab::ExternalPlugin& plugin, const std::string& stateRef)
+{
+    auto desc = PluginHost::find (engine, plugin);
+
+    if (! desc)
+        return {};
+
+    auto p = edit->getPluginCache().createNewPlugin (te::ExternalPlugin::xmlTypeName, *desc);
+
+    if (auto* ext = dynamic_cast<te::ExternalPlugin*> (p.get()))
+    {
+        juce::MemoryBlock state;
+
+        if (auto* instance = ext->getAudioPluginInstance();
+            instance != nullptr && ! stateRef.empty()
+             && PluginHost::stateFile (document.getProjectDir(), stateRef).loadFileAsData (state) && state.getSize() > 0)
+            instance->setStateInformation (state.getData(), (int) state.getSize());
+    }
+
+    return p;
+}
+
+void EngineBridge::removeInstrument (Binding& b)
+{
+    if (b.synth != nullptr)
+    {
+        b.synth->deleteFromParent();
+        b.synth = nullptr;
+        b.sfzText = {};
+    }
+
+    if (b.externalInstrument != nullptr)
+    {
+        if (onPluginRemoved) onPluginRemoved (b.externalInstrument.get());
+        b.externalInstrument->deleteFromParent();
+        b.externalInstrument = nullptr;
+        b.instrumentKey = {};
+    }
+}
+
+void EngineBridge::removeEffects (Binding& b)
+{
+    for (auto& e : b.effects)
+    {
+        if (onPluginRemoved) onPluginRemoved (e.plugin.get());
+        e.plugin->deleteFromParent();
+    }
+
+    b.effects.clear();
+    b.effectsKey = {};
+}
+
+void EngineBridge::syncEffects (const collab::Track& t, Binding& b)
+{
+    std::string key;
+
+    for (auto& e : t.effects)
+        key += e.id + "|" + e.plugin.uid + "|" + e.stateRef + ";";
+
+    if (key != b.effectsKey)
+    {
+        removeEffects (b);
+        b.effectsKey = key;
+
+        auto* vol = b.track->getVolumePlugin();
+        int index = vol != nullptr ? b.track->pluginList.indexOf (vol) : -1;
+
+        for (auto& e : t.effects)
+        {
+            if (auto p = createExternal (e.plugin, e.stateRef))
+            {
+                b.track->pluginList.insertPlugin (p, index < 0 ? -1 : index++, nullptr);
+                b.effects.push_back ({ e.id, e.stateRef, p });
+            }
+        }
+    }
+
+    // バイパス（エフェクトを通さない）
+    for (auto& e : t.effects)
+        for (auto& be : b.effects)
+            if (be.id == e.id && be.plugin->isEnabled() == e.bypass)
+                be.plugin->setEnabled (! e.bypass);
+}
+
 void EngineBridge::syncInstrument (const collab::Track& t, Binding& b)
 {
+    if (! t.instrument)
+    {
+        removeInstrument (b);
+        b.problem = "音源が設定されていません"_ju;
+        return;
+    }
+
+    if (t.instrument->kind == collab::Instrument::Kind::external)
+    {
+        if (b.synth != nullptr)
+        {
+            b.synth->deleteFromParent();
+            b.synth = nullptr;
+            b.sfzText = {};
+        }
+
+        const auto key = t.instrument->plugin.uid + "|" + t.instrument->stateRef;
+
+        if (key != b.instrumentKey || b.externalInstrument == nullptr)
+        {
+            if (b.externalInstrument != nullptr)
+            {
+                if (onPluginRemoved) onPluginRemoved (b.externalInstrument.get());
+                b.externalInstrument->deleteFromParent();
+            }
+
+            b.externalInstrument = createExternal (t.instrument->plugin, t.instrument->stateRef);
+            b.instrumentKey = key;
+            b.instrumentStateRef = t.instrument->stateRef;
+
+            if (b.externalInstrument != nullptr)
+                b.track->pluginList.insertPlugin (b.externalInstrument, 0, nullptr);
+            else
+                b.problem = "プラグインを読み込めません"_ju;
+        }
+
+        return;
+    }
+
+    // 内蔵音源
+    if (b.externalInstrument != nullptr)
+    {
+        if (onPluginRemoved) onPluginRemoved (b.externalInstrument.get());
+        b.externalInstrument->deleteFromParent();
+        b.externalInstrument = nullptr;
+        b.instrumentKey = {};
+    }
+
     if (b.synth == nullptr)
         b.synth = addSynth (*b.track);
 
     if (b.synth == nullptr)
         return;
-
-    if (! t.instrument || t.instrument->kind != collab::Instrument::Kind::builtin)
-    {
-        // 外部プラグインは M2 で対応する
-        b.problem = t.instrument ? "外部プラグインは未対応です（M2）"_ju : "音源が設定されていません"_ju;
-
-        if (b.sfzText.isNotEmpty())
-        {
-            b.synth->clearSfz();
-            b.sfzText = {};
-        }
-
-        return;
-    }
 
     auto* manifest = library.find (t.instrument->id, t.instrument->version);
 
@@ -279,18 +481,190 @@ void EngineBridge::syncInstrument (const collab::Track& t, Binding& b)
     if (text != b.sfzText)
     {
         if (b.synth->setSfz (library.getVirtualSfzPath (*manifest).getFullPathName(), text))
-        {
             b.sfzText = text;
-            b.problem = {};
-        }
         else
-        {
             b.problem = "内蔵音源の読み込みに失敗しました"_ju;
-        }
     }
 
     auto resolved = collab::resolveInstrumentParams (*manifest, params);
     b.synth->setGainAndPan ((float) resolved.volumeDb, (float) resolved.pan);
+}
+
+//==============================================================================
+bool EngineBridge::flushPluginStates()
+{
+    if (! document.hasLocation())
+        return false;
+
+    bool changed = false;
+
+    auto write = [&] (te::Plugin* plugin, const std::string& stateRef)
+    {
+        auto* ext = dynamic_cast<te::ExternalPlugin*> (plugin);
+
+        if (ext == nullptr || ext->getAudioPluginInstance() == nullptr || stateRef.empty())
+            return;
+
+        juce::MemoryBlock state;
+        ext->getAudioPluginInstance()->getStateInformation (state);
+
+        auto file = PluginHost::stateFile (document.getProjectDir(), stateRef);
+        juce::MemoryBlock existing;
+
+        if (file.loadFileAsData (existing) && existing == state)
+            return;
+
+        file.getParentDirectory().createDirectory();
+        file.replaceWithData (state.getData(), state.getSize());
+        changed = true;
+    };
+
+    for (auto& [id, b] : bindings)
+    {
+        if (b.renderMode)
+            continue;
+
+        if (b.externalInstrument != nullptr)
+            write (b.externalInstrument.get(), b.instrumentStateRef);
+
+        for (auto& e : b.effects)
+            write (e.plugin.get(), e.stateRef);
+    }
+
+    return changed;
+}
+
+te::Plugin* EngineBridge::getExternalPlugin (const std::string& trackId, const std::string& effectId) const
+{
+    auto it = bindings.find (trackId);
+
+    if (it == bindings.end())
+        return nullptr;
+
+    if (effectId.empty())
+        return it->second.externalInstrument.get();
+
+    for (auto& e : it->second.effects)
+        if (e.id == effectId)
+            return e.plugin.get();
+
+    return nullptr;
+}
+
+bool EngineBridge::isPlayingRender (const std::string& trackId) const
+{
+    auto it = bindings.find (trackId);
+    return it != bindings.end() && it->second.renderMode;
+}
+
+juce::Result EngineBridge::renderTrack (const std::string& trackId, const juce::File& output, double tailSeconds)
+{
+    sync();
+    stop();
+
+    auto it = bindings.find (trackId);
+
+    if (it == bindings.end())
+        return juce::Result::fail ("トラックが見つかりません"_ju);
+
+    if (it->second.renderMode)
+        return juce::Result::fail ("この環境ではプラグインを鳴らせないため、バウンスできません"_ju);
+
+    auto& track = *it->second.track;
+    auto allTracks = te::getAllTracks (*edit);
+    juce::BigInteger tracksToDo;
+
+    for (int i = 0; i < allTracks.size(); ++i)
+        if (allTracks[i] == &track)
+            tracksToDo.setBit (i);
+
+    // バウンスはトラックの音量・パン・ミュートの前の音（受け取った側でも同じ設定がかかるため）
+    auto* vol = track.getVolumePlugin();
+    const float oldDb = vol != nullptr ? vol->getVolumeDb() : 0.0f;
+    const float oldPan = vol != nullptr ? vol->getPan() : 0.0f;
+    const bool oldMute = track.isMuted (false);
+
+    if (vol != nullptr)
+    {
+        vol->setVolumeDb (0.0f);
+        vol->setPan (0.0f);
+    }
+
+    track.setMute (false);
+
+    const auto& project = document.getProject();
+    const double end = document.getTempoMap().tickToSeconds ((double) collab::chordTrackEndTick (project, document.getTempoMap())) + tailSeconds;
+
+    juce::WavAudioFormat wav;
+    te::Renderer::Parameters params (*edit);
+    params.destFile = output;
+    params.audioFormat = &wav;
+    params.bitDepth = 32;
+    params.sampleRateForAudio = (double) collab::kSampleRate;
+    params.time = te::TimeRange (secondsToTime (0), secondsToTime (end));
+    params.tracksToDo = tracksToDo;
+    params.canRenderInMono = false;
+    params.usePlugins = true;
+    params.checkNodesForAudio = false;
+
+    bool ok = false;
+    {
+        const te::Edit::ScopedRenderStatus renderStatus (*edit, true);
+        output.deleteFile();
+        ok = te::Renderer::renderToFile ("CollabDAW bounce", params).existsAsFile();
+    }
+
+    if (vol != nullptr)
+    {
+        vol->setVolumeDb (oldDb);
+        vol->setPan (oldPan);
+    }
+
+    track.setMute (oldMute);
+    return ok ? juce::Result::ok() : juce::Result::fail ("書き出しに失敗しました"_ju);
+}
+
+std::string EngineBridge::trackFingerprint (const collab::Track& t) const
+{
+    const auto dir = document.getProjectDir();
+    return collab::trackSourceFingerprint (t, [dir] (const std::string& ref) { return PluginHost::stateHash (dir, ref); });
+}
+
+juce::Result EngineBridge::bounceTrack (const std::string& trackId, collab::Render& result)
+{
+    if (! document.hasLocation())
+        return juce::Result::fail ("プロジェクトがまだ保存されていません"_ju);
+
+    const auto* track = document.getProject().findTrack (trackId);
+
+    if (track == nullptr)
+        return juce::Result::fail ("トラックが見つかりません"_ju);
+
+    const auto fingerprint = trackFingerprint (*track);
+    const auto audioDir = document.getProjectDir().getChildFile ("audio");
+    audioDir.createDirectory();
+
+    juce::TemporaryFile temp (audioDir.getChildFile ("bounce.wav"));
+    constexpr double tailSeconds = 2.0;
+
+    if (auto r = renderTrack (trackId, temp.getFile(), tailSeconds); r.failed())
+        return r;
+
+    const auto hash = AudioFiles::hashFile (temp.getFile());
+
+    if (hash.empty())
+        return juce::Result::fail ("ハッシュを計算できません"_ju);
+
+    auto target = AudioFiles::fileForHash (document.getProjectDir(), hash);
+
+    if (! target.existsAsFile() && ! temp.getFile().moveFileTo (target))
+        return juce::Result::fail ("保存できません: "_ju + target.getFullPathName());
+
+    result.audioHash = hash;
+    result.renderedAt = collab::nowUtcIso8601();
+    result.sourceFingerprint = fingerprint;
+    result.tailSeconds = tailSeconds;
+    return juce::Result::ok();
 }
 
 juce::String EngineBridge::getInstrumentProblem (const std::string& trackId) const

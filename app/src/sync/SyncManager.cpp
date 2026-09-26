@@ -3,6 +3,8 @@
 #include "CredentialStore.h"
 #include "collab/ProjectJson.h"
 #include "collab/Sha256.h"
+#include "collab/Render.h"
+#include "plugins/PluginHost.h"
 
 namespace
 {
@@ -522,6 +524,20 @@ SyncManager::PullReport SyncManager::applyPull (const PullPreview& preview)
 }
 
 //==============================================================================
+static bool hasMissingPluginState (const collab::Track& t, const juce::File& dir)
+{
+    auto missing = [&] (const std::string& ref) { return ! ref.empty() && ! PluginHost::stateFile (dir, ref).existsAsFile(); };
+
+    if (t.instrument && t.instrument->kind == collab::Instrument::Kind::external && missing (t.instrument->stateRef))
+        return true;
+
+    for (auto& e : t.effects)
+        if (missing (e.stateRef))
+            return true;
+
+    return false;
+}
+
 juce::Result SyncManager::fetchPushPlan (const collab::Project& snapshot, PushPlan& plan)
 {
     auto client = makeClient();
@@ -542,10 +558,28 @@ juce::Result SyncManager::fetchPushPlan (const collab::Project& snapshot, PushPl
         if (! canEdit (id))
             plan.notLocked.push_back (id);
 
-    // 外部プラグインのトラックはバウンスが必須（§3.7）。「バウンスが古い」判定は M2 で追加する
+    // 外部プラグインのトラックはバウンスが必須。バウンス後に内容が変わっていたら push できない（§3.7）
+    const auto dir = document.getProjectDir();
+
     for (auto& t : snapshot.tracks)
-        if (plan.diff.touches (t.id) && t.instrument && t.instrument->kind == collab::Instrument::Kind::external && ! t.render)
+    {
+        if (! plan.diff.touches (t.id))
+            continue;
+
+        auto stateHash = [dir] (const std::string& ref) { return PluginHost::stateHash (dir, ref); };
+        const auto fp = collab::trackSourceFingerprint (t, stateHash);
+        auto status = collab::renderStatus (t, fp);
+
+        // 他の人のプラグイン（状態ファイルがこの環境にない）は正しいフィンガープリントを計算できない。
+        // 音の元がベースから変わっていなければ、ベースのバウンスがそのまま使える（音量などの変更は push できる）
+        if (status == collab::RenderStatus::stale && base && hasMissingPluginState (t, dir))
+            if (auto* before = base->findTrack (t.id); before != nullptr && before->render == t.render
+                                                        && collab::trackSourceFingerprint (*before, stateHash) == fp)
+                status = collab::RenderStatus::upToDate;
+
+        if (status == collab::RenderStatus::missing || status == collab::RenderStatus::stale)
             plan.staleRenders.push_back (t.id);
+    }
 
     return juce::Result::ok();
 }

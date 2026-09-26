@@ -271,7 +271,8 @@ void TrackLanes::mouseMove (const juce::MouseEvent& e)
         case Zone::rightEdge:  setMouseCursor (juce::MouseCursor::LeftRightResizeCursor); break;
         case Zone::fadeIn:
         case Zone::fadeOut:    setMouseCursor (juce::MouseCursor::CrosshairCursor); break;
-        default:               setMouseCursor (juce::MouseCursor::NormalCursor); break;
+        case Zone::none:
+        case Zone::body:       setMouseCursor (juce::MouseCursor::NormalCursor); break;
     }
 }
 
@@ -404,7 +405,8 @@ void TrackLanes::mouseDown (const juce::MouseEvent& e)
             case Zone::rightEdge: dragMode = DragMode::trimEnd; break;
             case Zone::fadeIn:    dragMode = DragMode::fadeIn; break;
             case Zone::fadeOut:   dragMode = DragMode::fadeOut; break;
-            default:              dragMode = DragMode::move; break;
+            case Zone::none:
+            case Zone::body:      dragMode = DragMode::move; break;
         }
     }
     else if (auto* clip = track.findMidiClip (hit.clipId))
@@ -471,7 +473,10 @@ void TrackLanes::mouseDrag (const juce::MouseEvent& e)
                 break;
             }
 
-            default: break;
+            case DragMode::none:
+            case DragMode::move:
+            case DragMode::resizeMidi:
+                break;
         }
 
         editClip (dragMode == DragMode::fadeIn || dragMode == DragMode::fadeOut ? "フェード"_ju : "トリム"_ju,

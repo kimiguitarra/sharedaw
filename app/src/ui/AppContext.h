@@ -44,4 +44,18 @@ struct AppContext
 
     /** 選択中のトラックで、再生位置にあるクリップを分割する。 */
     void splitAtPlayhead();
+
+    // 外部プラグイン（§3.4）とバウンス（§3.7）
+    void setBuiltinInstrument (const std::string& trackId, const std::string& instrumentId);
+    void setExternalInstrument (const std::string& trackId, const juce::PluginDescription&);
+    void addEffect (const std::string& trackId, const juce::PluginDescription&);
+    void removeEffect (const std::string& trackId, const std::string& effectId);
+    void toggleEffectBypass (const std::string& trackId, const std::string& effectId);
+    void bounceTrack (const std::string& trackId);
+
+    /** 現在の内容のフィンガープリント（plugins-state の内容を含む）。 */
+    std::string fingerprint (const collab::Track&) const;
+
+    /** プラグインのエディタを開く（MainComponent が設定する）。 */
+    std::function<void (const std::string& trackId, const std::string& effectId)> openPluginEditor;
 };

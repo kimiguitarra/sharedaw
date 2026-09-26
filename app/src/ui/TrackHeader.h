@@ -28,5 +28,6 @@ private:
 
     void select();
     void showMenu();
+    void showInstrumentMenu();
     void editTrack (const juce::String& description, std::function<void (collab::Track&)> fn, const juce::String& mergeId = {});
 };

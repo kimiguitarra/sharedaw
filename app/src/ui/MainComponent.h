@@ -7,6 +7,7 @@
 #include "collab/ProjectDiff.h"
 #include "sync/SyncManager.h"
 #include "audio/AudioFiles.h"
+#include "plugins/PluginHost.h"
 
 /** メインウィンドウの中身。メニュー、ショートカット（コマンド）、各ビューの配置を受け持つ。 */
 class MainComponent  : public juce::Component,
@@ -54,7 +55,7 @@ private:
 
     EditorState state;
     AudioFileCache audioCache;
-    AppContext ctx { document, state, bridge, library, sync, audioCache, {} };
+    AppContext ctx { document, state, bridge, library, sync, audioCache, {}, {} };
 
     juce::ApplicationCommandManager commandManager;
     TransportBar transport { ctx };
@@ -82,6 +83,8 @@ private:
     void duplicateClip();
     void updateTitle();
     void importAudio();
+    void showPluginManager();
+    PluginWindows pluginWindows;
 
     // 同期（§4）
     std::unique_ptr<juce::DocumentWindow> diffWindow;

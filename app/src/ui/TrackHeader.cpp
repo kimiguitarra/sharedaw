@@ -4,6 +4,8 @@
 #include "InstrumentPanel.h"
 #include "Theme.h"
 #include "sync/SyncManager.h"
+#include "collab/Render.h"
+#include "plugins/PluginHost.h"
 
 TrackHeader::TrackHeader (AppContext& c, const std::string& id)
     : ctx (c), trackId (id)
@@ -21,12 +23,13 @@ TrackHeader::TrackHeader (AppContext& c, const std::string& id)
             update();
     };
     addAndMakeVisible (nameLabel);
+    nameLabel.addMouseListener (this, false);   // 名前の上でも選択・右クリックメニューが効くように
 
     instrumentButton.setTooltip ("音源の調整"_ju);
     instrumentButton.onClick = [this]
     {
         select();
-        InstrumentPanel::show (ctx, trackId, instrumentButton);
+        showInstrumentMenu();
     };
     addAndMakeVisible (instrumentButton);
 
@@ -161,6 +164,31 @@ void TrackHeader::paint (juce::Graphics& g)
                     juce::Justification::centredRight, true);
     }
 
+    // バウンスの状態（§3.7）
+    if (t != nullptr)
+    {
+        juce::String renderBadge;
+
+        if (ctx.engine.isPlayingRender (trackId))
+            renderBadge = "バウンス音で再生"_ju;
+        else
+            switch (collab::renderStatus (*t, ctx.fingerprint (*t)))
+            {
+                case collab::RenderStatus::missing:  renderBadge = "要バウンス"_ju; break;
+                case collab::RenderStatus::stale:    renderBadge = "バウンスが古い"_ju; break;
+                case collab::RenderStatus::notNeeded:
+                case collab::RenderStatus::upToDate: break;
+            }
+
+        if (renderBadge.isNotEmpty())
+        {
+            g.setColour (Theme::warning);
+            g.setFont (juce::FontOptions (10.5f));
+            g.drawText (renderBadge, getLocalBounds().withTrimmedLeft (10).withTrimmedRight (10).removeFromBottom (32).removeFromTop (12),
+                        juce::Justification::centredRight, true);
+        }
+    }
+
     g.setColour (Theme::textDim);
     g.setFont (juce::FontOptions (11.0f));
     auto area = getLocalBounds().reduced (10, 4);
@@ -191,6 +219,42 @@ void TrackHeader::resized()
     volumeSlider.setBounds (volArea);
     sliderRow.removeFromLeft (28);
     panSlider.setBounds (sliderRow);
+}
+
+void TrackHeader::showInstrumentMenu()
+{
+    auto* t = ctx.document.getProject().findTrack (trackId);
+
+    if (t == nullptr || t->type != collab::TrackType::midi)
+        return;
+
+    juce::PopupMenu m;
+    const bool builtin = t->instrument && t->instrument->kind == collab::Instrument::Kind::builtin;
+    const bool external = t->instrument && t->instrument->kind == collab::Instrument::Kind::external;
+
+    if (builtin)
+        m.addItem ("音源の調整…"_ju, [this] { InstrumentPanel::show (ctx, trackId, instrumentButton); });
+
+    if (external)
+        m.addItem ("プラグインの画面を開く"_ju, [this] { if (ctx.openPluginEditor) ctx.openPluginEditor (trackId, {}); });
+
+    m.addSeparator();
+
+    juce::PopupMenu builtins;
+    for (auto [id, name] : { std::pair (collab::builtin::drums, "ドラム"_ju), std::pair (collab::builtin::bass, "ベース"_ju),
+                             std::pair (collab::builtin::piano, "ピアノ"_ju) })
+        builtins.addItem (name, [this, id = std::string (id)] { ctx.setBuiltinInstrument (trackId, id); });
+
+    juce::PopupMenu plugins;
+    for (auto& d : PluginHost::list (ctx.engine.getEngine(), true))
+        plugins.addItem (d.name + " (" + d.manufacturerName + ")", [this, d] { ctx.setExternalInstrument (trackId, d); });
+
+    if (plugins.getNumItems() == 0)
+        plugins.addItem ("プラグインがありません（オプション → プラグイン… でスキャン）"_ju, false, false, nullptr);
+
+    m.addSubMenu ("内蔵音源に変更"_ju, builtins);
+    m.addSubMenu ("外部プラグインに変更"_ju, plugins);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&instrumentButton));
 }
 
 void TrackHeader::select()
@@ -248,6 +312,36 @@ void TrackHeader::showMenu()
             if (i >= 0 && i + 1 < (int) p.tracks.size()) std::swap (p.tracks[(size_t) i], p.tracks[(size_t) i + 1]);
         });
     });
+    // エフェクト（外部プラグイン）
+    if (auto* t = ctx.document.getProject().findTrack (trackId))
+    {
+        juce::PopupMenu fx, add;
+
+        for (auto& e : t->effects)
+        {
+            juce::PopupMenu one;
+            const auto effectId = e.id;
+            one.addItem ("画面を開く"_ju, [this, effectId] { if (ctx.openPluginEditor) ctx.openPluginEditor (trackId, effectId); });
+            one.addItem ("バイパス"_ju, true, e.bypass, [this, effectId] { ctx.toggleEffectBypass (trackId, effectId); });
+            one.addItem ("削除"_ju, [this, effectId] { ctx.removeEffect (trackId, effectId); });
+            fx.addSubMenu (toJuce (e.plugin.name), one);
+        }
+
+        for (auto& d : PluginHost::list (ctx.engine.getEngine(), false))
+            add.addItem (d.name + " (" + d.manufacturerName + ")", [this, d] { ctx.addEffect (trackId, d); });
+
+        if (add.getNumItems() == 0)
+            add.addItem ("プラグインがありません（オプション → プラグイン… でスキャン）"_ju, false, false, nullptr);
+
+        fx.addSeparator();
+        fx.addSubMenu ("追加"_ju, add);
+        m.addSeparator();
+        m.addSubMenu ("エフェクト"_ju, fx);
+
+        if (t->type == collab::TrackType::midi || ! t->effects.empty())
+            m.addItem ("バウンス（オーディオに書き出す）"_ju, [this] { ctx.bounceTrack (trackId); });
+    }
+
     if (ctx.addLockMenuItems)
     {
         m.addSeparator();
