@@ -33,6 +33,12 @@ void ProjectDocument::perform (const juce::String& description, const std::funct
     if (project == before)
         return;
 
+    if (editGuard && ! editGuard (before, project))
+    {
+        project = std::move (before);
+        return;
+    }
+
     if (mergeId.isEmpty() || mergeId != lastMergeId || undoStack.empty())
     {
         undoStack.push_back ({ std::move (before), description });
@@ -118,8 +124,13 @@ void ProjectDocument::newProject (const juce::String& name)
     projectDir = juce::File();
     setProject (collab::Project::createEmpty (toStd (name)), false);
 
-    if (onLocationChanged)
-        onLocationChanged();
+    for (auto& l : locationListeners)
+        l();
+}
+
+void ProjectDocument::replaceFromSync (collab::Project p)
+{
+    setProject (std::move (p), true);
 }
 
 void ProjectDocument::load (const juce::File& folder)
@@ -135,8 +146,8 @@ void ProjectDocument::load (const juce::File& folder)
     createFolderStructure (projectDir);
     setProject (std::move (p), false);
 
-    if (onLocationChanged)
-        onLocationChanged();
+    for (auto& l : locationListeners)
+        l();
 }
 
 void ProjectDocument::createFolderStructure (const juce::File& dir)
@@ -199,8 +210,8 @@ juce::Result ProjectDocument::saveNew (const juce::File& parentDir)
 
     oldAutosave.deleteFile();
 
-    if (onLocationChanged)
-        onLocationChanged();
+    for (auto& l : locationListeners)
+        l();
 
     return r;
 }
@@ -241,8 +252,8 @@ void ProjectDocument::recoverFromAutosave (const juce::File& autosaveFile, const
 
     setProject (std::move (p), true);
 
-    if (onLocationChanged)
-        onLocationChanged();
+    for (auto& l : locationListeners)
+        l();
 }
 
 void ProjectDocument::timerCallback()

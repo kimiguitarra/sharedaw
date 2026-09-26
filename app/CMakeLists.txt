@@ -41,12 +41,17 @@ target_sources(CollabDAW PRIVATE
     src/ProjectDocument.cpp
     src/SessionGuard.cpp
     src/SfizzPlugin.cpp
+    src/sync/CredentialStore.cpp
+    src/sync/SyncClient.cpp
+    src/sync/SyncManager.cpp
     src/ui/AppContext.cpp
     src/ui/ChordEditor.cpp
     src/ui/ChordLane.cpp
     src/ui/Ruler.cpp
     src/ui/Theme.cpp
     src/ui/MainComponent.cpp
+    src/ui/MainComponentSync.cpp
+    src/ui/SyncUI.cpp
     src/ui/TransportBar.cpp
     src/ui/TimelineView.cpp
     src/ui/TrackHeader.cpp
@@ -60,7 +65,6 @@ target_include_directories(CollabDAW PRIVATE src)
 target_compile_definitions(CollabDAW PRIVATE
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:CollabDAW,JUCE_PRODUCT_NAME>"
     JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:CollabDAW,JUCE_VERSION>"
-    JUCE_USE_CURL=0
     JUCE_WEB_BROWSER=0
     JUCE_MODAL_LOOPS_PERMITTED=1
     JUCE_STRICT_REFCOUNTEDPOINTER=1
@@ -102,6 +106,13 @@ endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_libraries(CollabDAW PRIVATE atomic)
+    # Linux は開発・CI 用。HTTP（同期）に libcurl を使う
+    target_compile_definitions(CollabDAW PRIVATE JUCE_USE_CURL=1)
+    target_link_libraries(CollabDAW PRIVATE curl)
+endif()
+
+if(APPLE)
+    target_link_libraries(CollabDAW PRIVATE "-framework Security")   # キーチェーン（§6.2）
 endif()
 
 # --- 内蔵音源などのアセットを実行ファイルの隣（Mac はバンドルの Resources）へコピー ---

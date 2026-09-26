@@ -3,6 +3,7 @@
 #include "Dialogs.h"
 #include "InstrumentPanel.h"
 #include "Theme.h"
+#include "sync/SyncManager.h"
 
 TrackHeader::TrackHeader (AppContext& c, const std::string& id)
     : ctx (c), trackId (id)
@@ -141,6 +142,25 @@ void TrackHeader::paint (juce::Graphics& g)
     g.setColour (Theme::background);
     g.drawHorizontalLine (getHeight() - 1, 0.0f, (float) getWidth());
 
+    // 同期中: ロックと未 push の変更（§4.2, §4.4）
+    if (ctx.sync.isLinked())
+    {
+        juce::String badge;
+        auto colour = Theme::textDim;
+
+        if (ctx.sync.isLockedByMe (trackId))           { badge = "ロック中（自分）"_ju; colour = Theme::accent; }
+        else if (auto lock = ctx.sync.getLock (trackId)) { badge = lock->displayName + " が編集中"_ju; colour = Theme::warning; }
+        else if (! ctx.sync.canEdit (trackId))          { badge = "読み取り専用"_ju; }
+
+        if (ctx.sync.hasLocalChanges (trackId))
+            badge = (badge.isEmpty() ? juce::String() : badge + "  ") + "● 未 push"_ju;
+
+        g.setColour (colour);
+        g.setFont (juce::FontOptions (10.5f));
+        g.drawText (badge, getLocalBounds().withTrimmedLeft (10).withTrimmedRight (60).removeFromTop (14).translated (0, 1),
+                    juce::Justification::centredRight, true);
+    }
+
     g.setColour (Theme::textDim);
     g.setFont (juce::FontOptions (11.0f));
     auto area = getLocalBounds().reduced (10, 4);
@@ -228,6 +248,12 @@ void TrackHeader::showMenu()
             if (i >= 0 && i + 1 < (int) p.tracks.size()) std::swap (p.tracks[(size_t) i], p.tracks[(size_t) i + 1]);
         });
     });
+    if (ctx.addLockMenuItems)
+    {
+        m.addSeparator();
+        ctx.addLockMenuItems (trackId, m);
+    }
+
     m.addSeparator();
     m.addItem ("トラックを削除"_ju, [this]
     {

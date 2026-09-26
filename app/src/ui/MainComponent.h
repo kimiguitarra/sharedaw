@@ -4,6 +4,8 @@
 #include "ui/PianoRoll.h"
 #include "ui/TimelineView.h"
 #include "ui/TransportBar.h"
+#include "collab/ProjectDiff.h"
+#include "sync/SyncManager.h"
 
 /** メインウィンドウの中身。メニュー、ショートカット（コマンド）、各ビューの配置を受け持つ。 */
 class MainComponent  : public juce::Component,
@@ -13,7 +15,7 @@ class MainComponent  : public juce::Component,
                        private juce::Timer
 {
 public:
-    MainComponent (te::Engine&, ProjectDocument&, EngineBridge&, const InstrumentLibrary&, juce::PropertiesFile&);
+    MainComponent (te::Engine&, ProjectDocument&, EngineBridge&, const InstrumentLibrary&, SyncManager&, juce::PropertiesFile&);
     ~MainComponent() override;
 
     void paint (juce::Graphics&) override;
@@ -46,10 +48,11 @@ private:
     ProjectDocument& document;
     EngineBridge& bridge;
     const InstrumentLibrary& library;
+    SyncManager& sync;
     juce::PropertiesFile& settings;
 
     EditorState state;
-    AppContext ctx { document, state, bridge, library };
+    AppContext ctx { document, state, bridge, library, sync, {} };
 
     juce::ApplicationCommandManager commandManager;
     TransportBar transport { ctx };
@@ -76,5 +79,21 @@ private:
     void deleteSelection();
     void duplicateClip();
     void updateTitle();
+
+    // 同期（§4）
+    std::unique_ptr<juce::DocumentWindow> diffWindow;
+    void showServerSettings();
+    void registerProject();
+    void openFromServer();
+    void pull();
+    void push();
+    void showHistory();
+    void requestLocks (std::vector<std::string> scopeIds);
+    void lockMenuForScope (const std::string& scopeId, juce::PopupMenu&);
+    bool ensureSyncReady (bool needLinked);
+    void jumpTo (const collab::Change&);
+    void applyPullPreview (const SyncManager::PullPreview&);
+    void runPushPlan (const SyncManager::PushPlan&, const juce::String& message, bool releaseLocks);
+    void closeDiffWindowAsync();
     void setStatus (const juce::String&);
 };

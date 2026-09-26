@@ -76,8 +76,16 @@ public:
     /** 自動保存の間隔（既定60秒）。 */
     static constexpr int autosaveIntervalMs = 60 * 1000;
 
-    /** 場所・ファイルが変わったときに呼ばれる（セッション情報の更新用）。 */
-    std::function<void()> onLocationChanged;
+    /** 場所・ファイルが変わったときに呼ばれる（セッション情報・同期情報の更新用）。 */
+    std::vector<std::function<void()>> locationListeners;
+
+    /**
+        編集を許可するか（同期中のロック確認、§4.2）。false を返すと perform() の変更は取り消される。
+    */
+    std::function<bool (const collab::Project& before, const collab::Project& after)> editGuard;
+
+    /** pull の結果でプロジェクトを置き換える（元に戻す履歴は消える）。 */
+    void replaceFromSync (collab::Project);
 
 private:
     struct UndoEntry

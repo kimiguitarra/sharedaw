@@ -5,6 +5,8 @@
 #include "ProjectDocument.h"
 #include "ui/EditorState.h"
 
+class SyncManager;
+
 /** UI の各部品が共有する参照。 */
 struct AppContext
 {
@@ -12,6 +14,7 @@ struct AppContext
     EditorState& state;
     EngineBridge& engine;
     const InstrumentLibrary& library;
+    SyncManager& sync;
 
     /** 選択中のトラック・クリップ（無ければ nullptr）。 */
     const collab::Track* selectedTrack() const      { return document.getProject().findTrack (state.selectedTrackId); }
@@ -21,6 +24,9 @@ struct AppContext
         auto* t = selectedTrack();
         return t != nullptr ? t->findMidiClip (state.selectedClipId) : nullptr;
     }
+
+    /** ロック操作のメニュー項目を追加する（同期中のみ。MainComponent が設定する）。 */
+    std::function<void (const std::string& scopeId, juce::PopupMenu&)> addLockMenuItems;
 
     /** 新しい MIDI トラック（内蔵音源）を追加して選択する。 */
     void addBuiltinMidiTrack (const std::string& instrumentId, const juce::String& name);

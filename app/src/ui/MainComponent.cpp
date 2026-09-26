@@ -1,8 +1,10 @@
 #include "MainComponent.h"
 
 #include "Dialogs.h"
+#include "SyncUI.h"
 #include "Theme.h"
 #include "collab/Uuid.h"
+#include "sync/SyncManager.h"
 
 namespace
 {
@@ -12,7 +14,8 @@ namespace
         cmdPlay, cmdToStart, cmdLoop, cmdMetronome, cmdQuantise,
         cmdAddDrums, cmdAddBass, cmdAddPiano,
         cmdAudioSettings, cmdCredits, cmdAbout,
-        cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200
+        cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
+        cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory, cmdSyncRefreshLocks
     };
 
     constexpr float fontScales[] = { 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
@@ -21,8 +24,8 @@ namespace
 }
 
 MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b,
-                              const InstrumentLibrary& lib, juce::PropertiesFile& props)
-    : engine (e), document (d), bridge (b), library (lib), settings (props)
+                              const InstrumentLibrary& lib, SyncManager& s, juce::PropertiesFile& props)
+    : engine (e), document (d), bridge (b), library (lib), sync (s), settings (props)
 {
     addAndMakeVisible (transport);
     addAndMakeVisible (timeline);
@@ -50,6 +53,9 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
 
     document.addChangeListener (this);
     state.addChangeListener (this);
+    sync.addChangeListener (this);
+    sync.onLockRequired = [this] (std::vector<std::string> ids) { requestLocks (std::move (ids)); };
+    ctx.addLockMenuItems = [this] (const std::string& id, juce::PopupMenu& m) { lockMenuForScope (id, m); };
 
     if (! library.getLoadErrors().isEmpty())
         setStatus ("内蔵音源の読み込みエラー: "_ju + library.getLoadErrors().joinIntoString ("; "));
@@ -65,6 +71,8 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
 
 MainComponent::~MainComponent()
 {
+    sync.onLockRequired = nullptr;
+    sync.removeChangeListener (this);
     document.removeChangeListener (this);
     state.removeChangeListener (this);
 }
@@ -97,6 +105,14 @@ void MainComponent::applyFontScale (float scale)
 //==============================================================================
 void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
 {
+    if (source == &sync)
+    {
+        updateTitle();
+        timeline.repaint();
+        state.changed();   // トラックヘッダーのロック表示を更新
+        return;
+    }
+
     if (source == &document)
     {
         updateTitle();
@@ -155,6 +171,9 @@ void MainComponent::updateTitle()
         title = "* " + title;
 
     title << " - CollabDAW";
+
+    if (sync.isLinked())
+        title << "  (rev " << sync.getMeta().baseRevision << ", " << sync.getMeta().userName << ")";
 
     if (document.hasLocation())
         title << "  [" << document.getProjectDir().getFullPathName() << "]";
@@ -383,7 +402,8 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
     commands.addArray ({ cmdNew, cmdOpen, cmdSave, cmdUndo, cmdRedo, cmdDelete, cmdSelectAll, cmdDuplicate,
                          cmdPlay, cmdToStart, cmdLoop, cmdMetronome, cmdQuantise,
                          cmdAddDrums, cmdAddBass, cmdAddPiano, cmdAudioSettings, cmdCredits, cmdAbout,
-                         cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200 });
+                         cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
+                         cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory, cmdSyncRefreshLocks });
 }
 
 void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommandInfo& info)
@@ -433,6 +453,13 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdAddBass:    info.setInfo ("MIDIトラックを追加（ベース）"_ju, {}, "Track", 0); break;
         case cmdAddPiano:   info.setInfo ("MIDIトラックを追加（ピアノ）"_ju, {}, "Track", 0); break;
         case cmdAudioSettings: info.setInfo ("オーディオ設定…"_ju, {}, "Options", 0); break;
+        case cmdSyncSettings:  info.setInfo ("サーバー設定…"_ju, {}, "Sync", 0); break;
+        case cmdSyncRegister:  info.setInfo ("このプロジェクトをサーバーに登録…"_ju, {}, "Sync", 0); info.setActive (! sync.isLinked()); break;
+        case cmdSyncOpen:      info.setInfo ("サーバーから開く…"_ju, {}, "Sync", 0); break;
+        case cmdSyncPull:      info.setInfo ("取り込み（pull）…"_ju, {}, "Sync", 0); info.setActive (sync.isLinked()); break;
+        case cmdSyncPush:      info.setInfo ("アップロード（push）…"_ju, {}, "Sync", 0); info.setActive (sync.isLinked()); break;
+        case cmdSyncHistory:   info.setInfo ("リビジョン履歴…"_ju, {}, "Sync", 0); info.setActive (sync.isLinked()); break;
+        case cmdSyncRefreshLocks: info.setInfo ("ロックの状態を更新"_ju, {}, "Sync", 0); info.setActive (sync.isLinked()); break;
         case cmdCredits:    info.setInfo ("クレジット…"_ju, {}, "Help", 0); break;
         case cmdAbout:      info.setInfo ("CollabDAW について…"_ju, {}, "Help", 0); break;
         case cmdFont100: case cmdFont125: case cmdFont150: case cmdFont175: case cmdFont200:
@@ -467,6 +494,18 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdAddBass:    ctx.addBuiltinMidiTrack (collab::builtin::bass, "Bass"); break;
         case cmdAddPiano:   ctx.addBuiltinMidiTrack (collab::builtin::piano, "Piano"); break;
         case cmdAudioSettings: showAudioSettings(); break;
+        case cmdSyncSettings:  showServerSettings(); break;
+        case cmdSyncRegister:  registerProject(); break;
+        case cmdSyncOpen:      openFromServer(); break;
+        case cmdSyncPull:      pull(); break;
+        case cmdSyncPush:      push(); break;
+        case cmdSyncHistory:   showHistory(); break;
+        case cmdSyncRefreshLocks:
+        {
+            auto r = SyncUI::runWithProgress ("ロックを確認しています"_ju, [this] { return sync.fetchLocks(); });
+            if (r.failed()) Dialogs::showError ("取得できませんでした"_ju, r.getErrorMessage());
+            break;
+        }
         case cmdCredits:    showCredits(); break;
         case cmdAbout:
             Dialogs::showInfo ("CollabDAW について"_ju,
@@ -489,7 +528,7 @@ bool MainComponent::perform (const InvocationInfo& info)
 
 juce::StringArray MainComponent::getMenuBarNames()
 {
-    return { "ファイル"_ju, "編集"_ju, "トランスポート"_ju, "トラック"_ju, "表示"_ju, "ヘルプ"_ju };
+    return { "ファイル"_ju, "編集"_ju, "トランスポート"_ju, "トラック"_ju, "同期"_ju, "表示"_ju, "ヘルプ"_ju };
 }
 
 juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
@@ -532,6 +571,38 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             break;
         case 4:
         {
+            m.addCommandItem (cm, cmdSyncPull);
+            m.addCommandItem (cm, cmdSyncPush);
+            m.addSeparator();
+            m.addCommandItem (cm, cmdSyncHistory);
+            m.addCommandItem (cm, cmdSyncRefreshLocks);
+
+            if (sync.isLinked())
+            {
+                const auto& p = document.getProject();
+
+                for (auto [id, name] : { std::pair (p.tempoTrack.id, "テンポのロック"_ju), std::pair (p.meterTrack.id, "拍子のロック"_ju),
+                                         std::pair (p.chordTrack.id, "コードのロック"_ju) })
+                {
+                    juce::PopupMenu sub;
+                    lockMenuForScope (id, sub);
+                    auto label = name;
+
+                    if (auto lock = sync.getLock (id))
+                        label << "（"_ju << lock->displayName << "）"_ju;
+
+                    m.addSubMenu (label, sub);
+                }
+            }
+
+            m.addSeparator();
+            m.addCommandItem (cm, cmdSyncRegister);
+            m.addCommandItem (cm, cmdSyncOpen);
+            m.addCommandItem (cm, cmdSyncSettings);
+            break;
+        }
+        case 5:
+        {
             juce::PopupMenu sizes;
 
             for (int c = cmdFont100; c <= cmdFont200; ++c)
@@ -540,7 +611,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addSubMenu ("文字サイズ（画面共有用）"_ju, sizes);
             break;
         }
-        case 5:
+        case 6:
             m.addCommandItem (cm, cmdCredits);
             m.addCommandItem (cm, cmdAbout);
             break;

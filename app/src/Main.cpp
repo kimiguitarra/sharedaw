@@ -8,6 +8,8 @@
 #include "ProjectDocument.h"
 #include "SessionGuard.h"
 #include "SfizzPlugin.h"
+#include "sync/SyncManager.h"
+#include "collab/ProjectDiff.h"
 #include "collab/ChordPlayback.h"
 #include "ui/Dialogs.h"
 #include "ui/MainComponent.h"
@@ -84,7 +86,8 @@ class CollabDawApplication  : public juce::JUCEApplication
 public:
     const juce::String getApplicationName() override       { return JUCE_APPLICATION_NAME_STRING; }
     const juce::String getApplicationVersion() override    { return JUCE_APPLICATION_VERSION_STRING; }
-    bool moreThanOneInstanceAllowed() override             { return false; }
+    // コマンドライン操作（--render / --sync-*）は GUI と同時に動かせるようにする
+    bool moreThanOneInstanceAllowed() override             { return getCommandLineParameters().startsWith ("--"); }
 
     void initialise (const juce::String&) override
     {
@@ -107,6 +110,7 @@ public:
         library = std::make_unique<InstrumentLibrary> (AppPaths::getAssetsDir());
         document = std::make_unique<ProjectDocument>();
         bridge = std::make_unique<EngineBridge> (*engine, *document, *library);
+        sync = std::make_unique<SyncManager> (*document, *settings);
 
         // コマンドライン: --render <プロジェクトフォルダ> <出力.wav>（動作確認・CI 用）
         if (auto args = getCommandLineParameterArray(); args.size() >= 3 && args[0] == "--render")
@@ -116,12 +120,21 @@ public:
             return;
         }
 
-        auto content = std::make_unique<MainComponent> (*engine, *document, *bridge, *library, *settings);
+        // 同期のコマンドライン操作（動作確認・スクリプト用）
+        if (auto args = getCommandLineParameterArray(); ! args.isEmpty() && args[0].startsWith ("--sync-"))
+        {
+            setApplicationReturnValue (runSyncCommand (args));
+            quit();
+            return;
+        }
+
+        auto content = std::make_unique<MainComponent> (*engine, *document, *bridge, *library, *sync, *settings);
         mainComponent = content.get();
         content->getCommandManager().registerAllCommandsForTarget (this);
         mainWindow = std::make_unique<MainWindow> (getApplicationName(), std::move (content));
 
-        document->onLocationChanged = [this] { sessionGuard.markRunning (document->getProjectDir(), document->getAutosaveFile()); };
+        document->locationListeners.push_back ([this] { sessionGuard.markRunning (document->getProjectDir(), document->getAutosaveFile()); });
+        document->locationListeners.push_back ([this] { sync->reloadForDocument(); });
 
         // 前回の異常終了を検知したら、自動保存からの復旧を確認する（§3.10）
         if (auto crashed = sessionGuard.findCrashedSession())
@@ -164,6 +177,7 @@ public:
             document->writeAutosave();
 
         mainWindow = nullptr;
+        sync = nullptr;
         bridge = nullptr;
         document = nullptr;
         engine = nullptr;
@@ -189,6 +203,7 @@ private:
     std::unique_ptr<InstrumentLibrary> library;
     std::unique_ptr<ProjectDocument> document;
     std::unique_ptr<EngineBridge> bridge;
+    std::unique_ptr<SyncManager> sync;
     std::unique_ptr<MainWindow> mainWindow;
     MainComponent* mainComponent = nullptr;
     SessionGuard sessionGuard;
@@ -224,6 +239,152 @@ private:
         std::cout << "rendered " << output.getFullPathName() << ": " << reader->lengthInSamples << " samples @ "
                   << reader->sampleRate << " Hz, peak " << peak << std::endl;
         return peak > 0.001f ? 0 : 5;
+    }
+
+    /**
+        --sync-config <url> <token>
+        --sync-register <dir>
+        --sync-push <dir> [message] [--keep-locks]
+        --sync-pull <dir>
+        --sync-open <projectId> <parentDir>
+        --sync-lock <dir> <scopeId|tempo|meter|chord|trackName> [--release|--force]
+        --sync-status <dir>
+    */
+    int runSyncCommand (const juce::StringArray& args)
+    {
+        auto fail = [] (const juce::String& message)
+        {
+            std::cerr << "error: " << message.toStdString() << std::endl;
+            return 1;
+        };
+
+        const auto command = args[0];
+
+        if (command == "--sync-config")
+        {
+            if (args.size() < 3) return fail ("usage: --sync-config <url> <token>");
+            sync->setCredentials (args[1], args[2]);
+            auto me = sync->fetchMe();
+            if (! me.ok()) return fail (me.message());
+            std::cout << "ok: " << me.body.dump() << std::endl;
+            return 0;
+        }
+
+        if (command == "--sync-open")
+        {
+            if (args.size() < 3) return fail ("usage: --sync-open <projectId> <parentDir>");
+            juce::File created;
+            auto r = sync->runOpenFromServer (args[1].toStdString(), juce::File (args[2]), created);
+            if (r.failed()) return fail (r.getErrorMessage());
+            std::cout << "opened: " << created.getFullPathName() << std::endl;
+            return 0;
+        }
+
+        if (args.size() < 2)
+            return fail ("usage: " + command + " <dir> ...");
+
+        try
+        {
+            document->load (juce::File (args[1]));
+        }
+        catch (const std::exception& e)
+        {
+            return fail (juce::String::fromUTF8 (e.what()));
+        }
+
+        sync->reloadForDocument();
+        const auto dir = document->getProjectDir();
+
+        if (command == "--sync-register")
+        {
+            const auto snapshot = document->getProject();
+            auto r = sync->runRegister (snapshot, dir);
+            if (r.failed()) return fail (r.getErrorMessage());
+            sync->applyRegistered (snapshot, sync->getMeta().baseRevision);
+            std::cout << "registered: revision " << sync->getMeta().baseRevision << std::endl;
+            return 0;
+        }
+
+        if (command == "--sync-status")
+        {
+            if (auto r = sync->fetchLocks(); r.failed()) return fail (r.getErrorMessage());
+            std::cout << "linked: " << sync->isLinked() << " base: " << sync->getMeta().baseRevision << std::endl;
+
+            for (auto& id : collab::allScopeIds (document->getProject()))
+            {
+                auto lock = sync->getLock (id);
+                std::cout << "  " << sync->scopeName (id).toStdString() << " [" << id << "]"
+                          << (lock ? " locked by " + lock->displayName.toStdString() : std::string())
+                          << (sync->hasLocalChanges (id) ? " (local changes)" : "") << std::endl;
+            }
+            return 0;
+        }
+
+        if (command == "--sync-lock")
+        {
+            if (args.size() < 3) return fail ("usage: --sync-lock <dir> <scope> [--release|--force]");
+            const auto& p = document->getProject();
+            std::string scope = args[2].toStdString();
+
+            if (scope == "tempo")  scope = p.tempoTrack.id;
+            if (scope == "meter")  scope = p.meterTrack.id;
+            if (scope == "chord")  scope = p.chordTrack.id;
+
+            for (auto& t : p.tracks)
+                if (t.name == scope)
+                    scope = t.id;
+
+            juce::Result r = args.contains ("--release") ? sync->runReleaseLock (scope, false)
+                           : args.contains ("--force")   ? sync->runReleaseLock (scope, true)
+                                                         : sync->runAcquireLock (scope);
+            if (r.failed()) return fail (r.getErrorMessage());
+            std::cout << "ok" << std::endl;
+            return 0;
+        }
+
+        if (command == "--sync-push")
+        {
+            SyncManager::PushPlan plan;
+            if (auto r = sync->fetchPushPlan (document->getProject(), plan); r.failed()) return fail (r.getErrorMessage());
+            if (plan.needsPull) return fail ("pull required (head " + juce::String (plan.head) + ")");
+            if (! plan.notLocked.empty()) return fail ("lock required: " + juce::String (plan.notLocked.front()));
+
+            for (auto& c : plan.diff.changes)
+                std::cout << "  " << c.scopeName << ": " << c.summary << std::endl;
+
+            int revision = 0;
+            const auto message = args.size() >= 3 && ! args[2].startsWith ("--") ? args[2] : juce::String();
+            if (auto r = sync->runPush (plan, message, ! args.contains ("--keep-locks"), dir, revision); r.failed())
+                return fail (r.getErrorMessage());
+
+            sync->applyPushed (plan, revision);
+            std::cout << "pushed: revision " << revision << std::endl;
+            return 0;
+        }
+
+        if (command == "--sync-pull")
+        {
+            SyncManager::PullPreview preview;
+            if (auto r = sync->fetchPullPreview (preview); r.failed()) return fail (r.getErrorMessage());
+
+            if (preview.head == sync->getMeta().baseRevision)
+            {
+                std::cout << "up to date: revision " << preview.head << std::endl;
+                return 0;
+            }
+
+            for (auto& c : preview.diff.changes)
+                std::cout << "  " << c.scopeName << ": " << c.summary << std::endl;
+
+            if (auto r = sync->runDownloadAudio (preview.headProject, dir); r.failed()) return fail (r.getErrorMessage());
+
+            auto report = sync->applyPull (preview);
+            std::cout << "pulled: revision " << preview.head << " kept local: " << report.keptLocal.size()
+                      << " conflicts: " << report.conflicts.size() << std::endl;
+            return 0;
+        }
+
+        return fail ("unknown command " + command);
     }
 
     void openLastProject()
