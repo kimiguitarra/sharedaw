@@ -8,7 +8,7 @@ using namespace collab;
 
 TEST_CASE ("fixtures load and round-trip")
 {
-    for (auto name : { "minimal.project.json", "full.project.json" })
+    for (auto name : { "minimal.project.json", "full.project.json", "demo-project/project.json" })
     {
         CAPTURE (name);
         const auto p = parseProject (fixture (name));

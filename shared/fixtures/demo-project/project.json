@@ -1,0 +1,401 @@
+{
+  "schemaVersion": 1,
+  "projectId": "7af26b44-fe3f-4c5a-bf43-c518905a54f8",
+  "name": "デモ曲",
+  "sampleRate": 48000,
+  "ppq": 960,
+  "tempoTrack": {
+    "id": "64f382ff-5796-4762-a315-0731bc14aaf7",
+    "events": [
+      {
+        "id": "0aacba67-8fb6-4861-8ec0-7bd56f509484",
+        "tick": 0,
+        "bpm": 110.0
+      }
+    ]
+  },
+  "meterTrack": {
+    "id": "3394c8f1-3839-46b5-ad6a-13424830da8a",
+    "events": [
+      {
+        "id": "bbe422ba-a382-455d-a31c-d65302914d79",
+        "bar": 1,
+        "numerator": 4,
+        "denominator": 4
+      }
+    ]
+  },
+  "chordTrack": {
+    "id": "ee204996-bb6a-4b67-a84b-2a6c23663f53",
+    "playback": {
+      "enabled": true,
+      "volumeDb": -6.0,
+      "instrument": {
+        "id": "builtin.piano",
+        "version": "0.1.0"
+      }
+    },
+    "events": []
+  },
+  "tracks": [
+    {
+      "id": "dac0903d-3a4d-4329-8d2e-05896b71c3ff",
+      "type": "midi",
+      "name": "Drums",
+      "color": "#E57373",
+      "volumeDb": 0.0,
+      "pan": 0.0,
+      "mute": false,
+      "solo": false,
+      "instrument": {
+        "kind": "builtin",
+        "id": "builtin.drums",
+        "version": "0.1.0",
+        "params": {
+          "kit": "synth",
+          "pieces": {
+            "snare": {
+              "sample": "synth/snare_02",
+              "volumeDb": -2.0,
+              "pan": 0.0,
+              "tune": 0
+            }
+          }
+        }
+      },
+      "clips": [
+        {
+          "id": "11d8c6fd-9e13-4737-ae8c-a10a4595b79c",
+          "startTick": 0,
+          "lengthTick": 7680,
+          "notes": [
+            {
+              "id": "40491b68-db59-4398-a89a-709af740ca56",
+              "tick": 0,
+              "lengthTick": 240,
+              "pitch": 42,
+              "velocity": 90
+            },
+            {
+              "id": "cd03c3fa-01b2-4c23-a2f4-5fe6e303dce8",
+              "tick": 480,
+              "lengthTick": 240,
+              "pitch": 42,
+              "velocity": 70
+            },
+            {
+              "id": "56f05cae-8280-424c-a777-5ad4725af9ac",
+              "tick": 960,
+              "lengthTick": 240,
+              "pitch": 42,
+              "velocity": 90
+            },
+            {
+              "id": "af5e6221-c697-4266-947a-41963c36521e",
+              "tick": 1440,
+              "lengthTick": 240,
+              "pitch": 42,
+              "velocity": 70
+            },
+            {
+              "id": "0e09ab2a-5477-4524-9aff-667c688e55b6",
+              "tick": 1920,
+              "lengthTick": 240,
+              "pitch": 42,
+              "velocity": 90
+            },
+            {
+              "id": "d68feec8-f466-4497-8771-4e1104bdc4d8",
+              "tick": 2400,
+              "lengthTick": 240,
+              "pitch": 42,
+              "velocity": 70
+            },
+            {
+              "id": "cb2ddbfd-c331-4888-85fa-51c152d558a0",
+              "tick": 2880,
+              "lengthTick": 240,
+              "pitch": 42,
+              "velocity": 90
+            },
+            {
+              "id": "41fc52b2-f345-417d-b873-fe655c4bf8fd",
+              "tick": 3360,
+              "lengthTick": 240,
+              "pitch": 42,
+              "velocity": 70
+            },
+            {
+              "id": "87c24da9-439d-42d0-8bf1-d9a55c6bedae",
+              "tick": 0,
+              "lengthTick": 240,
+              "pitch": 36,
+              "velocity": 110
+            },
+            {
+              "id": "07bb4d0a-7fce-4439-8aaf-1bcbec8ba710",
+              "tick": 1440,
+              "lengthTick": 240,
+              "pitch": 36,
+              "velocity": 100
+            },
+            {
+              "id": "3ec92342-5ae1-48c1-897d-9ec3c52ba78c",
+              "tick": 960,
+              "lengthTick": 240,
+              "pitch": 38,
+              "velocity": 105
+            },
+            {
+              "id": "86fa394a-dab7-4944-b451-1dda331e4cff",
+              "tick": 2880,
+              "lengthTick": 240,
+              "pitch": 38,
+              "velocity": 105
+            },
+            {
+              "id": "f67a6d4f-f1b8-4928-804a-c92905278bdb",
+              "tick": 3840,
+              "lengthTick": 240,
+              "pitch": 42,
+              "velocity": 90
+            },
+            {
+              "id": "e4d5f0f1-8bbe-4078-87ae-e7f55bba0a64",
+              "tick": 4320,
+              "lengthTick": 240,
+              "pitch": 42,
+              "velocity": 70
+            },
+            {
+              "id": "4e7a7387-763c-4347-821d-9c1a7e6deb7c",
+              "tick": 4800,
+              "lengthTick": 240,
+              "pitch": 42,
+              "velocity": 90
+            },
+            {
+              "id": "7f72b7d4-5721-407c-9c08-db4e408b46c0",
+              "tick": 5280,
+              "lengthTick": 240,
+              "pitch": 42,
+              "velocity": 70
+            },
+            {
+              "id": "d235ef36-40b2-4d5a-9dc2-08a1e83820cc",
+              "tick": 5760,
+              "lengthTick": 240,
+              "pitch": 42,
+              "velocity": 90
+            },
+            {
+              "id": "15db8ce4-5bc6-4f86-8f01-8cb0dc912764",
+              "tick": 6240,
+              "lengthTick": 240,
+              "pitch": 42,
+              "velocity": 70
+            },
+            {
+              "id": "48eb854b-61e3-424c-b7a5-854794c1b1cf",
+              "tick": 6720,
+              "lengthTick": 240,
+              "pitch": 42,
+              "velocity": 90
+            },
+            {
+              "id": "3be6d674-dbe8-4b67-986b-94fb65b07362",
+              "tick": 7200,
+              "lengthTick": 240,
+              "pitch": 42,
+              "velocity": 70
+            },
+            {
+              "id": "37d4b227-e563-4be0-90cc-ea4b3867da17",
+              "tick": 3840,
+              "lengthTick": 240,
+              "pitch": 36,
+              "velocity": 110
+            },
+            {
+              "id": "d0288706-6ab0-4cbd-96af-a68ceb94e400",
+              "tick": 5280,
+              "lengthTick": 240,
+              "pitch": 36,
+              "velocity": 100
+            },
+            {
+              "id": "1fa91cef-c8a7-4d6a-ab5f-52972e9df547",
+              "tick": 4800,
+              "lengthTick": 240,
+              "pitch": 38,
+              "velocity": 105
+            },
+            {
+              "id": "853f8203-e2f8-4675-a463-298d50a80788",
+              "tick": 6720,
+              "lengthTick": 240,
+              "pitch": 38,
+              "velocity": 105
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "911b4e7f-7909-4dbd-89ec-fde4f15d7363",
+      "type": "midi",
+      "name": "Bass",
+      "color": "#64B5F6",
+      "volumeDb": -2.0,
+      "pan": 0.0,
+      "mute": false,
+      "solo": false,
+      "instrument": {
+        "kind": "builtin",
+        "id": "builtin.bass",
+        "version": "0.1.0",
+        "params": {
+          "volumeDb": 0.0,
+          "pan": 0.0,
+          "tone": 0.0
+        }
+      },
+      "clips": [
+        {
+          "id": "837c4a3f-3317-4ddc-b2e9-865aeeb0c43c",
+          "startTick": 0,
+          "lengthTick": 7680,
+          "notes": [
+            {
+              "id": "1169b4d4-ea73-45eb-bb48-695efccad5b7",
+              "tick": 0,
+              "lengthTick": 900,
+              "pitch": 36,
+              "velocity": 100
+            },
+            {
+              "id": "958df7a8-8272-4b83-b6e7-f60c6c47040c",
+              "tick": 960,
+              "lengthTick": 900,
+              "pitch": 36,
+              "velocity": 90
+            },
+            {
+              "id": "089f1852-787a-4551-a50f-53091d653606",
+              "tick": 1920,
+              "lengthTick": 900,
+              "pitch": 43,
+              "velocity": 95
+            },
+            {
+              "id": "25c22c79-76a3-4c92-816a-7e9dacd14325",
+              "tick": 2880,
+              "lengthTick": 900,
+              "pitch": 41,
+              "velocity": 95
+            },
+            {
+              "id": "85f0a361-d5f6-4a74-af1a-20a225bea47d",
+              "tick": 3840,
+              "lengthTick": 1800,
+              "pitch": 33,
+              "velocity": 100
+            },
+            {
+              "id": "f52064ce-ed69-465a-8827-647adee0586b",
+              "tick": 5760,
+              "lengthTick": 1800,
+              "pitch": 31,
+              "velocity": 100
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "1e88c593-47b8-4c65-9f45-3d5d578d4c73",
+      "type": "midi",
+      "name": "Piano",
+      "color": "#81C784",
+      "volumeDb": -4.0,
+      "pan": 0.2,
+      "mute": false,
+      "solo": false,
+      "instrument": {
+        "kind": "builtin",
+        "id": "builtin.piano",
+        "version": "0.1.0",
+        "params": {
+          "volumeDb": 0.0,
+          "pan": 0.0,
+          "tone": 2.0
+        }
+      },
+      "clips": [
+        {
+          "id": "2fc4a9ab-f3fd-422d-8a98-ce86dbff3fd0",
+          "startTick": 0,
+          "lengthTick": 7680,
+          "notes": [
+            {
+              "id": "03fdfc15-319f-464e-8c45-05a04a0d596e",
+              "tick": 0,
+              "lengthTick": 3780,
+              "pitch": 60,
+              "velocity": 80
+            },
+            {
+              "id": "3991f741-7a7f-4120-9ba6-0593ba9c9882",
+              "tick": 0,
+              "lengthTick": 3780,
+              "pitch": 64,
+              "velocity": 80
+            },
+            {
+              "id": "3e6a650c-027e-40e4-a63f-e22c44e15263",
+              "tick": 0,
+              "lengthTick": 3780,
+              "pitch": 67,
+              "velocity": 80
+            },
+            {
+              "id": "771cc34d-97bd-42a6-9431-83aa41db49eb",
+              "tick": 0,
+              "lengthTick": 3780,
+              "pitch": 71,
+              "velocity": 80
+            },
+            {
+              "id": "70b2e4b4-0dd6-4876-8bb4-45750d627b32",
+              "tick": 3840,
+              "lengthTick": 3780,
+              "pitch": 57,
+              "velocity": 80
+            },
+            {
+              "id": "9308f986-877c-4b03-a8f2-c36e2604c544",
+              "tick": 3840,
+              "lengthTick": 3780,
+              "pitch": 60,
+              "velocity": 80
+            },
+            {
+              "id": "ae3533e7-fa32-40e3-8bb2-881d446f7b8c",
+              "tick": 3840,
+              "lengthTick": 3780,
+              "pitch": 64,
+              "velocity": 80
+            },
+            {
+              "id": "2f97763b-2c45-44fa-9146-659ac154ed3f",
+              "tick": 3840,
+              "lengthTick": 3780,
+              "pitch": 67,
+              "velocity": 80
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
