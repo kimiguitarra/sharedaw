@@ -358,7 +358,7 @@ void MainComponent::requestLocks (std::vector<std::string> scopeIds)
     {
         for (auto& id : scopeIds)
         {
-            auto r = SyncUI::runWithProgress ("ロックを取得しています"_ju, [&] { return sync.runAcquireLock (id); });
+            auto r = SyncUI::runWithProgress ("ロックを取得しています"_ju, [this, scopeId = id] { return sync.runAcquireLock (scopeId); });
 
             if (r.failed())
                 return Dialogs::showError ("ロックを取得できませんでした"_ju, sync.scopeName (id) + ": " + r.getErrorMessage());
