@@ -29,7 +29,18 @@ push の検証（サーバー側）:
    （新しいトラックは作成者が自動でロックを持つ。最初のリビジョンのテンポ・拍子・コードはロックしない）
 5. リビジョン登録とヘッド更新をアトミックに行う
 
-## セットアップ
+## セットアップ（Cloudflare のダッシュボードだけで行う場合）
+
+1. D1 データベース `sharedaw-sync` を作り、`server/migrations/0001_init.sql` の中身を D1 のコンソールで実行する
+2. R2 バケット `sharedaw-sync-blobs` を作る
+3. `wrangler.jsonc` の `database_id` を 1 のデータベース ID にする
+4. Workers & Pages →「リポジトリをインポート」でこのリポジトリを選び、プロジェクト名 `sharedaw-sync`、
+   ルートディレクトリ `server`、ビルドコマンド `npm ci`、デプロイコマンド `npx wrangler deploy`、
+   ビルドの監視パスを `server/*` と `shared/schema/*` にする（Cloudflare 側でビルドするので GitHub Actions は使わない）
+5. Worker の「設定 → 変数とシークレット」でシークレット `ADMIN_PASSWORD` を追加する
+6. `https://sharedaw-sync.<サブドメイン>.workers.dev/admin` を開き、ユーザーを作ってトークンを発行する
+
+## セットアップ（コマンドで行う場合）
 
 ```bash
 cd server
@@ -45,7 +56,7 @@ npx wrangler deploy
 （Cloudflare ダッシュボード → R2 → API トークンの管理 → 対象バケットの「オブジェクトの読み取りと書き込み」）:
 
 ```bash
-# wrangler.jsonc の vars.R2_ACCOUNT_ID にアカウント ID を書いてから
+npx wrangler secret put R2_ACCOUNT_ID
 npx wrangler secret put R2_ACCESS_KEY_ID
 npx wrangler secret put R2_SECRET_ACCESS_KEY
 ```
@@ -53,6 +64,8 @@ npx wrangler secret put R2_SECRET_ACCESS_KEY
 設定しない場合は Worker 経由の転送（`/blobs/:hash/data`、開発用）になる。
 
 ## ユーザーの追加
+
+ブラウザで `/admin` を開く（シークレット `ADMIN_PASSWORD` が必要）。コマンドで行う場合:
 
 ```bash
 node scripts/create-user.mjs Kimitake --remote

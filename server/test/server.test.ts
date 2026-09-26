@@ -221,3 +221,38 @@ describe("tracks, blobs and locks", () => {
     expect(await env.BLOBS.get(`blobs/${wrongHash}`)).toBeNull();
   });
 });
+
+describe("admin page", () => {
+  const post = (fields: Record<string, string>) =>
+    SELF.fetch(ORIGIN + "/admin", { method: "POST", body: new URLSearchParams(fields) });
+
+  it("answers the health check without a token", async () => {
+    const res = await SELF.fetch(ORIGIN + "/");
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("OK");
+  });
+
+  it("rejects a wrong password", async () => {
+    const res = await post({ password: "nope", name: "Carol" });
+    expect(res.status).toBe(403);
+    const count = await env.DB.prepare("SELECT COUNT(*) AS n FROM users").first<{ n: number }>();
+    expect(count?.n).toBe(2);
+  });
+
+  it("creates a user whose token works and joins existing projects", async () => {
+    const project = clone(minimalFixture) as any;
+    expect((await alice("POST", "/projects", { id: project.projectId, name: "Song", memberIds: [] })).status).toBe(201);
+
+    const res = await post({ password: "test-admin-password", name: "Carol", joinAll: "on" });
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    const token = /<div class="token">([^<]+)<\/div>/.exec(html)?.[1];
+    expect(token).toBeTruthy();
+
+    const carol = api(token!);
+    const me = await carol("GET", "/me");
+    expect(me.status).toBe(200);
+    expect(me.data.displayName).toBe("Carol");
+    expect((await carol("GET", "/projects")).data.map((p: any) => p.id)).toContain(project.projectId);
+  });
+});

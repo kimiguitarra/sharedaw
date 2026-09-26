@@ -11,9 +11,12 @@
     { "binding": "BLOBS", "bucket_name": "sharedaw-sync-blobs" }
   ],
   "vars": {
-    // 署名付き URL（R2 の S3 互換 API）を使うときに設定する。未設定なら Worker 経由のアップロード（開発用）になる
-    "R2_BUCKET_NAME": "sharedaw-sync-blobs",
-    "R2_ACCOUNT_ID": ""
-  }
-  // シークレット（wrangler secret put）: R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
+    "R2_BUCKET_NAME": "sharedaw-sync-blobs"
+  },
+  // ダッシュボードで設定した変数を、デプロイのたびに消さない
+  "keep_vars": true
+  // シークレット（ダッシュボードの「設定 → 変数とシークレット」または wrangler secret put）:
+  //   ADMIN_PASSWORD                   管理ページ（/admin）のパスワード
+  //   R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
+  //                                    署名付き URL（R2 の S3 互換 API）で大きなオーディオを直接送る。未設定なら Worker 経由
 }

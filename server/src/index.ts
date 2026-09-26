@@ -1,5 +1,6 @@
 // ShareDAW 同期サーバー（仕様書 §6）。Cloudflare Workers + D1 + R2。
 
+import { handleAdmin } from "./admin";
 import { directDownload, directUpload, registeredHashes, transferUrl, verifyAndRegister } from "./blobs";
 import { ProjectJson, changedScopes, referencedBlobs, validateProject } from "./project";
 import { Env, HttpError, User, blobKey, errorResponse, isSha256, isUuid, json, nowIso, readJson, sha256Hex } from "./util";
@@ -384,6 +385,12 @@ export default {
     const url = new URL(request.url);
 
     try {
+      // 動作確認用（ブラウザでサーバー URL を開いたとき）と、ユーザー作成の管理ページ
+      if (url.pathname === "/" && request.method === "GET")
+        return new Response("ShareDAW sync server: OK\n", { headers: { "content-type": "text/plain; charset=utf-8" } });
+
+      if (url.pathname === "/admin") return await handleAdmin(request, env);
+
       for (const r of routes) {
         if (r.method !== request.method) continue;
         const m = r.pattern.exec(url.pathname);

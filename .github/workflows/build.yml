@@ -1,10 +1,28 @@
 name: Build
 
+# Actions の無料枠を節約する:
+# - push / PR では Linux の軽いテスト（ロジックの単体テスト・同期サーバー）だけを動かす
+# - アプリのビルド（特に macOS は Linux の 10 倍の分数を消費する）は手動実行（Actions → Build → Run workflow）のときだけ
 on:
   push:
-    branches: [ main, "claude/**" ]
+    branches: [ main ]
+    paths-ignore: [ "**.md", "docs/**" ]
   pull_request:
+    paths-ignore: [ "**.md", "docs/**" ]
   workflow_dispatch:
+    inputs:
+      windows:
+        description: "Windows 版をビルドする"
+        type: boolean
+        default: true
+      macos:
+        description: "Mac 版（Universal）をビルドする（分数の消費が大きい）"
+        type: boolean
+        default: true
+      linux:
+        description: "Linux 版をビルドしてスモークテストする"
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -44,22 +62,35 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
+  # 手動実行で選んだ OS だけをビルドする
+  plan:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - id: plan
+        env:
+          WINDOWS: ${{ inputs.windows }}
+          MACOS: ${{ inputs.macos }}
+          LINUX: ${{ inputs.linux }}
+        run: |
+          entries=()
+          [ "$WINDOWS" = "true" ] && entries+=('{"name":"windows","os":"windows-2022","configure":"-G \"Visual Studio 17 2022\" -A x64"}')
+          [ "$MACOS" = "true" ] && entries+=('{"name":"macos-universal","os":"macos-14","configure":"-G Xcode -DCMAKE_OSX_ARCHITECTURES=\"arm64;x86_64\""}')
+          [ "$LINUX" = "true" ] && entries+=('{"name":"linux","os":"ubuntu-24.04","configure":"-G Ninja -DCMAKE_BUILD_TYPE=Release -DCOLLAB_BUILD_TEST_PLUGINS=ON"}')
+          json="$(IFS=,; echo "{\"include\":[${entries[*]}]}")"
+          echo "$json"
+          echo "matrix=$json" >> "$GITHUB_OUTPUT"
+
   app:
+    needs: plan
+    if: needs.plan.outputs.matrix != '{"include":[]}'
     name: app (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: windows
-            os: windows-2022
-            configure: -G "Visual Studio 17 2022" -A x64
-          - name: macos-universal
-            os: macos-14
-            configure: -G Xcode -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
-          - name: linux
-            os: ubuntu-24.04
-            configure: -G Ninja -DCMAKE_BUILD_TYPE=Release -DCOLLAB_BUILD_TEST_PLUGINS=ON
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
 
     steps:
       - uses: actions/checkout@v4
