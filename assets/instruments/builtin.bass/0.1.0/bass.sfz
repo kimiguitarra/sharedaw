@@ -1,0 +1,6 @@
+// 仮音源: ノコギリ波 + サイン波のベース
+<region> lokey=0 hikey=127 sample=*saw volume=-2 fil_type=lpf_2p cutoff=500 fil_keytrack=50 fil_veltrack=1200 amp_veltrack=70
+ fileg_attack=0 fileg_decay=0.25 fileg_sustain=20 fileg_depth=1800
+ ampeg_attack=0.002 ampeg_decay=0.8 ampeg_sustain=60 ampeg_release=0.08
+<region> lokey=0 hikey=127 sample=*sine volume=0 amp_veltrack=70
+ ampeg_attack=0.002 ampeg_decay=0.8 ampeg_sustain=70 ampeg_release=0.08

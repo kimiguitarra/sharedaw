@@ -1,0 +1,9 @@
+{
+  "id": "builtin.piano",
+  "version": "0.1.0",
+  "displayName": "ピアノ（仮音源）",
+  "type": "melodic",
+  "main": "piano.sfz",
+  "credits": [],
+  "defaultParams": { "volumeDb": 0.0, "pan": 0.0, "tone": 0.0 }
+}

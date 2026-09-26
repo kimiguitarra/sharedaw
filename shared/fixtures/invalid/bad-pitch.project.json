@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "projectId": "6f1c1d7e-2a51-4e8e-9d3b-0d3a1d2f7a12",
+  "name": "x", "sampleRate": 48000, "ppq": 960,
+  "tempoTrack": { "id": "0b8f0c65-3b4f-4a55-8d56-9a4f0a1e2b01", "events": [ { "id": "0b8f0c65-3b4f-4a55-8d56-9a4f0a1e2b02", "tick": 0, "bpm": 120 } ] },
+  "meterTrack": { "id": "0b8f0c65-3b4f-4a55-8d56-9a4f0a1e2b03", "events": [ { "id": "0b8f0c65-3b4f-4a55-8d56-9a4f0a1e2b04", "bar": 1, "numerator": 4, "denominator": 4 } ] },
+  "chordTrack": { "id": "0b8f0c65-3b4f-4a55-8d56-9a4f0a1e2b05", "playback": { "enabled": true, "volumeDb": -6, "instrument": { "id": "builtin.piano", "version": "0.1.0" } }, "events": [] },
+  "tracks": [
+    { "id": "0b8f0c65-3b4f-4a55-8d56-9a4f0a1e2b06", "type": "midi", "name": "A", "color": "#000000", "volumeDb": 0, "pan": 0, "mute": false, "solo": false,
+      "instrument": { "kind": "builtin", "id": "builtin.piano", "version": "0.1.0", "params": {} },
+      "clips": [ { "id": "0b8f0c65-3b4f-4a55-8d56-9a4f0a1e2b07", "startTick": 0, "lengthTick": 3840,
+        "notes": [ { "id": "0b8f0c65-3b4f-4a55-8d56-9a4f0a1e2b08", "tick": 0, "lengthTick": 240, "pitch": 128, "velocity": 100 } ] } ] }
+  ]
+}

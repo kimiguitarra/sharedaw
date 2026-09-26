@@ -1,0 +1,5 @@
+// 仮音源: 三角波 + サイン波の減衰するキーボード音（本番では Salamander Grand Piano に差し替える）
+<region> lokey=0 hikey=127 sample=*triangle volume=0 amp_veltrack=85 fil_type=lpf_2p cutoff=2500 fil_keytrack=60 fil_veltrack=2400
+ ampeg_attack=0.002 ampeg_decay=2.5 ampeg_sustain=10 ampeg_release=0.35
+<region> lokey=0 hikey=127 sample=*sine volume=0 transpose=12 amp_veltrack=85
+ ampeg_attack=0.002 ampeg_decay=0.9 ampeg_sustain=0 ampeg_release=0.3

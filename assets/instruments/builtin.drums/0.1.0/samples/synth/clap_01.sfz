@@ -1,0 +1,2 @@
+<region> sample=*noise volume=8 fil_type=bpf_2p cutoff=1400 resonance=3 amp_veltrack=90
+ ampeg_attack=0.002 ampeg_decay=0.16 ampeg_sustain=0 ampeg_release=0.16

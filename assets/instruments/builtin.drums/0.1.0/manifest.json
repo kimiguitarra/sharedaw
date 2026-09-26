@@ -1,0 +1,40 @@
+{
+  "id": "builtin.drums",
+  "version": "0.1.0",
+  "displayName": "ドラム（仮音源）",
+  "type": "drums",
+  "credits": [],
+  "defaultParams": { "kit": "synth", "volumeDb": 0.0, "pan": 0.0, "tone": 0.0, "pieces": {} },
+  "pieces": [
+    { "key": "kick",     "name": "キック",               "note": 36 },
+    { "key": "rim",      "name": "サイドスティック",     "note": 37 },
+    { "key": "snare",    "name": "スネア",               "note": 38 },
+    { "key": "clap",     "name": "クラップ",             "note": 39 },
+    { "key": "hhClosed", "name": "ハイハット（クローズ）", "note": 42, "sfzExtra": "group=2" },
+    { "key": "hhPedal",  "name": "ハイハット（ペダル）",   "note": 44, "sfzExtra": "group=2" },
+    { "key": "hhOpen",   "name": "ハイハット（オープン）", "note": 46, "sfzExtra": "group=1 off_by=2" },
+    { "key": "tomLow",   "name": "ロータム",             "note": 45 },
+    { "key": "tomMid",   "name": "ミッドタム",           "note": 47 },
+    { "key": "tomHigh",  "name": "ハイタム",             "note": 50 },
+    { "key": "crash",    "name": "クラッシュ",           "note": 49 },
+    { "key": "ride",     "name": "ライド",               "note": 51 }
+  ],
+  "kits": {
+    "synth": {
+      "kick": "synth/kick_01", "rim": "synth/rim_01", "snare": "synth/snare_01", "clap": "synth/clap_01",
+      "hhClosed": "synth/hh_closed_01", "hhPedal": "synth/hh_pedal_01", "hhOpen": "synth/hh_open_01",
+      "tomLow": "synth/tom_01", "tomMid": "synth/tom_01", "tomHigh": "synth/tom_01",
+      "crash": "synth/crash_01", "ride": "synth/ride_01"
+    },
+    "synthTight": {
+      "kick": "synth/kick_02", "rim": "synth/rim_01", "snare": "synth/snare_02", "clap": "synth/clap_01",
+      "hhClosed": "synth/hh_closed_01", "hhPedal": "synth/hh_pedal_01", "hhOpen": "synth/hh_open_01",
+      "tomLow": "synth/tom_01", "tomMid": "synth/tom_01", "tomHigh": "synth/tom_01",
+      "crash": "synth/crash_01", "ride": "synth/ride_01"
+    }
+  },
+  "samples": [
+    "synth/kick_01", "synth/kick_02", "synth/rim_01", "synth/snare_01", "synth/snare_02", "synth/clap_01",
+    "synth/hh_closed_01", "synth/hh_pedal_01", "synth/hh_open_01", "synth/tom_01", "synth/crash_01", "synth/ride_01"
+  ]
+}

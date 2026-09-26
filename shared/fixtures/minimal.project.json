@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "projectId": "6f1c1d7e-2a51-4e8e-9d3b-0d3a1d2f7a10",
+  "name": "テスト曲",
+  "sampleRate": 48000,
+  "ppq": 960,
+  "tempoTrack": { "id": "0b8f0c65-3b4f-4a55-8d56-9a4f0a1e2b01", "events": [ { "id": "0b8f0c65-3b4f-4a55-8d56-9a4f0a1e2b02", "tick": 0, "bpm": 120.0 } ] },
+  "meterTrack": { "id": "0b8f0c65-3b4f-4a55-8d56-9a4f0a1e2b03", "events": [ { "id": "0b8f0c65-3b4f-4a55-8d56-9a4f0a1e2b04", "bar": 1, "numerator": 4, "denominator": 4 } ] },
+  "chordTrack": {
+    "id": "0b8f0c65-3b4f-4a55-8d56-9a4f0a1e2b05",
+    "playback": { "enabled": true, "volumeDb": -6.0, "instrument": { "id": "builtin.piano", "version": "0.1.0" } },
+    "events": []
+  },
+  "tracks": []
+}

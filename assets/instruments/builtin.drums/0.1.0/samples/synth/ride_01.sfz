@@ -1,0 +1,4 @@
+<region> sample=*noise volume=-3 fil_type=bpf_2p cutoff=9000 resonance=2 amp_veltrack=80
+ ampeg_attack=0 ampeg_decay=0.9 ampeg_sustain=0 ampeg_release=0.9 loop_mode=one_shot
+<region> sample=*triangle volume=-8 transpose=47 amp_veltrack=80
+ ampeg_attack=0 ampeg_decay=0.6 ampeg_sustain=0 ampeg_release=0.6

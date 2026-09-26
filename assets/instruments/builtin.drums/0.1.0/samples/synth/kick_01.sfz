@@ -1,0 +1,6 @@
+// 仮音源: サイン波のピッチエンベロープによるキック
+<region> sample=*sine volume=12 transpose=-2 amp_veltrack=80
+ pitcheg_attack=0 pitcheg_decay=0.06 pitcheg_sustain=0 pitcheg_depth=2400
+ ampeg_attack=0 ampeg_decay=0.45 ampeg_sustain=0 ampeg_release=0.45
+<region> sample=*noise volume=-12 fil_type=lpf_2p cutoff=2500 amp_veltrack=90
+ ampeg_attack=0 ampeg_decay=0.012 ampeg_sustain=0 ampeg_release=0.012

@@ -1,0 +1,5 @@
+// メトロノーム: 76 = 小節の頭、77 = それ以外の拍
+<region> key=76 sample=*sine transpose=12 volume=6
+ ampeg_attack=0 ampeg_decay=0.03 ampeg_sustain=0 ampeg_release=0.03
+<region> key=77 sample=*sine volume=3
+ ampeg_attack=0 ampeg_decay=0.03 ampeg_sustain=0 ampeg_release=0.03

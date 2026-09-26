@@ -1,0 +1,4 @@
+// キー（パーツのノート番号）に応じて音程が変わるタム
+<region> sample=*sine volume=8 transpose=5 amp_veltrack=85
+ pitcheg_attack=0 pitcheg_decay=0.08 pitcheg_sustain=0 pitcheg_depth=600
+ ampeg_attack=0 ampeg_decay=0.4 ampeg_sustain=0 ampeg_release=0.4

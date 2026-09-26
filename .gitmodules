@@ -1,0 +1,6 @@
+[submodule "app/external/tracktion_engine"]
+	path = app/external/tracktion_engine
+	url = https://github.com/Tracktion/tracktion_engine.git
+[submodule "app/external/sfizz"]
+	path = app/external/sfizz
+	url = https://github.com/sfztools/sfizz.git

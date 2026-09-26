@@ -1,0 +1,9 @@
+{
+  "id": "builtin.bass",
+  "version": "0.1.0",
+  "displayName": "ベース（仮音源）",
+  "type": "melodic",
+  "main": "bass.sfz",
+  "credits": [],
+  "defaultParams": { "volumeDb": 0.0, "pan": 0.0, "tone": 0.0 }
+}
