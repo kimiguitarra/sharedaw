@@ -31,14 +31,19 @@ push の検証（サーバー側）:
 
 ## セットアップ（Cloudflare のダッシュボードだけで行う場合）
 
-1. D1 データベース `sharedaw-sync` を作り、`server/migrations/0001_init.sql` の中身を D1 のコンソールで実行する
+Cloudflare の GitHub 連携（リポジトリのインポート）は、アプリのサブモジュール（JUCE 等）を取得できずに失敗するので使わない。
+代わりに 1 ファイルにまとめた `dist/worker.js`（`npm run bundle` で生成。CI で最新かを確認している）を貼り付ける。
+
+1. D1 データベース `sharedaw-sync` を作り、`migrations/0001_init.sql` の中身を D1 のコンソールで実行する。
+   データベース ID を `wrangler.jsonc` に書く（コマンドでデプロイするとき用）
 2. R2 バケット `sharedaw-sync-blobs` を作る
-3. `wrangler.jsonc` の `database_id` を 1 のデータベース ID にする
-4. Workers & Pages →「リポジトリをインポート」でこのリポジトリを選び、プロジェクト名 `sharedaw-sync`、
-   ルートディレクトリ `server`、ビルドコマンド `npm ci`、デプロイコマンド `npx wrangler deploy`、
-   ビルドの監視パスを `server/*` と `shared/schema/*` にする（Cloudflare 側でビルドするので GitHub Actions は使わない）
-5. Worker の「設定 → 変数とシークレット」でシークレット `ADMIN_PASSWORD` を追加する
-6. `https://sharedaw-sync.<サブドメイン>.workers.dev/admin` を開き、ユーザーを作ってトークンを発行する
+3. Workers & Pages → 作成 →「Hello World」から始めて、名前 `sharedaw-sync` の Worker を作る
+4. 「コードを編集」で中身をすべて `dist/worker.js` に置き換えてデプロイする
+5. Worker の「バインディング」で D1（変数名 `DB` → `sharedaw-sync`）と R2（変数名 `BLOBS` → `sharedaw-sync-blobs`）を追加する
+6. 「設定 → 変数とシークレット」でテキスト `R2_BUCKET_NAME` = `sharedaw-sync-blobs` と、シークレット `ADMIN_PASSWORD` を追加する
+7. `https://sharedaw-sync.<サブドメイン>.workers.dev/admin` を開き、ユーザーを作ってトークンを発行する
+
+サーバーを更新するときは、4 だけをやり直す（バインディング・変数・シークレットは残る）。
 
 ## セットアップ（コマンドで行う場合）
 

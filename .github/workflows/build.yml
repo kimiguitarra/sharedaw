@@ -61,6 +61,11 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      # ダッシュボードに貼り付けて使う 1 ファイル版（dist/worker.js）がソースと一致しているか
+      - name: Check dist/worker.js is up to date
+        run: |
+          npm run bundle
+          git diff --exit-code dist/worker.js || { echo "::error::server で npm run bundle を実行して dist/worker.js を更新してください"; exit 1; }
 
   # 手動実行で選んだ OS だけをビルドする
   plan:
