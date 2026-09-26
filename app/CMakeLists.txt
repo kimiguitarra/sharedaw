@@ -45,6 +45,7 @@ target_sources(CollabDAW PRIVATE
     src/ProjectDocument.cpp
     src/SessionGuard.cpp
     src/SfizzPlugin.cpp
+    src/Translations.cpp
     src/plugins/PluginHost.cpp
     src/sync/CredentialStore.cpp
     src/sync/SyncClient.cpp

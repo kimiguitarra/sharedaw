@@ -7,6 +7,7 @@
 #include "InstrumentLibrary.h"
 #include "ProjectDocument.h"
 #include "SessionGuard.h"
+#include "Translations.h"
 #include "SfizzPlugin.h"
 #include "audio/CountInPlugin.h"
 #include "sync/SyncManager.h"
@@ -109,6 +110,7 @@ public:
         }
 
         juce::LookAndFeel::setDefaultLookAndFeel (&lookAndFeel);
+        installJapaneseTranslations();
 
         juce::PropertiesFile::Options opts;
         opts.applicationName = "CollabDAW";
@@ -259,6 +261,14 @@ public:
     }
 
     void anotherInstanceStarted (const juce::String&) override {}
+
+    void getCommandInfo (juce::CommandID id, juce::ApplicationCommandInfo& info) override
+    {
+        JUCEApplication::getCommandInfo (id, info);
+
+        if (id == juce::StandardApplicationCommandIDs::quit)
+            info.shortName = "終了"_ju;
+    }
 
 private:
     Theme::LookAndFeel lookAndFeel;
