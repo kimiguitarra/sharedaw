@@ -41,6 +41,7 @@ struct EditorState  : public juce::ChangeBroadcaster
 
     bool metronomeEnabled = false;
     float metronomeVolumeDb = -6.0f;
+    int countInBars = 1;           // 録音のカウントイン（0〜2 小節）
 
     double playheadTick = 0.0;
 

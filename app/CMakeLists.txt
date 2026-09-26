@@ -37,6 +37,8 @@ target_sources(CollabDAW PRIVATE
     src/Main.cpp
     src/AppPaths.cpp
     src/audio/AudioFiles.cpp
+    src/audio/CountInPlugin.cpp
+    src/audio/Takes.cpp
     src/EngineBridge.cpp
     src/InstrumentLibrary.cpp
     src/ProjectDocument.cpp

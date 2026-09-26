@@ -15,13 +15,15 @@ TransportBar::TransportBar (AppContext& c) : ctx (c)
     toStartButton.setTooltip ("先頭へ（Home）"_ju);
     playButton.setTooltip ("再生／一時停止（Space）"_ju);
     stopButton.setTooltip ("停止"_ju);
-    recordButton.setTooltip ("録音（M2 で対応）"_ju);
+    recordButton.setTooltip ("録音（R）。録音待機（●）にしたオーディオトラックに録音します"_ju);
     loopButton.setTooltip ("ループ再生（範囲はルーラーをドラッグして指定）"_ju);
     metronomeButton.setTooltip ("メトロノーム"_ju);
     metronomeVolume.setTooltip ("メトロノームの音量"_ju);
 
-    recordButton.setEnabled (false);
     recordButton.setColour (juce::TextButton::textColourOffId, juce::Colour (0xffe57373));
+    recordButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffc62828));
+    recordButton.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+    recordButton.onClick = [this] { if (ctx.toggleRecord) ctx.toggleRecord(); };
 
     loopButton.setClickingTogglesState (false);
     metronomeButton.setClickingTogglesState (false);
@@ -109,6 +111,8 @@ void TransportBar::updatePosition (double tick, double seconds, bool playing)
     tempoLabel.setText (juce::String (bpm, std::abs (bpm - std::round (bpm)) < 0.005 ? 0 : 2) + " BPM   "
                           + juce::String (sig.numerator) + "/" + juce::String (sig.denominator),
                         juce::dontSendNotification);
+
+    recordButton.setToggleState (ctx.engine.isRecording(), juce::dontSendNotification);
 
     if (playing != wasPlaying)
     {

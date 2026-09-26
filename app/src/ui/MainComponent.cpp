@@ -4,6 +4,7 @@
 #include "SyncUI.h"
 #include "Theme.h"
 #include "collab/Uuid.h"
+#include "audio/Takes.h"
 #include "sync/SyncManager.h"
 
 namespace
@@ -16,7 +17,8 @@ namespace
         cmdAudioSettings, cmdCredits, cmdAbout,
         cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
         cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory, cmdSyncRefreshLocks,
-        cmdAddAudioTrack, cmdImportAudio, cmdSplit, cmdPlugins
+        cmdAddAudioTrack, cmdImportAudio, cmdSplit, cmdPlugins,
+        cmdRecord, cmdCountIn0, cmdCountIn1, cmdCountIn2
     };
 
     constexpr float fontScales[] = { 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
@@ -68,6 +70,12 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     sync.addChangeListener (this);
     sync.onLockRequired = [this] (std::vector<std::string> ids) { requestLocks (std::move (ids)); };
     ctx.addLockMenuItems = [this] (const std::string& id, juce::PopupMenu& m) { lockMenuForScope (id, m); };
+    ctx.toggleRecord = [this] { toggleRecord(); };
+
+    state.countInBars = juce::jlimit (0, 2, settings.getIntValue ("countInBars", 1));
+    bridge.onRecordingFinished = [this] (std::vector<EngineBridge::RecordedTake> takes) { importTakes (std::move (takes)); };
+    engine.getDeviceManager().deviceManager.addChangeListener (this);
+    applyLatencyOffset();
 
     if (! library.getLoadErrors().isEmpty())
         setStatus ("内蔵音源の読み込みエラー: "_ju + library.getLoadErrors().joinIntoString ("; "));
@@ -84,6 +92,8 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
 MainComponent::~MainComponent()
 {
     bridge.onPluginRemoved = nullptr;
+    bridge.onRecordingFinished = nullptr;
+    engine.getDeviceManager().deviceManager.removeChangeListener (this);
     pluginWindows.closeAll();
     sync.onLockRequired = nullptr;
     sync.removeChangeListener (this);
@@ -119,6 +129,12 @@ void MainComponent::applyFontScale (float scale)
 //==============================================================================
 void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
 {
+    if (source == &engine.getDeviceManager().deviceManager)
+    {
+        applyLatencyOffset();
+        return;
+    }
+
     if (source == &sync)
     {
         updateTitle();
@@ -405,7 +421,7 @@ void MainComponent::showAudioSettings()
     auto selector = std::make_unique<juce::AudioDeviceSelectorComponent> (dm, 0, 2, 0, 2, true, false, true, false);
     auto note = std::make_unique<juce::Label>();
     note->setText ("プロジェクトのサンプルレートは 48kHz 固定です。可能ならデバイスも 48000 Hz に設定してください。"_ju
-                   "（Windows で ASIO を使うには ASIO SDK 付きでビルドする必要があります: M2）"_ju,
+                   "（Windows で ASIO を使うには ASIO SDK 付きでビルドする必要があります）"_ju,
                    juce::dontSendNotification);
     note->setFont (juce::FontOptions (12.0f));
     note->setColour (juce::Label::textColourId, Theme::textDim);
@@ -413,17 +429,87 @@ void MainComponent::showAudioSettings()
     selector->setBounds (0, 0, 560, 420);
     note->setBounds (8, 424, 544, 48);
 
+    // レイテンシ補正（§3.5）: ドライバが報告する値で自動補正し、さらにデバイスごとに手動でずらせる
+    struct Latency  : public juce::Component,
+                      private juce::ChangeListener
+    {
+        Latency (MainComponent& o) : owner (o)
+        {
+            title.setText ("録音のレイテンシ補正（手動、サンプル）"_ju, juce::dontSendNotification);
+            title.setFont (juce::FontOptions (13.0f));
+            addAndMakeVisible (title);
+
+            offset.setRange (-2000, 2000, 1);
+            offset.setTextBoxStyle (juce::Slider::TextBoxRight, false, 70, 22);
+            offset.setDoubleClickReturnValue (true, 0);
+            offset.onValueChange = [this]
+            {
+                if (auto key = owner.latencySettingKey(); key.isNotEmpty())
+                    owner.settings.setValue (key, (int) offset.getValue());
+
+                owner.applyLatencyOffset();
+            };
+            addAndMakeVisible (offset);
+
+            info.setFont (juce::FontOptions (12.0f));
+            info.setColour (juce::Label::textColourId, Theme::textDim);
+            addAndMakeVisible (info);
+
+            owner.engine.getDeviceManager().deviceManager.addChangeListener (this);
+            update();
+        }
+
+        ~Latency() override
+        {
+            owner.engine.getDeviceManager().deviceManager.removeChangeListener (this);
+        }
+
+        void changeListenerCallback (juce::ChangeBroadcaster*) override    { update(); }
+
+        void update()
+        {
+            auto* device = owner.engine.getDeviceManager().deviceManager.getCurrentAudioDevice();
+            const auto key = owner.latencySettingKey();
+            offset.setValue (key.isEmpty() ? 0 : owner.settings.getIntValue (key, 0), juce::dontSendNotification);
+            offset.setEnabled (device != nullptr);
+
+            if (device != nullptr)
+                info.setText ("ドライバが報告するレイテンシ（自動で補正）: 入力 "_ju + juce::String (device->getInputLatencyInSamples())
+                                + " / 出力 "_ju + juce::String (device->getOutputLatencyInSamples())
+                                + " サンプル。録音がずれるときは、正の値で録音を前（早く）にずらします。"_ju,
+                              juce::dontSendNotification);
+        }
+
+        void resized() override
+        {
+            auto area = getLocalBounds().reduced (8, 0);
+            auto row = area.removeFromTop (26);
+            title.setBounds (row.removeFromLeft (260));
+            offset.setBounds (row);
+            info.setBounds (area);
+        }
+
+        MainComponent& owner;
+        juce::Label title, info;
+        juce::Slider offset { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
+    };
+
+    auto latency = std::make_unique<Latency> (*this);
+    latency->setBounds (0, 476, 560, 64);
+
     struct Holder : juce::Component
     {
-        std::unique_ptr<juce::Component> a, b;
+        std::unique_ptr<juce::Component> a, b, c;
     };
 
     auto holder = std::make_unique<Holder>();
     holder->a = std::move (selector);
     holder->b = std::move (note);
+    holder->c = std::move (latency);
     holder->addAndMakeVisible (*holder->a);
     holder->addAndMakeVisible (*holder->b);
-    holder->setSize (560, 480);
+    holder->addAndMakeVisible (*holder->c);
+    holder->setSize (560, 546);
 
     juce::DialogWindow::LaunchOptions o;
     o.content.setOwned (holder.release());
@@ -433,6 +519,76 @@ void MainComponent::showAudioSettings()
     o.useNativeTitleBar = true;
     o.resizable = false;
     o.launchAsync();
+}
+
+//==============================================================================
+void MainComponent::toggleRecord()
+{
+    if (bridge.isRecording())
+    {
+        bridge.stop();
+        return;
+    }
+
+    if (! document.hasLocation())
+        return Dialogs::showInfo ("録音"_ju, "録音した音はプロジェクトのフォルダに保存するので、先にプロジェクトを保存してください。"_ju);
+
+    std::vector<std::string> armed;
+
+    for (auto& t : document.getProject().tracks)
+        if (auto in = bridge.getTrackInput (t.id); in.armed && in.device.isNotEmpty())
+            armed.push_back (t.id);
+
+    if (armed.empty())
+        return Dialogs::showInfo ("録音"_ju, "録音するオーディオトラックの録音待機ボタン（●）をオンにしてください。"_ju
+                                             "トラックがなければ「トラック → オーディオトラックを追加」で作れます。"_ju);
+
+    // 同期中はロックを持っているトラックにだけ録音できる（§4.2）
+    std::vector<std::string> notEditable;
+
+    for (auto& id : armed)
+        if (! sync.canEdit (id))
+            notEditable.push_back (id);
+
+    if (! notEditable.empty())
+        return requestLocks (std::move (notEditable));
+
+    if (auto r = bridge.startRecording (state.countInBars); r.failed())
+        return Dialogs::showError ("録音できません"_ju, r.getErrorMessage());
+
+    setStatus ("録音中（停止で確定）"_ju);
+    commandManager.commandStatusChanged();
+}
+
+void MainComponent::importTakes (std::vector<EngineBridge::RecordedTake> takes)
+{
+    std::vector<Takes::Clip> clips;
+    const auto dir = document.getProjectDir();
+    const auto map = document.getTempoMap();
+
+    auto r = SyncUI::runWithProgress ("録音を保存しています"_ju, [&] { return Takes::import (takes, dir, map, clips); });
+
+    Takes::addToProject (document, clips);
+    commandManager.commandStatusChanged();
+
+    if (r.failed())
+        Dialogs::showError ("録音の一部を保存できませんでした"_ju, r.getErrorMessage());
+    else
+        setStatus ("録音しました（"_ju + juce::String ((int) clips.size()) + " テイク）"_ju);
+}
+
+juce::String MainComponent::latencySettingKey() const
+{
+    if (auto* device = engine.getDeviceManager().deviceManager.getCurrentAudioDevice())
+        return "latencyOffset_" + device->getTypeName() + "_" + device->getName();
+
+    return {};
+}
+
+void MainComponent::applyLatencyOffset()
+{
+    const auto key = latencySettingKey();
+    bridge.setManualLatencySamples (key.isEmpty() ? 0 : settings.getIntValue (key, 0));
 }
 
 void MainComponent::showCredits()
@@ -505,6 +661,7 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
     commands.addArray ({ cmdNew, cmdOpen, cmdSave, cmdUndo, cmdRedo, cmdDelete, cmdSelectAll, cmdDuplicate,
                          cmdPlay, cmdToStart, cmdLoop, cmdMetronome, cmdQuantise,
                          cmdAddDrums, cmdAddBass, cmdAddPiano, cmdAudioSettings, cmdCredits, cmdAbout,
+                         cmdRecord, cmdCountIn0, cmdCountIn1, cmdCountIn2,
                          cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
                          cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory, cmdSyncRefreshLocks,
                          cmdAddAudioTrack, cmdImportAudio, cmdSplit, cmdPlugins });
@@ -543,6 +700,20 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdQuantise:   info.setInfo ("クオンタイズ"_ju, {}, "Edit", 0); info.addDefaultKeypress ('q', 0); break;
         case cmdPlay:       info.setInfo ("再生／停止"_ju, {}, "Transport", 0); info.addDefaultKeypress (KP::spaceKey, 0); break;
         case cmdToStart:    info.setInfo ("先頭へ"_ju, {}, "Transport", 0); info.addDefaultKeypress (KP::homeKey, 0); break;
+        case cmdRecord:
+            info.setInfo ("録音"_ju, {}, "Transport", 0);
+            info.addDefaultKeypress ('r', 0);
+            info.setTicked (bridge.isRecording());
+            break;
+        case cmdCountIn0:
+        case cmdCountIn1:
+        case cmdCountIn2:
+        {
+            const int bars = id - cmdCountIn0;
+            info.setInfo (bars == 0 ? "カウントインなし"_ju : "カウントイン "_ju + juce::String (bars) + " 小節"_ju, {}, "Transport", 0);
+            info.setTicked (state.countInBars == bars);
+            break;
+        }
         case cmdLoop:
             info.setInfo ("ループ"_ju, {}, "Transport", 0);
             info.addDefaultKeypress ('l', 0);
@@ -596,6 +767,14 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdQuantise:   pianoRoll.quantiseSelection(); break;
         case cmdPlay:       bridge.togglePlay(); break;
         case cmdToStart:    bridge.returnToStart(); break;
+        case cmdRecord:     toggleRecord(); break;
+        case cmdCountIn0:
+        case cmdCountIn1:
+        case cmdCountIn2:
+            state.countInBars = info.commandID - cmdCountIn0;
+            settings.setValue ("countInBars", state.countInBars);
+            state.changed();
+            break;
         case cmdLoop:       state.loopEnabled = ! state.loopEnabled; state.changed(); break;
         case cmdMetronome:  state.metronomeEnabled = ! state.metronomeEnabled; state.changed(); break;
         case cmdAddDrums:   ctx.addBuiltinMidiTrack (collab::builtin::drums, "Drums"); break;
@@ -676,9 +855,14 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             break;
         case 2:
             m.addCommandItem (cm, cmdPlay);
+            m.addCommandItem (cm, cmdRecord);
             m.addCommandItem (cm, cmdToStart);
             m.addCommandItem (cm, cmdLoop);
             m.addCommandItem (cm, cmdMetronome);
+            m.addSeparator();
+            m.addCommandItem (cm, cmdCountIn0);
+            m.addCommandItem (cm, cmdCountIn1);
+            m.addCommandItem (cm, cmdCountIn2);
             break;
         case 3:
             m.addCommandItem (cm, cmdAddDrums);

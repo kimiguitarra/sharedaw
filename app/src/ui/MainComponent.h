@@ -55,7 +55,7 @@ private:
 
     EditorState state;
     AudioFileCache audioCache;
-    AppContext ctx { document, state, bridge, library, sync, audioCache, {}, {} };
+    AppContext ctx { document, state, bridge, library, sync, audioCache, {}, {}, {} };
 
     juce::ApplicationCommandManager commandManager;
     TransportBar transport { ctx };
@@ -78,6 +78,12 @@ private:
     void openProject();
     void saveProject (std::function<void (bool)> onDone = {});
     void showAudioSettings();
+
+    // 録音（§3.5）
+    void toggleRecord();
+    void importTakes (std::vector<EngineBridge::RecordedTake>);
+    juce::String latencySettingKey() const;
+    void applyLatencyOffset();
     void showCredits();
     void deleteSelection();
     void duplicateClip();

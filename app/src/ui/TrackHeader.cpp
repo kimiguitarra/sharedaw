@@ -29,8 +29,40 @@ TrackHeader::TrackHeader (AppContext& c, const std::string& id)
     instrumentButton.onClick = [this]
     {
         select();
-        showInstrumentMenu();
+
+        if (isAudioTrack())
+            showInputMenu();
+        else
+            showInstrumentMenu();
     };
+
+    // 録音待機（オーディオトラックのみ）
+    armButton.setButtonText ("●"_ju);
+    armButton.setTooltip ("録音待機（入力はその下のボタンで選ぶ）"_ju);
+    armButton.setClickingTogglesState (false);
+    armButton.setColour (juce::TextButton::textColourOffId, juce::Colour (0xffe57373));
+    armButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffc62828));
+    armButton.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+    armButton.onClick = [this]
+    {
+        select();
+        auto in = ctx.engine.getTrackInput (trackId);
+
+        if (in.device.isEmpty())
+        {
+            const auto inputs = ctx.engine.getAudioInputs();
+
+            if (inputs.isEmpty())
+                return Dialogs::showInfo ("録音待機"_ju, "録音できる入力がありません。オーディオ設定で入力デバイスを選んでください。"_ju);
+
+            in.device = inputs[0];
+        }
+
+        in.armed = ! in.armed;
+        ctx.engine.setTrackInput (trackId, in);
+        ctx.state.changed();   // 他のトラックの表示も更新（入力は 1 つのトラックにだけ割り当てる）
+    };
+    addChildComponent (armButton);
     addAndMakeVisible (instrumentButton);
 
     for (auto* b : { &muteButton, &soloButton })
@@ -118,8 +150,20 @@ void TrackHeader::update()
         }
     }
 
+    if (t->type == collab::TrackType::audio)
+    {
+        const auto in = ctx.engine.getTrackInput (trackId);
+        instName = in.device.isEmpty() ? "入力: なし"_ju : "入力: "_ju + in.device + (in.monitor ? "（モニター）"_ju : juce::String());
+        armButton.setToggleState (in.armed, juce::dontSendNotification);
+    }
+
+    if (armButton.isVisible() != (t->type == collab::TrackType::audio))
+    {
+        armButton.setVisible (t->type == collab::TrackType::audio);
+        resized();
+    }
     instrumentButton.setButtonText (instName);
-    instrumentButton.setEnabled (t->type == collab::TrackType::midi);
+    instrumentButton.setTooltip (t->type == collab::TrackType::audio ? "録音の入力とモニタリング"_ju : "音源の調整"_ju);
     problem = ctx.engine.getInstrumentProblem (trackId);
     instrumentButton.setColour (juce::TextButton::textColourOffId, problem.isEmpty() ? Theme::text : Theme::warning);
 
@@ -207,7 +251,14 @@ void TrackHeader::resized()
     soloButton.setBounds (top.removeFromRight (24));
     top.removeFromRight (3);
     muteButton.setBounds (top.removeFromRight (24));
-    top.removeFromRight (4);
+    top.removeFromRight (3);
+
+    if (armButton.isVisible())
+    {
+        armButton.setBounds (top.removeFromRight (24));
+        top.removeFromRight (4);
+    }
+
     nameLabel.setBounds (top);
 
     area.removeFromTop (3);
@@ -219,6 +270,45 @@ void TrackHeader::resized()
     volumeSlider.setBounds (volArea);
     sliderRow.removeFromLeft (28);
     panSlider.setBounds (sliderRow);
+}
+
+bool TrackHeader::isAudioTrack() const
+{
+    auto* t = ctx.document.getProject().findTrack (trackId);
+    return t != nullptr && t->type == collab::TrackType::audio;
+}
+
+void TrackHeader::showInputMenu()
+{
+    const auto current = ctx.engine.getTrackInput (trackId);
+    juce::PopupMenu m;
+
+    m.addItem ("なし"_ju, true, current.device.isEmpty(), [this]
+    {
+        ctx.engine.setTrackInput (trackId, {});
+        ctx.state.changed();
+    });
+
+    for (auto& name : ctx.engine.getAudioInputs())
+        m.addItem (name, true, current.device == name, [this, name]
+        {
+            auto in = ctx.engine.getTrackInput (trackId);
+            in.device = name;
+            ctx.engine.setTrackInput (trackId, in);
+            ctx.state.changed();
+        });
+
+    m.addSeparator();
+    m.addItem ("ソフトウェアモニタリング（入力の音をこのトラックで鳴らす）"_ju, current.device.isNotEmpty(), current.monitor, [this]
+    {
+        auto in = ctx.engine.getTrackInput (trackId);
+        in.monitor = ! in.monitor;
+        ctx.engine.setTrackInput (trackId, in);
+        ctx.state.changed();
+    });
+    m.addItem ("（オーディオインターフェースのダイレクトモニタリングがおすすめです）"_ju, false, false, nullptr);
+
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&instrumentButton));
 }
 
 void TrackHeader::showInstrumentMenu()

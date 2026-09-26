@@ -6,6 +6,7 @@ add_executable(collab_core_tests
     GridTests.cpp
     ProjectDiffTests.cpp
     ProjectJsonTests.cpp
+    RecordingTests.cpp
     RenderTests.cpp
     Sha256Tests.cpp
     TempoMapTests.cpp

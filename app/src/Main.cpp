@@ -8,6 +8,7 @@
 #include "ProjectDocument.h"
 #include "SessionGuard.h"
 #include "SfizzPlugin.h"
+#include "audio/CountInPlugin.h"
 #include "sync/SyncManager.h"
 #include "collab/ProjectDiff.h"
 #include "collab/ChordPlayback.h"
@@ -15,6 +16,7 @@
 #include "collab/Render.h"
 #include "collab/Uuid.h"
 #include "audio/AudioFiles.h"
+#include "audio/Takes.h"
 #include "plugins/PluginHost.h"
 #include "ui/Dialogs.h"
 #include "ui/MainComponent.h"
@@ -120,6 +122,7 @@ public:
         engine = std::make_unique<te::Engine> (getApplicationName(), std::make_unique<CollabUIBehaviour>(),
                                                std::make_unique<CollabEngineBehaviour>());
         engine->getPluginManager().createBuiltInType<SfizzPlugin>();
+        engine->getPluginManager().createBuiltInType<CountInPlugin>();
         engine->getPluginManager().setUsesSeparateProcessForScanning (true);
         preferProjectSampleRate();
 
@@ -164,6 +167,14 @@ public:
         {
             setApplicationReturnValue (bounceCommand (args));
             quit();
+            return;
+        }
+
+        // --record-test <プロジェクトフォルダ> <秒> [カウントインの小節数] [開始小節]（動作確認用: 最初の入力から新しいトラックに録音する）
+        if (auto args = getCommandLineParameterArray(); args.size() >= 3 && args[0] == "--record-test")
+        {
+            // 入力デバイスの一覧ができるのを待つ
+            juce::Timer::callAfterDelay (1000, [this, args] { recordTest (args); });
             return;
         }
 
@@ -305,6 +316,87 @@ private:
 
         document->perform ("import", [track] (collab::Project& p) { p.tracks.push_back (track); });
         return document->save().wasOk() ? 0 : 4;
+    }
+
+    void recordTest (const juce::StringArray& args)
+    {
+        auto finish = [this] (int code) { setApplicationReturnValue (code); quit(); };
+
+        try
+        {
+            document->load (juce::File (args[1]));
+        }
+        catch (const std::exception& e)
+        {
+            std::cerr << "load failed: " << e.what() << std::endl;
+            return finish (2);
+        }
+
+        if (auto* device = engine->getDeviceManager().deviceManager.getCurrentAudioDevice())
+            std::cout << "device: " << device->getTypeName() << " / " << device->getName()
+                      << " in " << device->getActiveInputChannels().countNumberOfSetBits()
+                      << " of " << device->getInputChannelNames().size() << std::endl;
+
+        for (int i = 0; i < engine->getDeviceManager().getNumWaveInDevices(); ++i)
+            if (auto* w = engine->getDeviceManager().getWaveInDevice (i); w != nullptr && i < 4)
+                std::cout << "wave in: " << w->getName() << (w->isEnabled() ? " (enabled)" : "") << std::endl;
+
+        const auto inputs = bridge->getAudioInputs();
+        std::cout << "inputs: " << inputs.joinIntoString (", ") << std::endl;
+
+        if (inputs.isEmpty())
+            return finish (3);
+
+        collab::Track track;
+        track.id = collab::generateUuid();
+        track.type = collab::TrackType::audio;
+        track.name = "Rec";
+        track.color = "#4FC3F7";
+        document->perform ("track", [track] (collab::Project& p) { p.tracks.push_back (track); });
+        bridge->sync();
+        bridge->setTrackInput (track.id, { inputs[0], true, false });
+
+        bridge->onRecordingFinished = [this, finish] (std::vector<EngineBridge::RecordedTake> takes)
+        {
+            for (auto& t : takes)
+                std::cout << "take: " << t.file.getFullPathName() << " start " << t.startSeconds
+                          << " offset " << t.offsetSeconds << " length " << t.lengthSeconds << std::endl;
+
+            std::vector<Takes::Clip> clips;
+            auto r = Takes::import (takes, document->getProjectDir(), document->getTempoMap(), clips);
+            Takes::addToProject (*document, clips);
+
+            for (auto& c : clips)
+                std::cout << "clip: tick " << c.clip.startTick << " offset " << c.clip.sourceOffsetSamples
+                          << " length " << c.clip.lengthSamples << " hash " << c.clip.audioHash << std::endl;
+
+            finish (r.wasOk() && document->save().wasOk() && ! clips.empty() ? 0 : 4);
+        };
+
+        const int countIn = args.size() >= 4 ? args[3].getIntValue() : 0;
+
+        if (args.size() >= 5)
+            bridge->setPositionTick ((double) document->getTempoMap().barToTick (args[4].getIntValue()));
+
+        if (auto r = bridge->startRecording (countIn); r.failed())
+        {
+            std::cerr << "record failed: " << r.getErrorMessage() << std::endl;
+            return finish (5);
+        }
+
+        std::cout << "recording..." << std::endl;
+        juce::Timer::callAfterDelay ((int) (args[2].getDoubleValue() * 1000.0), [this]
+        {
+            std::cout << "stop at " << bridge->getPositionSeconds() << " s" << std::endl;
+            bridge->stop();
+        });
+
+        // 取り込みが呼ばれなければ終わらせる
+        juce::Timer::callAfterDelay ((int) (args[2].getDoubleValue() * 1000.0) + 10000, [finish]
+        {
+            std::cerr << "no take" << std::endl;
+            finish (6);
+        });
     }
 
     int bounceCommand (const juce::StringArray& args)

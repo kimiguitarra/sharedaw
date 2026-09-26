@@ -855,7 +855,7 @@ void TimelineView::changeListenerCallback (juce::ChangeBroadcaster* source)
     }
     else
         for (auto* h : headers)
-            h->repaint();
+            h->update();   // 選択・ロック・録音待機の表示
 
     updateScrollBars();
     lanes.repaint();

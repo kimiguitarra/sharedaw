@@ -19,6 +19,7 @@ add_library(collab_core STATIC
     src/Project.cpp
     src/ProjectDiff.cpp
     src/ProjectJson.cpp
+    src/Recording.cpp
     src/Render.cpp
     src/Sha256.cpp
     src/TempoMap.cpp

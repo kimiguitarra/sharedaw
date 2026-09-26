@@ -7,6 +7,7 @@
 #include "ProjectDocument.h"
 
 class SfizzPlugin;
+class CountInPlugin;
 
 /**
     プロジェクト JSON（collab::Project）→ Tracktion Edit の変換層（§2.1）。
@@ -17,7 +18,8 @@ class SfizzPlugin;
       その秒数をそのまま Tracktion の拍数として置く。これにより Tracktion 側の拍子・テンポの解釈に依存しない。
     - Edit 上の編集 → JSON への反映（録音結果の取り込みなど）は M2 で追加する。
 */
-class EngineBridge  : private juce::ChangeListener
+class EngineBridge  : private juce::ChangeListener,
+                      private te::TransportControl::Listener
 {
 public:
     EngineBridge (te::Engine&, ProjectDocument&, const InstrumentLibrary&);
@@ -69,6 +71,39 @@ public:
 
     te::Engine& getEngine() noexcept                { return engine; }
 
+    //==============================================================================
+    // 録音（§3.5）。入力の割り当て・録音待機・モニタリングはこの環境だけの設定なので JSON には入れない。
+    struct TrackInput
+    {
+        juce::String device;     // 入力デバイス名（空なら未割り当て）
+        bool armed = false;      // 録音待機
+        bool monitor = false;    // ソフトウェアモニタリング
+    };
+
+    /** 使える入力（モノラルの入力チャンネルごと）。 */
+    juce::StringArray getAudioInputs() const;
+
+    TrackInput getTrackInput (const std::string& trackId) const;
+    void setTrackInput (const std::string& trackId, const TrackInput&);
+
+    /** 録音を始める。停止中なら再生位置から countInBars 小節のカウントインのあとに録音する。 */
+    juce::Result startRecording (int countInBars);
+    bool isRecording() const;
+
+    /** 手動のレイテンシ補正（サンプル）。ドライバが報告するレイテンシの補正に加えてずらす。 */
+    void setManualLatencySamples (int samples);
+
+    struct RecordedTake
+    {
+        std::string trackId;
+        juce::File file;
+        double startSeconds = 0, offsetSeconds = 0, lengthSeconds = 0;
+        double punchInSeconds = 0;   // 録音を始めた位置（これより前はカウントイン）
+    };
+
+    /** 録音が終わったとき（メッセージスレッド）。受け取った側で audio/ に取り込み、元のファイルを消す。 */
+    std::function<void (std::vector<RecordedTake>)> onRecordingFinished;
+
     /** プラグインを削除する直前に呼ばれる（エディタのウィンドウを閉じるため）。 */
     std::function<void (te::Plugin*)> onPluginRemoved;
 
@@ -112,6 +147,13 @@ private:
     bool metronomeEnabled = false;
     float metronomeVolumeDb = -6.0f;
 
+    std::map<std::string, TrackInput> trackInputs;
+    CountInPlugin* countIn = nullptr;
+    std::vector<RecordedTake> pendingTakes;
+    int manualLatencySamples = 0;
+    double punchInSeconds = 0;
+    std::shared_ptr<bool> aliveFlag = std::make_shared<bool> (true);
+
     bool loopEnabled = false;
     collab::Tick loopStart = 0, loopEnd = 0;
 
@@ -129,6 +171,13 @@ private:
     void syncMetronome (bool tempoChanged);
     void syncChordTrack (bool tempoChanged);
     void applyLoop();
+    void applyInputs();
+    void configureInputs();
+    void restoreAfterRecording();
+
+    void recordingStopped (te::SyncPoint, bool discardRecordings) override;
+    void recordingFinished (te::InputDeviceInstance&, te::EditItemID targetID,
+                            const juce::ReferenceCountedArray<te::Clip>& recordedClips) override;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EngineBridge)
 };

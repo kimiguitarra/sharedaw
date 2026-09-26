@@ -58,4 +58,7 @@ struct AppContext
 
     /** プラグインのエディタを開く（MainComponent が設定する）。 */
     std::function<void (const std::string& trackId, const std::string& effectId)> openPluginEditor;
+
+    /** 録音の開始・停止（MainComponent が設定する）。 */
+    std::function<void()> toggleRecord;
 };

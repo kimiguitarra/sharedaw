@@ -20,7 +20,7 @@ private:
     std::string trackId;
 
     juce::Label nameLabel;
-    juce::TextButton instrumentButton, muteButton { "M" }, soloButton { "S" };
+    juce::TextButton instrumentButton, muteButton { "M" }, soloButton { "S" }, armButton;
     juce::Slider volumeSlider { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     juce::Slider panSlider { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     juce::String dragMergeId;
@@ -29,5 +29,7 @@ private:
     void select();
     void showMenu();
     void showInstrumentMenu();
+    void showInputMenu();
+    bool isAudioTrack() const;
     void editTrack (const juce::String& description, std::function<void (collab::Track&)> fn, const juce::String& mergeId = {});
 };
