@@ -30,7 +30,8 @@ juce_add_gui_app(CollabDAW
     MICROPHONE_PERMISSION_ENABLED TRUE
     MICROPHONE_PERMISSION_TEXT "録音のためにマイク（オーディオ入力）を使用します。"
     HARDENED_RUNTIME_ENABLED TRUE
-    HARDENED_RUNTIME_OPTIONS com.apple.security.device.audio-input
+    # 他社のプラグイン（署名のチームが違う）を読み込めるように library validation を外す
+    HARDENED_RUNTIME_OPTIONS com.apple.security.device.audio-input com.apple.security.cs.disable-library-validation
     PLUGINHOST_AU TRUE)
 
 target_sources(CollabDAW PRIVATE

@@ -79,9 +79,23 @@ jobs:
             libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev \
             libgl1-mesa-dev libcurl4-openssl-dev xvfb
 
+      # ASIO（§3.5）: Steinberg の ASIO SDK を取得できたときだけ有効にする（取れなければ WASAPI のみ）
+      - name: ASIO SDK (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          if curl -fsSL --retry 3 -o asiosdk.zip https://www.steinberg.net/asiosdk && unzip -q asiosdk.zip -d asiosdk; then
+            header="$(find asiosdk -name iasiodrv.h | head -1)"
+            if [ -n "$header" ]; then
+              echo "ASIO_CONFIG=-DCOLLAB_ASIO_SDK_DIR=$(cd "$(dirname "$header")/.." && pwd -W)" >> "$GITHUB_ENV"
+              exit 0
+            fi
+          fi
+          echo "::warning::ASIO SDK could not be downloaded; building without ASIO (WASAPI only)"
+
       - name: Configure
         shell: bash
-        run: cmake -S . -B build ${{ matrix.configure }}
+        run: cmake -S . -B build ${{ matrix.configure }} $ASIO_CONFIG
 
       - name: Build
         shell: bash
