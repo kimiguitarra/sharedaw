@@ -16,6 +16,7 @@ add_library(collab_core STATIC
     src/GmDrumMap.cpp
     src/Grid.cpp
     src/Project.cpp
+    src/ProjectDiff.cpp
     src/ProjectJson.cpp
     src/Sha256.cpp
     src/TempoMap.cpp

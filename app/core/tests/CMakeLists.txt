@@ -3,6 +3,7 @@ add_executable(collab_core_tests
     BuiltinInstrumentsTests.cpp
     ChordPlaybackTests.cpp
     GridTests.cpp
+    ProjectDiffTests.cpp
     ProjectJsonTests.cpp
     Sha256Tests.cpp
     TempoMapTests.cpp
