@@ -1,3 +1,4 @@
+// @ts-nocheck
 // ShareDAW 同期サーバー（Cloudflare Worker）— 自動生成ファイル。直接編集しないこと（server/ で npm run bundle）。
 // Cloudflare のダッシュボードで Worker の「コードを編集」を開き、このファイルの中身をすべて貼り付けてデプロイする。
 var __defProp = Object.defineProperty;
