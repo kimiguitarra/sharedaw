@@ -24,9 +24,9 @@ InstrumentPanel::InstrumentPanel (AppContext& c, const std::string& id)
     setupSlider (tone, -12.0, 12.0, 0.1, 0.0, " dB");
     tone.setTooltip ("高域の強さ（3kHz 以上のシェルフ）"_ju);
 
-    volume.onValueChange = [this] { auto v = volume.getValue(); setParam ("音源の音量"_ju, [v] (auto& p) { p["volumeDb"] = v; }, true); };
-    pan.onValueChange = [this] { auto v = pan.getValue(); setParam ("音源のパン"_ju, [v] (auto& p) { p["pan"] = v; }, true); };
-    tone.onValueChange = [this] { auto v = tone.getValue(); setParam ("音源のトーン"_ju, [v] (auto& p) { p["tone"] = v; }, true); };
+    volume.onValueChange = [this] { auto v = volume.getValue(); setParam ("音源の音量"_ju, [v] (nlohmann::json& p) { p["volumeDb"] = v; }, true); };
+    pan.onValueChange = [this] { auto v = pan.getValue(); setParam ("音源のパン"_ju, [v] (nlohmann::json& p) { p["pan"] = v; }, true); };
+    tone.onValueChange = [this] { auto v = tone.getValue(); setParam ("音源のトーン"_ju, [v] (nlohmann::json& p) { p["tone"] = v; }, true); };
 
     for (auto* l : { &volumeLabel, &panLabel, &toneLabel, &kitLabel })
         addAndMakeVisible (l);
@@ -48,13 +48,13 @@ InstrumentPanel::InstrumentPanel (AppContext& c, const std::string& id)
         {
             auto kit = toStd (kitBox.getText());
             // キットを替えたら、パーツごとのサンプル差し替えは解除する（音量等は残す）
-            setParam ("ドラムキットの変更"_ju, [kit] (auto& p)
+            setParam ("ドラムキットの変更"_ju, [kit] (nlohmann::json& p)
             {
                 p["kit"] = kit;
 
                 if (p.contains ("pieces") && p["pieces"].is_object())
-                    for (auto& [k, v] : p["pieces"].items())
-                        v.erase ("sample");
+                    for (auto it = p["pieces"].begin(); it != p["pieces"].end(); ++it)
+                        it->erase ("sample");
             });
         };
         addAndMakeVisible (kitBox);
@@ -89,22 +89,22 @@ InstrumentPanel::InstrumentPanel (AppContext& c, const std::string& id)
             row.sample->onChange = [this, key, box = row.sample.get()]
             {
                 auto s = toStd (box->getText());
-                setParam ("ドラムのサンプル差し替え"_ju, [key, s] (auto& p) { p["pieces"][key]["sample"] = s; });
+                setParam ("ドラムのサンプル差し替え"_ju, [key, s] (nlohmann::json& p) { p["pieces"][key]["sample"] = s; });
             };
             row.volume->onValueChange = [this, key, s = row.volume.get()]
             {
                 auto v = s->getValue();
-                setParam ("ドラムパーツの音量"_ju, [key, v] (auto& p) { p["pieces"][key]["volumeDb"] = v; }, true);
+                setParam ("ドラムパーツの音量"_ju, [key, v] (nlohmann::json& p) { p["pieces"][key]["volumeDb"] = v; }, true);
             };
             row.pan->onValueChange = [this, key, s = row.pan.get()]
             {
                 auto v = s->getValue();
-                setParam ("ドラムパーツのパン"_ju, [key, v] (auto& p) { p["pieces"][key]["pan"] = v; }, true);
+                setParam ("ドラムパーツのパン"_ju, [key, v] (nlohmann::json& p) { p["pieces"][key]["pan"] = v; }, true);
             };
             row.tune->onValueChange = [this, key, s = row.tune.get()]
             {
                 auto v = s->getValue();
-                setParam ("ドラムパーツのチューニング"_ju, [key, v] (auto& p) { p["pieces"][key]["tune"] = v; }, true);
+                setParam ("ドラムパーツのチューニング"_ju, [key, v] (nlohmann::json& p) { p["pieces"][key]["tune"] = v; }, true);
             };
 
             for (juce::Component* comp : std::initializer_list<juce::Component*> { row.name.get(), row.sample.get(), row.volume.get(), row.pan.get(), row.tune.get() })
