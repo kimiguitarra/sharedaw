@@ -20,7 +20,7 @@ namespace
         cmdAudioSettings, cmdCredits, cmdAbout, cmdCheckUpdate,
         cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
         cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory, cmdSyncRefreshLocks,
-        cmdAddAudioTrack, cmdImportAudio, cmdSplit, cmdPlugins,
+        cmdAddAudioTrack, cmdImportAudio, cmdImportMidi, cmdSplit, cmdPlugins,
         cmdRecord, cmdCountIn0, cmdCountIn1, cmdCountIn2,
         cmdToolSelect, cmdToolPencil, cmdModeCubase, cmdModeStudioOne, cmdMixer, cmdLoopToSelection,
         cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll
@@ -347,6 +347,30 @@ void MainComponent::saveProject (std::function<void (bool)> onDone)
 
         if (onDone)
             onDone (r.wasOk());
+    });
+}
+
+void MainComponent::importMidi()
+{
+    chooser = std::make_unique<juce::FileChooser> ("MIDI ファイルを読み込む"_ju, juce::File(), "*.mid;*.midi;*.smf");
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles
+                            | juce::FileBrowserComponent::canSelectMultipleItems,
+                          [this] (const juce::FileChooser& fc)
+    {
+        auto files = fc.getResults();
+
+        if (files.isEmpty())
+            return;
+
+        // 選択中の MIDI トラックの、再生位置（小節の頭）に置く
+        const auto& map = document.getTempoMap();
+        const auto tick = map.barToTick (map.tickToBar ((collab::Tick) state.playheadTick));
+        std::string trackId;
+
+        if (auto* t = ctx.selectedTrack(); t != nullptr && t->type == collab::TrackType::midi)
+            trackId = t->id;
+
+        ctx.importMidiFiles (files, trackId, tick);
     });
 }
 
@@ -847,7 +871,7 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
                          cmdRecord, cmdCountIn0, cmdCountIn1, cmdCountIn2,
                          cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
                          cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory, cmdSyncRefreshLocks,
-                         cmdAddAudioTrack, cmdImportAudio, cmdSplit, cmdPlugins,
+                         cmdAddAudioTrack, cmdImportAudio, cmdImportMidi, cmdSplit, cmdPlugins,
                          cmdToolSelect, cmdToolPencil, cmdModeCubase, cmdModeStudioOne, cmdMixer, cmdLoopToSelection,
                          cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll });
 }
@@ -973,6 +997,7 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdPlugins:       info.setInfo ("プラグイン（スキャン・一覧）…"_ju, {}, "Options", 0); break;
         case cmdAddAudioTrack: info.setInfo ("オーディオトラックを追加"_ju, {}, "Track", 0); break;
         case cmdImportAudio:   info.setInfo ("オーディオを読み込む…"_ju, {}, "File", 0); info.addDefaultKeypress ('i', cmd); break;
+        case cmdImportMidi:    info.setInfo ("MIDI ファイルを読み込む…"_ju, {}, "File", 0); break;
         case cmdSplit:         info.setInfo ("再生位置で分割"_ju, {}, "Edit", 0); info.addDefaultKeypress ('s', 0); break;
         case cmdAudioSettings: info.setInfo ("オーディオ設定…"_ju, {}, "Options", 0); break;
         case cmdSyncSettings:  info.setInfo ("サーバー設定…"_ju, {}, "Sync", 0); break;
@@ -1051,6 +1076,7 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdLoopToSelection: loopToSelection(); break;
         case cmdPlugins:       showPluginManager(); break;
         case cmdImportAudio:   importAudio(); break;
+        case cmdImportMidi:    importMidi(); break;
         case cmdSplit:         ctx.splitAtPlayhead(); break;
         case cmdAudioSettings: showAudioSettings(); break;
         case cmdSyncSettings:  showServerSettings(); break;
@@ -1106,6 +1132,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addCommandItem (cm, cmdSave);
             m.addSeparator();
             m.addCommandItem (cm, cmdImportAudio);
+            m.addCommandItem (cm, cmdImportMidi);
             m.addSeparator();
             m.addCommandItem (cm, cmdAudioSettings);
             m.addCommandItem (cm, cmdPlugins);

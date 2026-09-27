@@ -40,6 +40,7 @@ target_sources(ShareDAW PRIVATE
     src/audio/AudioFiles.cpp
     src/update/Updater.cpp
     src/audio/ChannelStripPlugin.cpp
+    src/audio/MidiImport.cpp
     src/audio/CountInPlugin.cpp
     src/audio/Takes.cpp
     src/EngineBridge.cpp

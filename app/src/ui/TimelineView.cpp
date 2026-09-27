@@ -1,5 +1,7 @@
 #include "TimelineView.h"
 
+#include "audio/MidiImport.h"
+
 #include "TimeGrid.h"
 #include "collab/Uuid.h"
 #include "collab/ClipEditing.h"
@@ -633,7 +635,7 @@ void TrackLanes::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWhe
 bool TrackLanes::isInterestedInFileDrag (const juce::StringArray& files)
 {
     for (auto& f : files)
-        if (juce::File (f).hasFileExtension (AudioFiles::supportedWildcard().replace ("*", "")))
+        if (juce::File (f).hasFileExtension (AudioFiles::supportedWildcard().replace ("*", "")) || MidiImport::isMidiFile (juce::File (f)))
             return true;
 
     return false;
@@ -641,28 +643,32 @@ bool TrackLanes::isInterestedInFileDrag (const juce::StringArray& files)
 
 void TrackLanes::filesDropped (const juce::StringArray& paths, int x, int y)
 {
-    juce::Array<juce::File> files;
+    juce::Array<juce::File> files, midiFiles;
 
     for (auto& p : paths)
-        files.add (juce::File (p));
+        (MidiImport::isMidiFile (juce::File (p)) ? midiFiles : files).add (juce::File (p));
 
-    std::string trackId;
+    std::string trackId, midiTrackId;
 
-    if (const int row = rowAt ((float) y); row >= 0)
+    if (const int row = rowAt ((float) y); row >= 0 && row < (int) ctx.document.getProject().tracks.size())
     {
         const auto& t = ctx.document.getProject().tracks[(size_t) row];
-
-        if (t.type == collab::TrackType::audio)
-            trackId = t.id;
+        (t.type == collab::TrackType::audio ? trackId : midiTrackId) = t.id;
     }
 
     const auto& map = ctx.document.getTempoMap();
     const auto tick = map.barToTick (map.tickToBar ((collab::Tick) juce::jmax (0.0, ctx.state.timeline.xToTick ((double) x))));
 
     // ドロップの処理中にモーダルな進捗表示を出さないよう、少し後で読み込む
-    juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<TrackLanes> (this), files, trackId, tick]
+    juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<TrackLanes> (this), files, midiFiles, trackId, midiTrackId, tick]
     {
-        if (safe != nullptr)
+        if (safe == nullptr)
+            return;
+
+        if (! midiFiles.isEmpty())
+            safe->ctx.importMidiFiles (midiFiles, midiTrackId, tick);
+
+        if (! files.isEmpty())
             safe->ctx.importAudioFiles (files, trackId, tick);
     });
 }

@@ -107,6 +107,7 @@ private:
     void duplicateClip();
     void updateTitle();
     void importAudio();
+    void importMidi();
     void showPluginManager();
     PluginWindows pluginWindows;
 

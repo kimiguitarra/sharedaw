@@ -11,6 +11,7 @@
 #include "SfizzPlugin.h"
 #include "audio/ChannelStripPlugin.h"
 #include "update/Updater.h"
+#include "audio/MidiImport.h"
 #include "audio/CountInPlugin.h"
 #include "sync/SyncManager.h"
 #include "collab/ProjectDiff.h"
@@ -149,6 +150,26 @@ public:
         if (auto args = getCommandLineParameterArray(); args.size() >= 3 && args[0] == "--import-audio")
         {
             setApplicationReturnValue (importAudioCommand (args));
+            quit();
+            return;
+        }
+
+        // --midi-info <ファイル>（動作確認用: MIDI ファイルの読み込み結果を表示する）
+        if (auto args = getCommandLineParameterArray(); args.size() >= 2 && args[0] == "--midi-info")
+        {
+            auto r = MidiImport::read (juce::File (args[1]));
+
+            if (! r.ok())
+                std::cout << "error: " << r.error.toStdString() << std::endl;
+
+            if (r.bpm) std::cout << "bpm " << *r.bpm << std::endl;
+            if (r.meter) std::cout << "meter " << r.meter->first << "/" << r.meter->second << std::endl;
+
+            for (auto& p : r.parts)
+                std::cout << "part '" << p.name << "' ch" << p.channel << " prog" << p.program << " notes " << p.notes.size()
+                          << " end " << p.endTick << " -> " << p.builtinInstrument() << std::endl;
+
+            setApplicationReturnValue (r.ok() ? 0 : 1);
             quit();
             return;
         }

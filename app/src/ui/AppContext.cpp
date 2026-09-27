@@ -6,6 +6,7 @@
 #include "Dialogs.h"
 #include "SyncUI.h"
 #include "audio/AudioFiles.h"
+#include "audio/MidiImport.h"
 #include "collab/Render.h"
 #include "collab/Time.h"
 #include "plugins/PluginHost.h"
@@ -289,4 +290,117 @@ void AppContext::bounceTrack (const std::string& trackId)
         if (auto* t = p.findTrack (trackId))
             t->render = render;
     });
+}
+
+//==============================================================================
+void AppContext::importMidiFiles (const juce::Array<juce::File>& files, std::string trackId, collab::Tick atTick)
+{
+    const auto& project = document.getProject();
+    const auto* target = project.findTrack (trackId);
+
+    if (target != nullptr && target->type != collab::TrackType::midi)
+        target = nullptr;
+
+    const bool projectEmpty = std::all_of (project.tracks.begin(), project.tracks.end(),
+                                           [] (auto& t) { return t.midiClips.empty() && t.audioClips.empty(); });
+
+    std::vector<collab::Track> newTracks;
+    std::vector<std::pair<std::string, collab::MidiClip>> clipsForExisting;
+    std::optional<double> bpm;
+    std::optional<std::pair<int, int>> meter;
+    juce::StringArray errors;
+    int colourIndex = (int) project.tracks.size();
+    const auto& map = document.getTempoMap();
+
+    for (auto& file : files)
+    {
+        auto r = MidiImport::read (file);
+
+        if (! r.ok())
+        {
+            errors.add (file.getFileName() + ": " + r.error);
+            continue;
+        }
+
+        if (! bpm) bpm = r.bpm;
+        if (! meter) meter = r.meter;
+
+        // すべてのパートを同じ長さ（小節単位）のクリップにして、位置関係を保つ
+        const auto endBar = map.tickToBar (atTick + std::max<collab::Tick> (1, r.endTick()) - 1) + 1;
+        const auto length = std::max<collab::Tick> (collab::kPpq, map.barToTick (endBar) - atTick);
+
+        for (auto& part : r.parts)
+        {
+            collab::MidiClip clip;
+            clip.id = collab::generateUuid();
+            clip.startTick = atTick;
+            clip.lengthTick = length;
+            clip.notes = part.notes;
+
+            if (target != nullptr && r.parts.size() == 1)
+            {
+                clipsForExisting.push_back ({ target->id, clip });
+                continue;
+            }
+
+            collab::Track t;
+            t.id = collab::generateUuid();
+            t.type = collab::TrackType::midi;
+            t.name = part.name;
+            t.color = toStd (Theme::trackColourHex (colourIndex++));
+
+            const auto instrumentId = part.builtinInstrument();
+            auto* manifest = library.findLatest (instrumentId);
+            collab::Instrument inst;
+            inst.kind = collab::Instrument::Kind::builtin;
+            inst.id = instrumentId;
+            inst.version = manifest != nullptr ? manifest->version : "1.0.0";
+            inst.params = manifest != nullptr ? manifest->defaultParams : nlohmann::json::object();
+            t.instrument = inst;
+            t.midiClips.push_back (clip);
+            newTracks.push_back (std::move (t));
+        }
+    }
+
+    if (! errors.isEmpty())
+        Dialogs::showError ("MIDI ファイルの読み込み"_ju, errors.joinIntoString ("\n"));
+
+    if (newTracks.empty() && clipsForExisting.empty())
+        return;
+
+    const bool takeTempo = projectEmpty && atTick == 0;
+    const auto afterId = state.selectedTrackId;
+
+    document.perform ("MIDI ファイルの読み込み"_ju, [=] (collab::Project& p)
+    {
+        for (auto& [id, clip] : clipsForExisting)
+            if (auto* t = p.findTrack (id))
+                t->midiClips.push_back (clip);
+
+        const int i = p.indexOfTrack (afterId);
+        p.tracks.insert (i >= 0 ? p.tracks.begin() + i + 1 : p.tracks.end(), newTracks.begin(), newTracks.end());
+
+        // 空のプロジェクトに読み込むときは、ファイルのテンポと拍子に合わせる
+        if (takeTempo)
+        {
+            if (bpm && ! p.tempoTrack.events.empty())
+                p.tempoTrack.events.front().bpm = std::round (*bpm * 100.0) / 100.0;
+
+            if (meter && ! p.meterTrack.events.empty())
+                std::tie (p.meterTrack.events.front().numerator, p.meterTrack.events.front().denominator) = *meter;
+        }
+    });
+
+    if (! newTracks.empty())
+    {
+        state.selectedTrackId = newTracks.front().id;
+        state.selectedClipId = newTracks.front().midiClips.front().id;
+    }
+    else
+    {
+        state.selectedTrackId = clipsForExisting.front().first;
+        state.selectedClipId = clipsForExisting.front().second.id;
+    }
+
+    state.changed();
 }

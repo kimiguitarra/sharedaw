@@ -42,6 +42,13 @@ struct AppContext
     */
     void importAudioFiles (const juce::Array<juce::File>&, std::string trackId, collab::Tick atTick);
 
+    /**
+        MIDI ファイルを読み込んでクリップを作る。trackId が MIDI トラックで、ファイルのパートが 1 つならそのトラックに置く。
+        それ以外はパートごとに新しいトラックを作る（音源はチャンネル・プログラムから選ぶ）。
+        プロジェクトにまだクリップがなければ、ファイルのテンポと拍子も取り込む。
+    */
+    void importMidiFiles (const juce::Array<juce::File>&, std::string trackId, collab::Tick atTick);
+
     /** 選択中のトラックで、再生位置にあるクリップを分割する。 */
     void splitAtPlayhead();
 
