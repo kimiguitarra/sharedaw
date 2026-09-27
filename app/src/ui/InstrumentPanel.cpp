@@ -19,6 +19,25 @@ InstrumentPanel::InstrumentPanel (AppContext& c, const std::string& id)
     title.setFont (juce::FontOptions (15.0f, juce::Font::bold));
     addAndMakeVisible (title);
 
+    // 新しい版があれば更新できるようにする（版を固定しているのは、共同作業の相手と同じ音にするため）
+    if (auto* latest = manifest != nullptr ? ctx.library.findLatest (manifest->id) : nullptr; latest != nullptr && latest != manifest)
+    {
+        upgradeButton.setButtonText ("新しい版 "_ju + toJuce (latest->version) + " に更新"_ju);
+        upgradeButton.setTooltip ("音源を新しい版に切り替える（音色が変わります。相手も新しいアプリが必要です）"_ju);
+        upgradeButton.onClick = [this, version = latest->version]
+        {
+            ctx.document.perform ("音源の版を更新"_ju, [track = trackId, version] (collab::Project& p)
+            {
+                if (auto* tr = p.findTrack (track); tr != nullptr && tr->instrument)
+                    tr->instrument->version = version;
+            });
+
+            if (auto* box = findParentComponentOfClass<juce::CallOutBox>())
+                box->dismiss();
+        };
+        addAndMakeVisible (upgradeButton);
+    }
+
     setupSlider (volume, -30.0, 12.0, 0.1, 0.0, " dB");
     setupSlider (pan, -1.0, 1.0, 0.01, 0.0, {});
     setupSlider (tone, -12.0, 12.0, 0.1, 0.0, " dB");
@@ -265,7 +284,12 @@ void InstrumentPanel::paint (juce::Graphics& g)
 void InstrumentPanel::resized()
 {
     auto area = getLocalBounds().reduced (8);
-    title.setBounds (area.removeFromTop (28));
+    auto titleRow = area.removeFromTop (28);
+
+    if (upgradeButton.isVisible())
+        upgradeButton.setBounds (titleRow.removeFromRight (170).reduced (0, 2));
+
+    title.setBounds (titleRow);
     area.removeFromTop (4);
 
     auto place = [&] (juce::Label& l, juce::Component& c)

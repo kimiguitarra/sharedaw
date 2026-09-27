@@ -33,6 +33,7 @@ private:
     const collab::BuiltinInstrumentManifest* manifest = nullptr;
 
     juce::Label title;
+    juce::TextButton upgradeButton;
     juce::Slider volume, pan, tone;
     juce::Label volumeLabel { {}, "音量"_ju }, panLabel { {}, "パン"_ju }, toneLabel { {}, "トーン"_ju };
     juce::ComboBox kitBox;

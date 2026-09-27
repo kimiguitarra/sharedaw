@@ -48,21 +48,25 @@ namespace TimeGrid
         {
             const double beatPixels = (double) sig.ticksPerBeat() * axis.pixelsPerTick();
 
-            if (step == 1 && subGrid != nullptr && subGrid->enabled)
+            // クオンタイズ値の線（スナップがオフでも表示する）。細かすぎるときは 2 マスおき、4 マスおき…に間引く
+            if (step == 1 && subGrid != nullptr)
             {
-                if (subGrid->stepExact() * axis.pixelsPerTick() >= 6.0)
+                const double stepPixels = subGrid->stepExact() * axis.pixelsPerTick();
+                long long every = 1;
+
+                while (stepPixels * (double) every < 5.0 && every < 64)
+                    every *= 2;
+
+                g.setColour (Theme::gridSub);
+
+                for (long long k = every;; k += every)
                 {
-                    g.setColour (Theme::gridSub);
+                    const auto t = start + subGrid->offsetOf (k);
 
-                    for (long long k = 1;; ++k)
-                    {
-                        const auto t = start + subGrid->offsetOf (k);
+                    if (t >= start + sig.ticksPerBar())
+                        break;
 
-                        if (t >= start + sig.ticksPerBar())
-                            break;
-
-                        g.drawVerticalLine (x0 + (int) axis.tickToX ((double) t), top, bottom);
-                    }
+                    g.drawVerticalLine (x0 + (int) axis.tickToX ((double) t), top, bottom);
                 }
             }
 

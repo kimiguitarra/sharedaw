@@ -123,7 +123,7 @@ void TrackLanes::paint (juce::Graphics& g)
 
         g.setColour (t.id == ctx.state.selectedTrackId ? Theme::lane.brighter (0.06f) : (i % 2 ? Theme::laneAlt : Theme::lane));
         g.fillRect (row);
-        TimeGrid::drawGrid (g, row, axis, map, nullptr);
+        TimeGrid::drawGrid (g, row, axis, map, &ctx.state.grid);
         g.setColour (Theme::background);
         g.drawHorizontalLine (row.getBottom() - 1, 0.0f, (float) getWidth());
 

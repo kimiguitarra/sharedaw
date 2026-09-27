@@ -11,8 +11,8 @@ namespace Theme
     const juce::Colour lane           { 0xff22262b };
     const juce::Colour laneAlt        { 0xff1f2227 };
     const juce::Colour gridBar        { 0xff4a515b };
-    const juce::Colour gridBeat       { 0xff343a42 };
-    const juce::Colour gridSub        { 0xff2a2f35 };
+    const juce::Colour gridBeat       { 0xff3a414a };
+    const juce::Colour gridSub        { 0xff2f353c };
     const juce::Colour text           { 0xffe6e8eb };
     const juce::Colour textDim        { 0xff9aa3ad };
     const juce::Colour accent         { 0xff4fc3f7 };

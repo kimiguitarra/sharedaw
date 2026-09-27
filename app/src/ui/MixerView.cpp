@@ -309,7 +309,7 @@ public:
 class CompSection  : public MixSection
 {
 public:
-    CompSection (AppContext& c, std::string id) : MixSection (c, std::move (id), "COMP") {}
+    CompSection (AppContext& c, std::string id) : MixSection (c, std::move (id), "COMPRESSOR") {}
 
     float gainReduction = 0.0f;
 
@@ -323,7 +323,7 @@ public:
 
     void togglePower() override
     {
-        editTrack ("コンプのオン・オフ"_ju, [] (collab::Track& t) { t.strip.comp.enabled = ! t.strip.comp.enabled; });
+        editTrack ("Compressor のオン・オフ"_ju, [] (collab::Track& t) { t.strip.comp.enabled = ! t.strip.comp.enabled; });
     }
 
     void paintBody (juce::Graphics& g, juce::Rectangle<int> r) override

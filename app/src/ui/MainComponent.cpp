@@ -865,7 +865,7 @@ void MainComponent::openChannelStrip (const std::string& trackId)
     {
         struct Window  : public juce::DocumentWindow
         {
-            Window() : DocumentWindow ("EQ / コンプ"_ju, Theme::panel, DocumentWindow::closeButton) {}
+            Window() : DocumentWindow ("EQ / Compressor"_ju, Theme::panel, DocumentWindow::closeButton) {}
             void closeButtonPressed() override      { setVisible (false); }
         };
 

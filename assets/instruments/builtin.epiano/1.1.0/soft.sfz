@@ -1,0 +1,12 @@
+// 柔らかいエレピ（ローズ風、メロディ向け）: 打鍵の立ち上がりを抑え、胴の鳴り（基音）を長く伸ばす
+// 基音を 2 つ（少しだけずらして左右に）重ねて温かく揺らし、倍音は強く弾いたときだけ少し足す。ゆっくりしたトレモロ
+<group> group_volume=-2 lokey=0 hikey=127 amp_keycenter=60 amp_keytrack=-0.3 ampeg_release=0.6
+ amplfo_freq=3.8 amplfo_depth=1.2 amplfo_delay=0.25 amplfo_fade=0.6
+<region> sample=*sine volume=0 pan=-10 amp_veltrack=70
+ ampeg_attack=0.014 ampeg_decay=20 ampeg_sustain=0
+<region> sample=*sine tune=5 volume=-10 pan=30 amp_veltrack=70
+ ampeg_attack=0.02 ampeg_decay=20 ampeg_sustain=0
+<region> sample=*sine transpose=12 tune=2 volume=-17 amp_veltrack=100 amp_velcurve_127=1 amp_velcurve_1=0.03
+ ampeg_attack=0.012 ampeg_decay=8 ampeg_sustain=0
+<region> sample=*sine transpose=19 volume=-34 amp_veltrack=100 amp_velcurve_127=1 amp_velcurve_1=0.01
+ ampeg_attack=0.01 ampeg_decay=3 ampeg_sustain=0

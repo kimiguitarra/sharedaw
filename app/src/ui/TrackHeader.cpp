@@ -429,7 +429,7 @@ void TrackHeader::showMenu()
         fx.addSeparator();
         fx.addSubMenu ("追加"_ju, ctx.addEffectMenu (trackId));
         m.addSeparator();
-        m.addItem ("EQ / コンプ…"_ju, [this] { if (ctx.openChannelStrip) ctx.openChannelStrip (trackId); });
+        m.addItem ("EQ / Compressor…"_ju, [this] { if (ctx.openChannelStrip) ctx.openChannelStrip (trackId); });
 
         m.addSubMenu ("出力先・センド"_ju, ctx.routingMenu (trackId));
         m.addSubMenu ("エフェクト"_ju, fx);
