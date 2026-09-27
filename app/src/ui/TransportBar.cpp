@@ -1,6 +1,7 @@
 #include "TransportBar.h"
 
 #include "Theme.h"
+#include "TempoMeterLanes.h"
 
 TransportBar::TransportBar (AppContext& c) : ctx (c)
 {
@@ -102,7 +103,7 @@ TransportBar::TransportBar (AppContext& c) : ctx (c)
     };
     addAndMakeVisible (autoScrollButton);
 
-    for (auto* l : { &barBeatLabel, &timeLabel, &tempoLabel })
+    for (auto* l : { &barBeatLabel, &timeLabel, static_cast<juce::Label*> (&bpmLabel), static_cast<juce::Label*> (&meterLabel) })
     {
         l->setJustificationType (juce::Justification::centred);
         l->setColour (juce::Label::backgroundColourId, Theme::background);
@@ -112,7 +113,70 @@ TransportBar::TransportBar (AppContext& c) : ctx (c)
 
     barBeatLabel.setFont (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 20.0f, juce::Font::bold));
     timeLabel.setFont (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 15.0f, juce::Font::plain));
-    tempoLabel.setFont (juce::FontOptions (15.0f));
+    // テンポと拍子: 再生位置で有効な値を表示し、クリックで入力・ホイールで増減できる（テンポ・拍子トラックのイベントを書き換える）
+    for (auto* l : { &bpmLabel, &meterLabel })
+    {
+        l->setFont (juce::FontOptions (15.0f));
+        l->setEditable (true, false, false);
+        l->setColour (juce::Label::backgroundWhenEditingColourId, Theme::panelLight);
+        l->setColour (juce::Label::textWhenEditingColourId, Theme::text);
+        l->setMouseCursor (juce::MouseCursor::IBeamCursor);
+    }
+
+    bpmLabel.setTooltip ("テンポ（クリックで入力、ホイールで ±1）。再生位置のテンポを変えます"_ju);
+    meterLabel.setTooltip ("拍子（クリックで入力、ホイールで分子を ±1）。再生位置の拍子を変えます"_ju);
+
+    bpmLabel.onEditorShow = [this]
+    {
+        if (auto* ed = bpmLabel.getCurrentTextEditor())
+        {
+            ed->setText (bpmLabel.getText().upToFirstOccurrenceOf (" ", false, false), false);
+            ed->setInputRestrictions (7, "0123456789.");
+            ed->selectAll();
+        }
+    };
+    bpmLabel.onTextChange = [this]
+    {
+        const double bpm = bpmLabel.getText().getDoubleValue();
+
+        if (bpm >= 10.0 && bpm <= 999.0)
+            setTempoAtPlayhead (bpm);
+        else
+            updatePosition (ctx.engine.getPositionTick(), ctx.engine.getPositionSeconds(), ctx.engine.isPlaying());
+    };
+    bpmLabel.onWheel = [this] (int dir)
+    {
+        // 続けて回した分は 1 つの「元に戻す」にまとめる
+        const auto now = juce::Time::getMillisecondCounter();
+
+        if (wheelMergeId.isEmpty() || now - lastWheelTime > 800)
+            wheelMergeId = juce::Uuid().toString();
+
+        lastWheelTime = now;
+        const double bpm = std::round (ctx.document.getTempoMap().bpmAtTick (playheadTick())) + dir;
+        setTempoAtPlayhead (juce::jlimit (10.0, 999.0, bpm), wheelMergeId);
+    };
+
+    meterLabel.onEditorShow = [this]
+    {
+        if (auto* ed = meterLabel.getCurrentTextEditor())
+        {
+            ed->setInputRestrictions (5, "0123456789/");
+            ed->selectAll();
+        }
+    };
+    meterLabel.onTextChange = [this]
+    {
+        if (auto m = MeterLane::parseMeter (meterLabel.getText()))
+            setMeterAtPlayhead (m->first, m->second);
+        else
+            updatePosition (ctx.engine.getPositionTick(), ctx.engine.getPositionSeconds(), ctx.engine.isPlaying());
+    };
+    meterLabel.onWheel = [this] (int dir)
+    {
+        const auto sig = ctx.document.getTempoMap().timeSignatureAtTick (playheadTick());
+        setMeterAtPlayhead (juce::jlimit (1, 64, sig.numerator + dir), sig.denominator);
+    };
     barBeatLabel.setTooltip ("小節.拍.tick"_ju);
 
     ctx.state.addChangeListener (this);
@@ -153,9 +217,12 @@ void TransportBar::updatePosition (double tick, double seconds, bool playing)
                        juce::dontSendNotification);
 
     const double bpm = map.bpmAtTick (t);
-    tempoLabel.setText (juce::String (bpm, std::abs (bpm - std::round (bpm)) < 0.005 ? 0 : 2) + " BPM   "
-                          + juce::String (sig.numerator) + "/" + juce::String (sig.denominator),
-                        juce::dontSendNotification);
+
+    if (! bpmLabel.isBeingEdited())
+        bpmLabel.setText (juce::String (bpm, std::abs (bpm - std::round (bpm)) < 0.005 ? 0 : 2) + " BPM", juce::dontSendNotification);
+
+    if (! meterLabel.isBeingEdited())
+        meterLabel.setText (juce::String (sig.numerator) + "/" + juce::String (sig.denominator), juce::dontSendNotification);
 
     recordButton.setToggleState (ctx.engine.isRecording(), juce::dontSendNotification);
 
@@ -194,7 +261,9 @@ void TransportBar::resized()
     area.removeFromLeft (6);
     timeLabel.setBounds (area.removeFromLeft (110));
     area.removeFromLeft (6);
-    tempoLabel.setBounds (area.removeFromLeft (120));
+    bpmLabel.setBounds (area.removeFromLeft (84));
+    area.removeFromLeft (2);
+    meterLabel.setBounds (area.removeFromLeft (46));
     area.removeFromLeft (16);
 
     loopButton.setBounds (area.removeFromLeft (70));
@@ -227,4 +296,54 @@ void TransportBar::ToolButton::paintButton (juce::Graphics& g, bool highlighted,
     auto icon = pencil ? Theme::pencilToolIcon (iconArea) : Theme::selectToolIcon (iconArea);
     g.setColour (on ? Theme::text : Theme::textDim);
     g.fillPath (icon);
+}
+
+//==============================================================================
+collab::Tick TransportBar::playheadTick() const
+{
+    return (collab::Tick) juce::jmax (0.0, ctx.engine.getPositionTick());
+}
+
+void TransportBar::setTempoAtPlayhead (double bpm, const juce::String& mergeId)
+{
+    // 再生位置で有効なテンポ変更（直前のイベント）を書き換える
+    const auto tick = playheadTick();
+
+    ctx.document.perform ("テンポの変更"_ju, [tick, bpm] (collab::Project& p)
+    {
+        collab::TempoEvent* target = nullptr;
+
+        for (auto& e : p.tempoTrack.events)
+            if (e.tick <= tick && (target == nullptr || e.tick >= target->tick))
+                target = &e;
+
+        if (target == nullptr && ! p.tempoTrack.events.empty())
+            target = &p.tempoTrack.events.front();
+
+        if (target != nullptr)
+            target->bpm = bpm;
+    }, mergeId);
+}
+
+void TransportBar::setMeterAtPlayhead (int numerator, int denominator)
+{
+    const int bar = ctx.document.getTempoMap().tickToBar (playheadTick());
+
+    ctx.document.perform ("拍子の変更"_ju, [bar, numerator, denominator] (collab::Project& p)
+    {
+        collab::MeterEvent* target = nullptr;
+
+        for (auto& e : p.meterTrack.events)
+            if (e.bar <= bar && (target == nullptr || e.bar >= target->bar))
+                target = &e;
+
+        if (target == nullptr && ! p.meterTrack.events.empty())
+            target = &p.meterTrack.events.front();
+
+        if (target != nullptr)
+        {
+            target->numerator = numerator;
+            target->denominator = denominator;
+        }
+    });
 }

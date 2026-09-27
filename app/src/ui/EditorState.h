@@ -44,6 +44,7 @@ enum class OperationMode
 struct EditBehaviour
 {
     juce::KeyPress selectToolKey, pencilToolKey;   // ツールの切り替え（テンキー）
+    juce::KeyPress selectToolKey2, pencilToolKey2; // 同（キーボード上段の数字）
     juce::KeyPress mixerKey;                       // ミキサーの表示
     juce::KeyPress loopToSelectionKey;             // 選択範囲をループ範囲にする
     juce::KeyPress stopKey, toStartKey, recordKey, loopKey;   // テンキーのトランスポート
@@ -57,6 +58,8 @@ struct EditBehaviour
         EditBehaviour b;
         b.selectToolKey = juce::KeyPress (juce::KeyPress::numberPad1);
         b.pencilToolKey = juce::KeyPress (juce::KeyPress::numberPad2);
+        b.selectToolKey2 = juce::KeyPress ('1');
+        b.pencilToolKey2 = juce::KeyPress ('2');
         b.mixerKey = juce::KeyPress (juce::KeyPress::F3Key);
         b.loopToSelectionKey = juce::KeyPress ('p');
         b.stopKey = juce::KeyPress (juce::KeyPress::numberPad0);

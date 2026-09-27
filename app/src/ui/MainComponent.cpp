@@ -942,11 +942,13 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdToolSelect:
             info.setInfo ("選択ツール"_ju, {}, "Edit", 0);
             info.defaultKeypresses.add (state.behaviour().selectToolKey);
+            info.defaultKeypresses.add (state.behaviour().selectToolKey2);
             info.setTicked (state.tool == EditTool::select);
             break;
         case cmdToolPencil:
             info.setInfo ("鉛筆ツール"_ju, {}, "Edit", 0);
             info.defaultKeypresses.add (state.behaviour().pencilToolKey);
+            info.defaultKeypresses.add (state.behaviour().pencilToolKey2);
             info.setTicked (state.tool == EditTool::pencil);
             break;
         case cmdModeCubase:

@@ -33,7 +33,27 @@ private:
     juce::ComboBox quantiseBox;
     juce::TextButton snapButton, autoScrollButton;
     juce::Slider metronomeVolume { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
-    juce::Label barBeatLabel, timeLabel, tempoLabel;
+    /** クリックで入力、ホイールで増減できる値（テンポ・拍子）。 */
+    struct ValueLabel  : public juce::Label
+    {
+        std::function<void (int direction)> onWheel;
+        void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override
+        {
+            if (onWheel != nullptr && ! isBeingEdited() && std::abs (w.deltaY) > 0.0f)
+                onWheel (w.deltaY > 0 ? 1 : -1);
+            else
+                juce::Label::mouseWheelMove (e, w);
+        }
+    };
+
+    juce::Label barBeatLabel, timeLabel;
+    ValueLabel bpmLabel, meterLabel;
+    juce::String wheelMergeId;
+    juce::uint32 lastWheelTime = 0;
+
+    collab::Tick playheadTick() const;
+    void setTempoAtPlayhead (double bpm, const juce::String& mergeId = {});
+    void setMeterAtPlayhead (int numerator, int denominator);
     bool wasPlaying = false;
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
