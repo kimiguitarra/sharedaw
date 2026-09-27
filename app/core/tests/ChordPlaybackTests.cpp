@@ -20,14 +20,13 @@ namespace
     }
 }
 
-TEST_CASE ("chord track: whole notes re-struck on each bar")
+TEST_CASE ("chord track: each chord event sounds once, up to one bar")
 {
     auto p = Project::createEmpty ("t");
     const Tick bar = 3840;
     // C を2小節、F を1小節、X（無音）、G を1拍目から
     p.chordTrack.events = { ev ("a", 0, "C"), ev ("b", 2 * bar, "F"), ev ("c", 3 * bar, "X"), ev ("d", 4 * bar + 1920, "G") };
     const TempoMap map (p);
-
     auto notes = renderChordTrack (p, map);
 
     auto startsAt = [&] (Tick t)
@@ -36,17 +35,17 @@ TEST_CASE ("chord track: whole notes re-struck on each bar")
     };
 
     CHECK (startsAt (0) == 4);          // ベース + 上声部3音
-    CHECK (startsAt (bar) == 4);        // 小節頭で弾き直し
+    CHECK (startsAt (bar) == 0);        // 弾き直さない
     CHECK (startsAt (2 * bar) == 4);    // F
     CHECK (startsAt (3 * bar) == 0);    // X は発音しない
     CHECK (startsAt (4 * bar + 1920) == 4);
-    CHECK (startsAt (5 * bar) == 0);    // 最後のコードは次の小節線まで（曲の他の内容がないため）
+    CHECK (notes.size() == 12);
 
     for (auto& n : notes)
     {
         CHECK (n.velocity == 80);
         CHECK (n.lengthTick > 0);
-        CHECK (n.tick + n.lengthTick <= 5 * bar);
+        CHECK (n.lengthTick <= bar);   // 最長 1 小節
     }
 
     // 最初の C はルート C2 と 60,64,67
@@ -58,7 +57,7 @@ TEST_CASE ("chord track: whole notes re-struck on each bar")
     CHECK (first == std::vector<int> { 36, 60, 64, 67 });
 }
 
-TEST_CASE ("chord track: last chord lasts until the end of the song")
+TEST_CASE ("chord track: the last chord does not ring until the end of the song")
 {
     auto p = Project::createEmpty ("t");
     p.chordTrack.events = { ev ("a", 0, "Am7") };
@@ -70,7 +69,23 @@ TEST_CASE ("chord track: last chord lasts until the end of the song")
 
     CHECK (chordTrackEndTick (p, map) == 3840 * 3);
     auto notes = renderChordTrack (p, map);
-    CHECK (std::count_if (notes.begin(), notes.end(), [] (auto& n) { return n.tick == 3840 * 2; }) == 5);
+    CHECK (notes.size() == 5);
+
+    for (auto& n : notes)
+        CHECK (n.tick + n.lengthTick <= 3840);
+}
+
+TEST_CASE ("chord track: empty (undefined) chord events are silent")
+{
+    auto p = Project::createEmpty ("t");
+    ChordEvent empty;
+    empty.id = "e";
+    empty.tick = 0;
+    p.chordTrack.events = { empty, ev ("b", 3840, "F") };
+    const TempoMap map (p);
+    auto notes = renderChordTrack (p, map);
+    CHECK (notes.size() == 4);
+    CHECK (notes.front().tick == 3840);
 }
 
 TEST_CASE ("chord track: bar lines follow meter changes")
@@ -80,6 +95,7 @@ TEST_CASE ("chord track: bar lines follow meter changes")
     p.chordTrack.events = { ev ("a", 0, "C"), ev ("b", 2880 * 2, "X") };
     const TempoMap map (p);
     auto notes = renderChordTrack (p, map);
-    CHECK (std::count_if (notes.begin(), notes.end(), [] (auto& n) { return n.tick == 2880; }) == 4);
-    CHECK (std::count_if (notes.begin(), notes.end(), [] (auto& n) { return n.tick == 3840; }) == 0);
+    // 3/4 なので 1 小節 = 2880 tick で切れる
+    for (auto& n : notes)
+        CHECK (n.lengthTick == 2880);
 }

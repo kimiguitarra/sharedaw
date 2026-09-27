@@ -25,15 +25,43 @@ TrackLanes::TrackLanes (AppContext& c) : ctx (c)
     setTooltip ("鉛筆ツール: MIDI トラックをクリック（ドラッグで長さ）してクリップを作成　選択ツール: ドラッグで移動、端で長さ・トリム、上の角でフェード、ダブルクリックでピアノロール　Alt: スナップなし　オーディオはドラッグ＆ドロップで読み込み"_ju);
 }
 
+int TrackLanes::rowHeightAt (int index) const
+{
+    const auto& tracks = ctx.document.getProject().tracks;
+    return index >= 0 && index < (int) tracks.size() ? ctx.state.trackHeight (tracks[(size_t) index].id) : EditorState::defaultTrackHeight;
+}
+
+int TrackLanes::rowTop (int index) const
+{
+    int y = 0;
+
+    for (int i = 0; i < index; ++i)
+        y += rowHeightAt (i);
+
+    return y;
+}
+
 int TrackLanes::getContentHeight() const
 {
-    return (int) ctx.document.getProject().tracks.size() * rowHeight;
+    return rowTop ((int) ctx.document.getProject().tracks.size());
 }
 
 int TrackLanes::rowAt (float y) const
 {
-    const int row = (int) std::floor ((y + (float) scrollY) / (float) rowHeight);
-    return row >= 0 && row < (int) ctx.document.getProject().tracks.size() ? row : -1;
+    const int n = (int) ctx.document.getProject().tracks.size();
+    int top = -scrollY;
+
+    for (int i = 0; i < n; ++i)
+    {
+        const int h = rowHeightAt (i);
+
+        if (y >= (float) top && y < (float) (top + h))
+            return i;
+
+        top += h;
+    }
+
+    return -1;
 }
 
 TrackLanes::Hit TrackLanes::findHit (juce::Point<float> p) const
@@ -47,7 +75,7 @@ TrackLanes::Hit TrackLanes::findHit (juce::Point<float> p) const
     const auto& track = ctx.document.getProject().tracks[(size_t) hit.trackIndex];
     const auto& axis = ctx.state.timeline;
     const auto& map = ctx.document.getTempoMap();
-    const float rowTop = (float) (hit.trackIndex * rowHeight - scrollY) + 3.0f;
+    const float rowTopY = (float) (rowTop (hit.trackIndex) - scrollY) + 3.0f;
 
     for (auto it = track.midiClips.rbegin(); it != track.midiClips.rend(); ++it)
     {
@@ -80,7 +108,7 @@ TrackLanes::Hit TrackLanes::findHit (juce::Point<float> p) const
         const float lengthSamples = (float) juce::jmax<collab::SampleCount> (1, it->lengthSamples);
         const float fadeInHandle = x1 + juce::jmax (4.0f, width * (float) it->fadeInSamples / lengthSamples);
         const float fadeOutHandle = x2 - juce::jmax (4.0f, width * (float) it->fadeOutSamples / lengthSamples);
-        const bool nearTop = p.y - rowTop < 10.0f;
+        const bool nearTop = p.y - rowTopY < 10.0f;
 
         if (nearTop && std::abs (p.x - fadeInHandle) <= 6.0f)
             hit.zone = Zone::fadeIn;
@@ -116,7 +144,7 @@ void TrackLanes::paint (juce::Graphics& g)
     for (size_t i = 0; i < project.tracks.size(); ++i)
     {
         const auto& t = project.tracks[i];
-        const auto row = juce::Rectangle<int> (0, (int) i * rowHeight - scrollY, getWidth(), rowHeight);
+        const auto row = juce::Rectangle<int> (0, rowTop ((int) i) - scrollY, getWidth(), rowHeightAt ((int) i));
 
         if (row.getBottom() < 0 || row.getY() > getHeight())
             continue;
@@ -137,7 +165,7 @@ void TrackLanes::paint (juce::Graphics& g)
             if (x2 < 0 || x1 > (float) getWidth())
                 continue;
 
-            paintMidiClip (g, c, juce::Rectangle<float> (x1, (float) row.getY() + 3.0f, x2 - x1, (float) rowHeight - 7.0f),
+            paintMidiClip (g, c, juce::Rectangle<float> (x1, (float) row.getY() + 3.0f, x2 - x1, (float) row.getHeight() - 7.0f),
                            colour, ctx.state.isClipSelected (c.id));
         }
 
@@ -149,7 +177,7 @@ void TrackLanes::paint (juce::Graphics& g)
             if (x2 < 0 || x1 > (float) getWidth())
                 continue;
 
-            paintAudioClip (g, c, juce::Rectangle<float> (x1, (float) row.getY() + 3.0f, juce::jmax (2.0f, x2 - x1), (float) rowHeight - 7.0f),
+            paintAudioClip (g, c, juce::Rectangle<float> (x1, (float) row.getY() + 3.0f, juce::jmax (2.0f, x2 - x1), (float) row.getHeight() - 7.0f),
                             colour, ctx.state.isClipSelected (c.id));
         }
     }
@@ -161,6 +189,15 @@ void TrackLanes::paint (juce::Graphics& g)
         const float x2 = (float) axis.tickToX ((double) ctx.state.loopEnd);
         g.setColour (Theme::loopRange);
         g.fillRect (juce::Rectangle<float> (x1, 0.0f, x2 - x1, (float) getHeight()));
+    }
+
+    // はさみ: 切る位置の縦線（クリップの上にいるとき）
+    if (ctx.state.tool == EditTool::split && splitRow >= 0 && splitRow < (int) project.tracks.size())
+    {
+        const float x = (float) axis.tickToX (splitTick);
+        const float top = (float) (rowTop (splitRow) - scrollY);
+        g.setColour (Theme::selection);
+        g.fillRect (juce::Rectangle<float> (x - 0.5f, top, 1.5f, (float) rowHeightAt (splitRow)));
     }
 
     // 範囲選択の枠
@@ -278,7 +315,25 @@ void TrackLanes::mouseMove (const juce::MouseEvent& e)
 {
     auto hit = findHit (e.position);
 
-    // はさみはツールのカーソル
+    // はさみはツールのカーソルと、切る位置の縦線
+    if (ctx.state.tool == EditTool::split)
+    {
+        const int row = hit.clipId.empty() ? -1 : hit.trackIndex;
+        const double tick = row >= 0 ? (double) snap (ctx.state.timeline.xToTick (e.position.x), e.mods) : -1.0;
+
+        if (row != splitRow || std::abs (tick - splitTick) > 0.5)
+        {
+            splitRow = row;
+            splitTick = tick;
+            repaint();
+        }
+    }
+    else if (splitRow >= 0)
+    {
+        splitRow = -1;
+        repaint();
+    }
+
     if (ctx.state.tool != EditTool::select && ctx.state.tool != EditTool::pencil)
         return setMouseCursor (Theme::toolCursor (ctx.state.tool));
 
@@ -290,6 +345,15 @@ void TrackLanes::mouseMove (const juce::MouseEvent& e)
         case Zone::fadeOut:    setMouseCursor (juce::MouseCursor::CrosshairCursor); break;
         case Zone::none:       setMouseCursor (ctx.state.pencil() ? Theme::pencilCursor() : juce::MouseCursor::NormalCursor); break;
         case Zone::body:       setMouseCursor (juce::MouseCursor::NormalCursor); break;
+    }
+}
+
+void TrackLanes::mouseExit (const juce::MouseEvent&)
+{
+    if (splitRow >= 0)
+    {
+        splitRow = -1;
+        repaint();
     }
 }
 
@@ -499,7 +563,7 @@ void TrackLanes::updateBandSelection()
 
     for (size_t i = 0; i < project.tracks.size(); ++i)
     {
-        const float top = (float) ((int) i * rowHeight - scrollY), bottom = top + (float) rowHeight;
+        const float top = (float) (rowTop ((int) i) - scrollY), bottom = top + (float) rowHeightAt ((int) i);
 
         if (bottom < band.getY() || top > band.getBottom())
             continue;
@@ -982,7 +1046,21 @@ void TimelineView::rebuildHeaders()
         headers.clear();
 
         for (auto& t : tracks)
-            headerHolder.addAndMakeVisible (headers.add (new TrackHeader (ctx, t.id)));
+        {
+            auto* h = headers.add (new TrackHeader (ctx, t.id));
+
+            // ドラッグで並べ替え（ヘッダー自身のマウス処理の中で作り直さないよう、後で行う）
+            h->onReorderDrop = [this] (const std::string& id, int y)
+            {
+                juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<TimelineView> (this), id, y]
+                {
+                    if (safe != nullptr)
+                        safe->moveTrackTo (id, y);
+                });
+            };
+
+            headerHolder.addAndMakeVisible (h);
+        }
     }
 
     for (auto* h : headers)
@@ -991,10 +1069,37 @@ void TimelineView::rebuildHeaders()
     layoutHeaders();
 }
 
+void TimelineView::moveTrackTo (const std::string& trackId, int y)
+{
+    const auto& tracks = ctx.document.getProject().tracks;
+    const int from = ctx.document.getProject().indexOfTrack (trackId);
+    int to = lanes.rowAt ((float) y);
+
+    if (to < 0)
+        to = y < 0 ? 0 : (int) tracks.size() - 1;
+
+    if (from < 0 || from == to)
+        return layoutHeaders();
+
+    ctx.document.perform ("トラックの並べ替え"_ju, [trackId, to] (collab::Project& p)
+    {
+        const int i = p.indexOfTrack (trackId);
+
+        if (i < 0)
+            return;
+
+        auto t = p.tracks[(size_t) i];
+        p.tracks.erase (p.tracks.begin() + i);
+        p.tracks.insert (p.tracks.begin() + juce::jlimit (0, (int) p.tracks.size(), to), t);
+    });
+
+    layoutHeaders();
+}
+
 void TimelineView::layoutHeaders()
 {
     for (int i = 0; i < headers.size(); ++i)
-        headers[i]->setBounds (0, i * TrackLanes::rowHeight - lanes.scrollY, headerHolder.getWidth(), TrackLanes::rowHeight);
+        headers[i]->setBounds (0, lanes.rowTop (i) - lanes.scrollY, headerHolder.getWidth(), lanes.rowHeightAt (i));
 }
 
 void TimelineView::updateScrollBars()
@@ -1067,8 +1172,12 @@ void TimelineView::changeListenerCallback (juce::ChangeBroadcaster* source)
         updateChordControls();
     }
     else
+    {
         for (auto* h : headers)
             h->update();   // 選択・ロック・録音待機の表示
+
+        layoutHeaders();   // トラックの高さ
+    }
 
     updateScrollBars();
     lanes.repaint();

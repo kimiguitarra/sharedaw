@@ -23,7 +23,7 @@ TrackHeader::TrackHeader (AppContext& c, const std::string& id)
             update();
     };
     addAndMakeVisible (nameLabel);
-    nameLabel.addMouseListener (this, false);   // 名前の上でも選択・右クリックメニューが効くように
+    nameLabel.setInterceptsMouseClicks (false, false);   // 名前の上でも選択・ドラッグ（並べ替え）・右クリックが効くように
 
     instrumentButton.setTooltip ("音源の調整"_ju);
     instrumentButton.onClick = [this]
@@ -235,6 +235,9 @@ void TrackHeader::paint (juce::Graphics& g)
         }
     }
 
+    if (! volumeSlider.isVisible())
+        return;
+
     g.setColour (Theme::textDim);
     g.setFont (juce::FontOptions (11.0f));
     auto area = getLocalBounds().reduced (10, 4);
@@ -246,10 +249,12 @@ void TrackHeader::paint (juce::Graphics& g)
 
 void TrackHeader::resized()
 {
+    // 低くしたときは、音量・パン → 音源のボタンの順に隠す
     auto area = getLocalBounds().reduced (10, 4);
-    area.removeFromLeft (0);
+    const bool showInstrument = getHeight() >= 52;
+    const bool showSliders = getHeight() >= 68;
 
-    auto top = area.removeFromTop (22);
+    auto top = area.removeFromTop (juce::jmin (22, area.getHeight()));
     soloButton.setBounds (top.removeFromRight (24));
     top.removeFromRight (3);
     muteButton.setBounds (top.removeFromRight (24));
@@ -263,15 +268,24 @@ void TrackHeader::resized()
 
     nameLabel.setBounds (top);
 
-    area.removeFromTop (3);
-    instrumentButton.setBounds (area.removeFromTop (20));
+    instrumentButton.setVisible (showInstrument);
+    volumeSlider.setVisible (showSliders);
+    panSlider.setVisible (showSliders);
 
-    auto sliderRow = area.removeFromBottom (18);
-    sliderRow.removeFromLeft (26);
-    auto volArea = sliderRow.removeFromLeft ((int) (sliderRow.getWidth() * 0.62f));
-    volumeSlider.setBounds (volArea);
-    sliderRow.removeFromLeft (28);
-    panSlider.setBounds (sliderRow);
+    area.removeFromTop (3);
+
+    if (showInstrument)
+        instrumentButton.setBounds (area.removeFromTop (20));
+
+    if (showSliders)
+    {
+        auto sliderRow = area.removeFromBottom (18);
+        sliderRow.removeFromLeft (26);
+        auto volArea = sliderRow.removeFromLeft ((int) (sliderRow.getWidth() * 0.62f));
+        volumeSlider.setBounds (volArea);
+        sliderRow.removeFromLeft (28);
+        panSlider.setBounds (sliderRow);
+    }
 }
 
 bool TrackHeader::isAudioTrack() const
@@ -361,9 +375,71 @@ void TrackHeader::select()
 void TrackHeader::mouseDown (const juce::MouseEvent& e)
 {
     select();
+    drag = Drag::none;
 
     if (e.mods.isPopupMenu())
-        showMenu();
+        return showMenu();
+
+    const auto p = e.getEventRelativeTo (this).getPosition();
+    dragStartHeight = getHeight();
+    dragStartY = getY();
+    drag = p.y >= getHeight() - resizeEdge ? Drag::resize : Drag::pending;
+}
+
+void TrackHeader::mouseDrag (const juce::MouseEvent& e)
+{
+    const int dy = e.getDistanceFromDragStartY();
+
+    if (drag == Drag::resize)
+    {
+        const int h = juce::jlimit (EditorState::minTrackHeight, EditorState::maxTrackHeight, dragStartHeight + dy);
+
+        if (h != ctx.state.trackHeight (trackId))
+        {
+            ctx.state.trackHeights[trackId] = h;
+            ctx.state.changed();
+        }
+
+        return;
+    }
+
+    if (drag == Drag::pending && std::abs (dy) > 6 && ! nameLabel.isBeingEdited())
+    {
+        drag = Drag::reorder;
+        toFront (false);
+        setAlpha (0.85f);
+    }
+
+    if (drag == Drag::reorder)
+        setTopLeftPosition (getX(), dragStartY + dy);
+}
+
+void TrackHeader::mouseUp (const juce::MouseEvent&)
+{
+    const auto was = drag;
+    drag = Drag::none;
+    setAlpha (1.0f);
+
+    if (was == Drag::reorder && onReorderDrop)
+        onReorderDrop (trackId, getY() + getHeight() / 2);
+}
+
+void TrackHeader::mouseDoubleClick (const juce::MouseEvent& e)
+{
+    // 名前をダブルクリックで名前の変更
+    if (nameLabel.getBounds().contains (e.getEventRelativeTo (this).getPosition()))
+        nameLabel.showEditor();
+}
+
+void TrackHeader::mouseMove (const juce::MouseEvent& e)
+{
+    const auto p = e.getEventRelativeTo (this).getPosition();
+    setMouseCursor (p.y >= getHeight() - resizeEdge ? juce::MouseCursor::UpDownResizeCursor : juce::MouseCursor::NormalCursor);
+}
+
+void TrackHeader::mouseExit (const juce::MouseEvent&)
+{
+    setMouseCursor (juce::MouseCursor::NormalCursor);
 }
 
 void TrackHeader::showMenu()

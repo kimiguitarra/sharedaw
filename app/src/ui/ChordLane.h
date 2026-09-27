@@ -4,8 +4,9 @@
 
 /**
     コードトラック（§3.8）。Cubase のコードトラックと同様に、任意の拍にコードイベントを置く。
-    鉛筆ツール: クリックした拍にコードを追加（コードエディタが開く）。
-    選択ツール: クリックで選択、ドラッグで移動（1拍にスナップ、Alt で解除）、ダブルクリックでコードエディタ、Delete で削除。
+    鉛筆ツール: クリックした拍に空のコードを置く。ダブルクリック（どのツールでも）でコードエディタ。
+    選択ツール: クリックで選択、ドラッグで移動（1拍にスナップ、Alt で解除）、Delete で削除。
+    コードは置いた所で 1 回だけ鳴る（次のコードまで、最長 1 小節）。
 */
 class ChordLane  : public juce::Component,
                    public juce::SettableTooltipClient,
@@ -40,6 +41,19 @@ private:
     std::string findStartHit (float x) const;   // イベントの先頭の近く
     collab::Tick snapToBeat (double tick, const juce::ModifierKeys&) const;
     void openEditor (const std::string& id);
-    void addAt (collab::Tick tick);
+    void addAt (collab::Tick tick);                  // 置いてコードエディタを開く
+    std::string addEmptyAt (collab::Tick tick);      // 空のコードを置く（ID を返す）
+
+    /** 表示するコードイベントの枠（小さな札。鳴る長さは細い線で示す）。 */
+    struct Box
+    {
+        std::string id;
+        juce::String name, degree;
+        bool empty = false, noChord = false;
+        juce::Rectangle<float> box;
+        float soundEndX = 0.0f;
+    };
+
+    std::vector<Box> layoutBoxes() const;
     void changeListenerCallback (juce::ChangeBroadcaster*) override    { repaint(); }
 };

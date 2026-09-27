@@ -25,7 +25,7 @@ namespace
         cmdAudioSettings, cmdCredits, cmdAbout, cmdCheckUpdate,
         cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
         cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory, cmdSyncRefreshLocks,
-        cmdAddAudioTrack, cmdImportAudio, cmdImportMidi, cmdExportMixdown, cmdSplit, cmdPlugins,
+        cmdAddAudioTrack, cmdImportAudio, cmdImportMidi, cmdExportMixdown, cmdSplit, cmdMuteTrack, cmdSoloTrack, cmdPlugins,
         cmdRecord, cmdCountIn0, cmdCountIn1, cmdCountIn2,
         cmdToolSelect, cmdToolPencil, cmdModeCubase, cmdModeStudioOne, cmdMixer, cmdMaster, cmdLoopToSelection,
         cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
@@ -1014,7 +1014,8 @@ void MainComponent::showShortcuts()
         "  ドラッグ: 移動（複数でもまとめて）　左端・右端をドラッグ: 長さ（MIDI・オーディオとも）\n"_ju
         "  Alt を押しながら: スナップを一時的に解除\n"_ju
         "  Ctrl+C / X / V: コピー / 切り取り / 貼り付け（再生位置へ）　Ctrl+D: 複製　Delete: 削除\n"_ju
-        "  Ctrl+← / →: クオンタイズ値ずつずらす　S: 再生位置で分割\n"_ju
+        "  Ctrl+← / →: クオンタイズ値ずつずらす　Alt+X: 再生位置で分割\n"_ju
+        "  M / S: 選択中のトラックのミュート / ソロ\n"_ju
         "  鉛筆: 空いている所をクリック（ドラッグで長さ）で MIDI クリップを作成　ダブルクリック: ピアノロールで開く\n"_ju
         "\n"_ju
         "■ ピアノロール\n"_ju
@@ -1117,7 +1118,7 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
                          cmdRecord, cmdCountIn0, cmdCountIn1, cmdCountIn2,
                          cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
                          cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory, cmdSyncRefreshLocks,
-                         cmdAddAudioTrack, cmdImportAudio, cmdImportMidi, cmdExportMixdown, cmdSplit, cmdPlugins,
+                         cmdAddAudioTrack, cmdImportAudio, cmdImportMidi, cmdExportMixdown, cmdSplit, cmdMuteTrack, cmdSoloTrack, cmdPlugins,
                          cmdToolSelect, cmdToolPencil, cmdModeCubase, cmdModeStudioOne, cmdMixer, cmdMaster, cmdLoopToSelection,
                          cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
                          cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9,
@@ -1293,7 +1294,17 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdExportMixdown:
             info.setInfo ("ミックスダウンを書き出す（WAV）…"_ju, {}, "File", 0);
             break;
-        case cmdSplit:         info.setInfo ("再生位置で分割"_ju, {}, "Edit", 0); info.addDefaultKeypress ('s', 0); break;
+        case cmdSplit:         info.setInfo ("再生位置で分割"_ju, {}, "Edit", 0); info.addDefaultKeypress ('x', juce::ModifierKeys::altModifier); break;
+        case cmdMuteTrack:
+            info.setInfo ("選択中のトラックのミュート"_ju, {}, "Track", 0);
+            info.addDefaultKeypress ('m', 0);
+            info.setActive (ctx.selectedTrack() != nullptr);
+            break;
+        case cmdSoloTrack:
+            info.setInfo ("選択中のトラックのソロ"_ju, {}, "Track", 0);
+            info.addDefaultKeypress ('s', 0);
+            info.setActive (ctx.selectedTrack() != nullptr);
+            break;
         case cmdAudioSettings: info.setInfo ("オーディオ設定…"_ju, {}, "Options", 0); break;
         case cmdSyncSettings:  info.setInfo ("サーバー設定…"_ju, {}, "Sync", 0); break;
         case cmdSyncRegister:  info.setInfo ("このプロジェクトをサーバーに登録…"_ju, {}, "Sync", 0); info.setActive (! sync.isLinked()); break;
@@ -1433,6 +1444,19 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdImportMidi:    importMidi(); break;
         case cmdExportMixdown: exportMixdown(); break;
         case cmdSplit:         ctx.splitAtPlayhead(); break;
+        case cmdMuteTrack:
+        case cmdSoloTrack:
+            if (auto* t = ctx.selectedTrack())
+            {
+                const bool mute = info.commandID == cmdMuteTrack;
+                auto id = t->id;
+                document.perform (mute ? "ミュート"_ju : "ソロ"_ju, [id, mute] (collab::Project& p)
+                {
+                    if (auto* tr = p.findTrack (id))
+                        (mute ? tr->mute : tr->solo) = ! (mute ? tr->mute : tr->solo);
+                });
+            }
+            break;
         case cmdAudioSettings: showAudioSettings(); break;
         case cmdSyncSettings:  showServerSettings(); break;
         case cmdSyncRegister:  registerProject(); break;

@@ -28,6 +28,7 @@ public:
 
     void paint (juce::Graphics&) override;
     void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
@@ -37,6 +38,8 @@ public:
 
 private:
     PianoRollView& owner;
+    double splitX = -1.0;     // はさみで切る位置（なければ -1）
+    float splitY = -1.0f;
 
     enum class Mode { none, move, resize, rubberBand };
     Mode mode = Mode::none;

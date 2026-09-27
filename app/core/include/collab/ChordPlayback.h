@@ -31,7 +31,7 @@ std::optional<chord::Key> keyAt (const Project&, const TempoMap&, Tick);
 Tick chordTrackEndTick (const Project&, const TempoMap&);
 
 /**
-    コードトラックの自動発音（§3.8）: 全音符ベタ、小節線をまたぐ場合は各小節の頭で弾き直す。
+    コードトラックの自動発音（§3.8）: コードイベントごとに 1 回だけ鳴らす（次のコードまで、最長 1 小節）。
     ボイシングは collab::chord::voiceProgression による。ノーコード区間は発音しない。
 */
 std::vector<GeneratedNote> renderChordTrack (const Project&, const TempoMap&, int velocity = 80);

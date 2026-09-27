@@ -41,31 +41,27 @@ std::vector<GeneratedNote> renderChordTrack (const Project& p, const TempoMap& m
         chords.push_back (! e.noChord && e.chord ? std::optional (toChord (*e.chord)) : std::nullopt);
 
     const auto voicings = chord::voiceProgression (chords);
-    const Tick end = chordTrackEndTick (p, map);
-    constexpr Tick gap = 10;   // 弾き直しがはっきり聞こえるよう、少しだけ離す
+    constexpr Tick gap = 10;   // 次のコードとの切れ目が聞こえるよう、少しだけ離す
 
+    // 1 つのコードイベントは 1 回だけ鳴らす（Cubase のコードトラックと同じ）。
+    // 長さは次のコードイベントまで、ただし最長 1 小節（最後のコードが曲の終わりまで鳴り続けないように）
     for (size_t i = 0; i < events.size(); ++i)
     {
         if (! voicings[i])
             continue;
 
         const Tick start = events[i].tick;
-        const Tick stop = i + 1 < events.size() ? events[i + 1].tick : end;
+        const Tick oneBar = (Tick) map.timeSignatureAtBar (map.tickToBar (start)).ticksPerBar();
+        Tick stop = start + oneBar;
 
-        // 小節の頭ごとに区切る
-        for (Tick segStart = start; segStart < stop;)
-        {
-            const Tick nextBar = map.barToTick (map.tickToBar (segStart) + 1);
-            const Tick segEnd = std::min (stop, nextBar);
-            const Tick length = std::max<Tick> (1, segEnd - segStart - (segEnd < end ? gap : 0));
+        if (i + 1 < events.size())
+            stop = std::min (stop, events[i + 1].tick - gap);
 
-            notes.push_back ({ segStart, length, voicings[i]->bass, velocity });
+        const Tick length = std::max<Tick> (1, stop - start);
+        notes.push_back ({ start, length, voicings[i]->bass, velocity });
 
-            for (int n : voicings[i]->upper)
-                notes.push_back ({ segStart, length, n, velocity });
-
-            segStart = segEnd;
-        }
+        for (int n : voicings[i]->upper)
+            notes.push_back ({ start, length, n, velocity });
     }
 
     return notes;

@@ -14,8 +14,22 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseDoubleClick (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
+
+    /** ヘッダーをドラッグして並べ替えたとき（y は親の座標でのヘッダーの中心）。 */
+    std::function<void (const std::string& trackId, int y)> onReorderDrop;
 
 private:
+    // 下の端をドラッグで高さ、それ以外を上下にドラッグで並べ替え（Cubase と同じ）
+    enum class Drag { none, pending, resize, reorder };
+    Drag drag = Drag::none;
+    int dragStartHeight = 0, dragStartY = 0;
+    static constexpr int resizeEdge = 5;
+
     AppContext& ctx;
     std::string trackId;
 

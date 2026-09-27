@@ -7,6 +7,9 @@ Ruler::Ruler (ProjectDocument& d, EditorState& s, TimeAxis& a)
 {
     document.addChangeListener (this);
     state.addChangeListener (this);
+
+    // クリックで再生位置を動かせることが分かるように
+    setMouseCursor (juce::MouseCursor::CrosshairCursor);
 }
 
 Ruler::~Ruler()

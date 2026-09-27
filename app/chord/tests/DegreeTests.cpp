@@ -50,9 +50,12 @@ TEST_CASE ("chords are shown as degrees in the key")
 
 TEST_CASE ("degree input becomes chords in the key")
 {
-    CHECK (in ("1", C) == "C");
-    CHECK (in ("2", C) == "Dm");
-    CHECK (in ("7", C) == "Bdim");
+    CHECK (in ("1", C) == "CM7");
+    CHECK (in ("2", C) == "Dm7");
+    CHECK (in ("7", C) == "Bm7(b5)");
+    CHECK (in ("5", C) == "G7");
+    CHECK (in ("6m", C) == "Am");
+    CHECK (in ("1maj", C) == "Cmaj");
     CHECK (in ("6m7", C) == "Am7");
     CHECK (in ("57", C) == "G7");
     CHECK (in ("4M7", C) == "FM7");
@@ -60,14 +63,14 @@ TEST_CASE ("degree input becomes chords in the key")
     CHECK (in ("#4m7-5", C) == "F#m7-5");
     CHECK (in ("1/3", C) == "C/E");
     CHECK (in ("4/5", C) == "F/G");
-    CHECK (in ("５", G) == "D");
-    CHECK (in ("2", F) == "Gm");
-    CHECK (in ("4", Eb) == "Ab");
-    CHECK (in ("1", Am) == "Am");
-    CHECK (in ("3", Am) == "C");
+    CHECK (in ("５", G) == "D7");
+    CHECK (in ("2", F) == "Gm7");
+    CHECK (in ("4", Eb) == "AbM7");
+    CHECK (in ("1", Am) == "Am7");
+    CHECK (in ("3", Am) == "CM7");
     CHECK (in ("57", Am) == "E7");
-    CHECK (in ("5", Em) == "Bm");
-    CHECK (in ("IV", C) == "F");
+    CHECK (in ("5", Em) == "Bm7");
+    CHECK (in ("IV", C) == "FM7");
     CHECK (in ("vi7", C) == "Am7");
     CHECK (in ("Ⅵm", C) == "Am");
     CHECK (in ("♭Ⅵ", C) == "Ab");

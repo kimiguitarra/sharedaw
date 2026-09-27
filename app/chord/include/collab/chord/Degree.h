@@ -35,8 +35,8 @@ std::string degreeName (const Chord&, const Key&);
 /**
     ディグリーの入力をキーに合わせたコード表記に変える。ディグリーでなければ std::nullopt。
     - 数字 1〜7（全角も可）またはローマ数字（I〜VII、Ⅰ〜Ⅶ）。前に b / ♭ / # / ♯ を付けられる
-    - 後ろに何も付けなければキーの音階の三和音（C キーで 2 → Dm、7 → Bdim）。小文字のローマ数字はマイナー
-    - 後ろにコードタイプを付けるとそのまま（C キーで 2m7 → Dm7、57 → G7、4M7 → FM7、b7 → Bb）
+    - 後ろに何も付けなければキーの音階の四和音（C キーで 1 → CM7、2 → Dm7、5 → G7、7 → Bm7(b5)）。小文字のローマ数字は m7
+    - 後ろにコードタイプを付けるとそのまま（C キーで 6m → Am、57 → G7、4M7 → FM7、1maj → C。b7 → Bb）
     - 分数コードのベースもディグリーで書ける（1/3 → C/E）
 */
 std::optional<std::string> degreeToChordText (const std::string& input, const Key&);

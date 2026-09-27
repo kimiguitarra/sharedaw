@@ -20,7 +20,8 @@ namespace
 ChordLane::ChordLane (AppContext& c) : ctx (c)
 {
     setWantsKeyboardFocus (true);
-    setTooltip ("コード: 鉛筆ツールでクリックして追加。選択ツールでドラッグして移動（1拍単位、Alt で自由）、ダブルクリックで編集、Delete で削除"_ju);
+    setTooltip ("コード: 鉛筆ツールでクリックすると空のコードを置く。ダブルクリック（または選択して Enter）でコードを入力。"_ju
+                "ドラッグで移動（1拍単位、Alt で自由）、Delete で削除。コードは置いた所で 1 回だけ鳴る（最長 1 小節）"_ju);
     ctx.document.addChangeListener (this);
     ctx.state.addChangeListener (this);
 }
@@ -42,88 +43,115 @@ juce::String ChordLane::displayText (const collab::ChordEvent& e)
     return toJuce (e.text);
 }
 
-void ChordLane::paint (juce::Graphics& g)
+std::vector<ChordLane::Box> ChordLane::layoutBoxes() const
 {
     const auto& axis = ctx.state.timeline;
     const auto& map = ctx.document.getTempoMap();
     const auto& project = ctx.document.getProject();
 
-    g.fillAll (Theme::laneAlt);
-    TimeGrid::drawGrid (g, getLocalBounds(), axis, map, nullptr);
-
     auto events = project.chordTrack.events;
     std::stable_sort (events.begin(), events.end(), [] (auto& a, auto& b) { return a.tick < b.tick; });
-    const auto end = collab::chordTrackEndTick (project, map);
 
-    g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
+    const juce::Font nameFont (juce::FontOptions (14.0f, juce::Font::bold));
+    const juce::Font degreeFont (juce::FontOptions (11.5f));
+    std::vector<Box> boxes;
 
     for (size_t i = 0; i < events.size(); ++i)
     {
         const auto& e = events[i];
-        const float x1 = (float) axis.tickToX ((double) e.tick);
-        const float x2 = (float) axis.tickToX ((double) (i + 1 < events.size() ? events[i + 1].tick : end));
+        Box b;
+        b.id = e.id;
+        b.name = displayText (e);
+        b.empty = ! e.noChord && ! e.chord;
+        b.noChord = e.noChord;
 
-        if (x2 < 0 || x1 > (float) getWidth())
+        if (e.chord && ! e.noChord)
+            if (auto key = collab::keyAt (project, map, e.tick))
+                b.degree = toJuce (collab::chord::degreeName (collab::toChord (*e.chord), *key));
+
+        const float x = (float) axis.tickToX ((double) e.tick);
+        float w = juce::jmax (juce::GlyphArrangement::getStringWidth (nameFont, b.name),
+                              juce::GlyphArrangement::getStringWidth (degreeFont, b.degree)) + 14.0f;
+        w = juce::jmax (b.empty ? 22.0f : 30.0f, w);
+
+        // 鳴る長さ（次のコードまで、最長 1 小節）
+        const auto oneBar = (collab::Tick) map.timeSignatureAtBar (map.tickToBar (e.tick)).ticksPerBar();
+        auto stop = e.tick + oneBar;
+
+        if (i + 1 < events.size())
+        {
+            stop = std::min (stop, events[i + 1].tick);
+            w = juce::jmin (w, juce::jmax (8.0f, (float) axis.tickToX ((double) events[i + 1].tick) - x - 2.0f));
+        }
+
+        b.box = { x, 3.0f, w, (float) getHeight() - 9.0f };
+        b.soundEndX = (float) axis.tickToX ((double) stop);
+        boxes.push_back (b);
+    }
+
+    return boxes;
+}
+
+void ChordLane::paint (juce::Graphics& g)
+{
+    const auto& axis = ctx.state.timeline;
+    const auto& map = ctx.document.getTempoMap();
+
+    g.fillAll (Theme::laneAlt);
+    TimeGrid::drawGrid (g, getLocalBounds(), axis, map, nullptr);
+
+    for (auto& b : layoutBoxes())
+    {
+        if (b.soundEndX < 0 || b.box.getX() > (float) getWidth())
             continue;
 
-        const bool selected = e.id == ctx.state.selectedChordId;
-        const auto r = juce::Rectangle<float> (x1, 2.0f, juce::jmax (4.0f, x2 - x1 - 1.0f), (float) getHeight() - 4.0f);
-        const auto colour = e.noChord ? Theme::textDim : chordColour;
+        const bool selected = b.id == ctx.state.selectedChordId;
+        const auto colour = b.noChord || b.empty ? Theme::textDim : chordColour;
 
-        g.setColour (colour.withAlpha (e.noChord ? 0.12f : 0.22f));
-        g.fillRoundedRectangle (r, 3.0f);
-        g.setColour (selected ? Theme::selection : colour);
-        g.drawRoundedRectangle (r, 3.0f, selected ? 2.0f : 1.0f);
-        // コード名（上）とディグリー（下。キーが決まっているとき）
-        const auto key = e.chord && ! e.noChord ? collab::keyAt (project, map, e.tick) : std::nullopt;
-        auto textArea = r.reduced (6.0f, 0.0f);
-
-        if (key)
+        // 鳴っている長さ（細い線）
+        if (! b.empty && ! b.noChord)
         {
-            const auto chord = collab::toChord (*e.chord);
+            g.setColour (chordColour.withAlpha (0.35f));
+            g.fillRect (juce::Rectangle<float> (b.box.getX(), (float) getHeight() - 5.0f, b.soundEndX - b.box.getX(), 2.0f));
+        }
+
+        g.setColour (colour.withAlpha (b.empty ? 0.1f : 0.25f));
+        g.fillRoundedRectangle (b.box, 3.0f);
+        g.setColour (selected ? Theme::selection : colour);
+        g.drawRoundedRectangle (b.box, 3.0f, selected ? 2.0f : 1.0f);
+
+        auto textArea = b.box.reduced (6.0f, 0.0f);
+
+        if (b.degree.isNotEmpty())
+        {
             g.setColour (Theme::text);
             g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
-            g.drawText (displayText (e), textArea.removeFromTop (textArea.getHeight() * 0.55f), juce::Justification::bottomLeft, true);
+            g.drawText (b.name, textArea.removeFromTop (textArea.getHeight() * 0.55f), juce::Justification::bottomLeft, true);
             g.setColour (chordColour.brighter (0.3f));
             g.setFont (juce::FontOptions (11.5f));
-            g.drawText (toJuce (collab::chord::degreeName (chord, *key)), textArea, juce::Justification::topLeft, true);
+            g.drawText (b.degree, textArea, juce::Justification::topLeft, true);
         }
         else
         {
-            g.setColour (e.noChord ? Theme::textDim : Theme::text);
+            g.setColour (b.noChord || b.empty ? Theme::textDim : Theme::text);
             g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
-            g.drawText (displayText (e), textArea, juce::Justification::centredLeft, true);
+            g.drawText (b.empty ? juce::String ("?") : b.name, textArea, juce::Justification::centredLeft, true);
         }
     }
 }
 
 std::string ChordLane::findHit (float x) const
 {
-    const auto& axis = ctx.state.timeline;
-    const auto tick = axis.xToTick (x);
-    auto events = ctx.document.getProject().chordTrack.events;
-    std::stable_sort (events.begin(), events.end(), [] (auto& a, auto& b) { return a.tick < b.tick; });
+    for (auto& b : layoutBoxes())
+        if (x >= b.box.getX() - 2.0f && x <= b.box.getRight() + 2.0f)
+            return b.id;
 
-    // 先頭付近を優先（ドラッグしやすいように）、なければ区間内
-    for (auto& e : events)
-        if (std::abs ((float) axis.tickToX ((double) e.tick) - x) <= 6.0f)
-            return e.id;
-
-    std::string hit;
-    for (auto& e : events)
-        if ((double) e.tick <= tick)
-            hit = e.id;
-
-    return hit;
+    return {};
 }
 
 std::string ChordLane::findStartHit (float x) const
 {
-    for (auto& e : ctx.document.getProject().chordTrack.events)
-        if (std::abs ((float) ctx.state.timeline.tickToX ((double) e.tick) - x) <= 6.0f)
-            return e.id;
-
-    return {};
+    return findHit (x);
 }
 
 void ChordLane::mouseMove (const juce::MouseEvent& e)
@@ -150,11 +178,12 @@ void ChordLane::mouseDown (const juce::MouseEvent& e)
     grabKeyboardFocus();
     mergeId = juce::Uuid().toString();
 
-    // 鉛筆ツール: イベントの先頭以外をクリックしたら、その拍に新しいコードを置く
-    if (ctx.state.pencil() && ! e.mods.isPopupMenu() && findStartHit (e.position.x).empty())
+    // 鉛筆ツール: 空いている所をクリックしたら、その拍に空のコードを置く（Cubase と同じ。入力はダブルクリック）
+    if (ctx.state.pencil() && ! e.mods.isPopupMenu() && findHit (e.position.x).empty())
     {
-        dragId = {};
-        addAt (snapToBeat (ctx.state.timeline.xToTick (e.position.x), e.mods));
+        dragId = addEmptyAt (snapToBeat (ctx.state.timeline.xToTick (e.position.x), e.mods));
+        dragOrigTick = snapToBeat (ctx.state.timeline.xToTick (e.position.x), e.mods);
+        dragDownTick = ctx.state.timeline.xToTick (e.position.x);
         return;
     }
 
@@ -168,7 +197,8 @@ void ChordLane::mouseDown (const juce::MouseEvent& e)
         {
             const auto tick = snapToBeat (ctx.state.timeline.xToTick (e.position.x), e.mods);
             juce::PopupMenu m;
-            m.addItem ("ここにコードを追加…"_ju, [this, tick] { addAt (tick); });
+            m.addItem ("ここにコードを入力…"_ju, [this, tick] { addAt (tick); });
+            m.addItem ("ここに空のコードを置く"_ju, [this, tick] { addEmptyAt (tick); });
             m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this));
         }
 
@@ -234,10 +264,7 @@ void ChordLane::mouseUp (const juce::MouseEvent&)
 
 void ChordLane::mouseDoubleClick (const juce::MouseEvent& e)
 {
-    // 選択ツールでコードをダブルクリックしたらコードエディタ（鉛筆ツールは 1 回目のクリックで追加済み）
-    if (ctx.state.pencil())
-        return;
-
+    // コードをダブルクリックしたらコードエディタ（鉛筆でも選択でも）
     if (auto id = findHit (e.position.x); ! id.empty())
         openEditor (id);
 }
@@ -295,6 +322,26 @@ void ChordLane::openEditor (const std::string& id)
                            [this, id] { ctx.state.selectedChordId = id; deleteSelected(); });
         return;
     }
+}
+
+std::string ChordLane::addEmptyAt (collab::Tick tick)
+{
+    for (auto& ev : ctx.document.getProject().chordTrack.events)
+        if (ev.tick == tick)
+        {
+            ctx.state.selectedChordId = ev.id;
+            ctx.state.changed();
+            return ev.id;
+        }
+
+    collab::ChordEvent e;
+    e.id = collab::generateUuid();
+    e.tick = tick;
+
+    ctx.document.perform ("コードの追加"_ju, [e] (collab::Project& p) { p.chordTrack.events.push_back (e); });
+    ctx.state.selectedChordId = e.id;
+    ctx.state.changed();
+    return e.id;
 }
 
 void ChordLane::addAt (collab::Tick tick)

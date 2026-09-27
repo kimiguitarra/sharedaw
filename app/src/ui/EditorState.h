@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <set>
 
 #include "Common.h"
@@ -180,6 +181,16 @@ struct EditorState  : public juce::ChangeBroadcaster
     std::string selectedMeterId;
     std::string selectedMarkerId;
     std::string selectedKeyId;
+
+    // トラックの高さ（この PC の表示設定。トラック ID ごと）
+    static constexpr int defaultTrackHeight = 72, minTrackHeight = 30, maxTrackHeight = 300;
+    std::map<std::string, int> trackHeights;
+
+    int trackHeight (const std::string& trackId) const
+    {
+        auto it = trackHeights.find (trackId);
+        return it != trackHeights.end() ? it->second : defaultTrackHeight;
+    }
 
     bool loopEnabled = false;
     collab::Tick loopStart = 0;

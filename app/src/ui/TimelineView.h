@@ -17,7 +17,11 @@ public:
     explicit TrackLanes (AppContext&);
 
     int scrollY = 0;
-    static constexpr int rowHeight = 72;
+
+    /** トラックの行の上端（スクロール前）と高さ（トラックごとに変えられる）。 */
+    int rowTop (int index) const;
+    int rowHeightAt (int index) const;
+    int rowAt (float y) const;   // y の位置のトラックの番号（なければ -1）
 
     std::function<void()> onOpenClip;
     std::function<void (const juce::MouseEvent&, const juce::MouseWheelDetails&)> onWheel;
@@ -27,6 +31,7 @@ public:
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
@@ -57,6 +62,8 @@ private:
     collab::MidiClip dragOrigMidi;
     std::map<std::string, collab::Tick> dragOrigStarts;   // まとめて動かすクリップの元の位置
     juce::Rectangle<float> band;                          // 範囲選択の枠
+    int splitRow = -1;                                    // はさみ: 切る位置の縦線を出すトラック
+    double splitTick = -1.0;
     juce::Point<float> bandStart;
     std::set<std::string> bandBase;                       // Ctrl を押して始めたときの元の選択
     double dragDownTick = 0;
@@ -64,7 +71,6 @@ private:
     bool createdByPencil = false;
 
     Hit findHit (juce::Point<float>) const;
-    int rowAt (float y) const;
     collab::Tick snap (double tick, const juce::ModifierKeys&) const;
     void paintMidiClip (juce::Graphics&, const collab::MidiClip&, juce::Rectangle<float>, juce::Colour, bool selected) const;
     void paintAudioClip (juce::Graphics&, const collab::AudioClip&, juce::Rectangle<float>, juce::Colour, bool selected);
@@ -128,6 +134,7 @@ private:
     void handleWheel (const juce::MouseEvent&, const juce::MouseWheelDetails&);
     void rebuildHeaders();
     void layoutHeaders();
+    void moveTrackTo (const std::string& trackId, int y);
     void updateScrollBars();
     void mouseDown (const juce::MouseEvent&) override;
     void updateChordControls();

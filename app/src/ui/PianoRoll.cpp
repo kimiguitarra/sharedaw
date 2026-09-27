@@ -176,10 +176,41 @@ void NoteGrid::paint (juce::Graphics& g)
         g.setColour (Theme::accent);
         g.drawRect (rubberBand, 1.0f);
     }
+
+    // はさみで切る位置
+    if (splitX >= 0.0 && owner.ctx.state.tool == EditTool::split)
+    {
+        g.setColour (Theme::selection);
+        g.fillRect (juce::Rectangle<float> ((float) splitX - 0.5f, splitY - 3.0f, 1.5f, (float) owner.noteHeight + 6.0f));
+    }
+}
+
+void NoteGrid::mouseExit (const juce::MouseEvent&)
+{
+    if (splitX >= 0.0)
+    {
+        splitX = -1.0;
+        repaint();
+    }
 }
 
 void NoteGrid::mouseMove (const juce::MouseEvent& e)
 {
+    // はさみ: ノートの上なら切る位置に縦線
+    {
+        bool onEdge = false;
+        auto* note = owner.ctx.state.tool == EditTool::split ? hitNote (e.position, onEdge) : nullptr;
+        const double x = note != nullptr ? owner.axis().tickToX ((double) owner.snap (owner.axis().xToTick (e.position.x), false, e.mods)) : -1.0;
+        const float y = note != nullptr ? owner.pitchToY (note->pitch) : -1.0f;
+
+        if (std::abs (x - splitX) > 0.1 || std::abs (y - splitY) > 0.1f)
+        {
+            splitX = x;
+            splitY = y;
+            repaint();
+        }
+    }
+
     if (owner.ctx.state.tool != EditTool::select)
         return setMouseCursor (Theme::toolCursor (owner.ctx.state.tool));
 

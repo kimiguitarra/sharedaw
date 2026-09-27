@@ -13,7 +13,11 @@ namespace
     constexpr std::array<int, 7> majorScale { 0, 2, 4, 5, 7, 9, 11 };
     constexpr std::array<int, 7> minorScale { 0, 2, 3, 5, 7, 8, 10 };   // ナチュラルマイナー
 
-    // 音階の三和音（1〜7 度）
+    // 音階の四和音（1〜7 度。ディグリーの数字だけを入れたときはこれ）
+    const std::array<const char*, 7> majorSevenths { "M7", "m7", "m7", "M7", "7", "m7", "m7(b5)" };
+    const std::array<const char*, 7> minorSevenths { "m7", "m7(b5)", "M7", "m7", "m7", "M7", "7" };
+
+    // 分数コード（1/3 など）は三和音で作る
     const std::array<const char*, 7> majorTriads { "", "m", "m", "", "", "m", "dim" };
     const std::array<const char*, 7> minorTriads { "m", "dim", "", "m", "m", "", "" };
 
@@ -245,11 +249,14 @@ std::optional<std::string> degreeToChordText (const std::string& input, const Ke
 
     if (rest.empty())
     {
-        // 何も付けなければ音階の三和音（臨時記号付きはメジャー、小文字のローマ数字はマイナー）
+        // 何も付けなければ音階の四和音（臨時記号付きはメジャーの三和音、小文字のローマ数字はマイナー 7th）
+        const bool slash = ! bassText.empty();
+
         if (d->lowercase)
-            quality = "m";
+            quality = slash ? "m" : "m7";
         else if (d->accidental == 0)
-            quality = (k.minor ? minorTriads : majorTriads)[(size_t) d->degree];
+            quality = slash ? (k.minor ? minorTriads : majorTriads)[(size_t) d->degree]
+                            : (k.minor ? minorSevenths : majorSevenths)[(size_t) d->degree];
     }
     else
     {
