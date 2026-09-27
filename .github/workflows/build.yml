@@ -186,25 +186,53 @@ jobs:
             cp -r build/app/ShareDAW_artefacts/Release/ShareDAW build/app/ShareDAW_artefacts/Release/assets dist/
           fi
 
-      # 同期サーバーに配信する（リポジトリのシークレット SHAREDAW_SERVER_URL / SHAREDAW_RELEASE_KEY がなければスキップ）
-      - name: Publish update
-        if: inputs.publish
-        shell: bash
-        env:
-          SHAREDAW_SERVER_URL: ${{ secrets.SHAREDAW_SERVER_URL }}
-          SHAREDAW_RELEASE_KEY: ${{ secrets.SHAREDAW_RELEASE_KEY }}
-        run: |
-          version="$(sed -n 's/^project(ShareDAW VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)"
-          export SHAREDAW_RELEASE_NOTES="$(git log -1 --format=%s)"
-          if [ "$RUNNER_OS" = "macOS" ]; then
-            root=build/app/ShareDAW_artefacts/Release/ShareDAW.app
-          else
-            root=dist
-          fi
-          node tools/publish-release.mjs ${{ matrix.platform }} "$root" ${{ github.run_number }} "$version"
+      # Mac の .app は実行権限を保つため tar にして、配信用に別のアーティファクトで渡す
+      - name: Pack app for publishing (macOS)
+        if: runner.os == 'macOS' && inputs.publish
+        run: tar -C build/app/ShareDAW_artefacts/Release -cf ShareDAW.app.tar ShareDAW.app
+
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'macOS' && inputs.publish
+        with:
+          name: publish-mac
+          path: ShareDAW.app.tar
+          retention-days: 3
 
       - uses: actions/upload-artifact@v4
         with:
           name: ShareDAW-${{ matrix.name }}
           path: dist
           retention-days: 14
+
+  # 同期サーバーへの配信（アプリの「アップデートを確認」で取り込める）。
+  # ビルドとは別の軽い Linux ジョブにしてあるので、配信だけ失敗したときは「Re-run failed jobs」でここだけやり直せる。
+  # リポジトリのシークレット SHAREDAW_SERVER_URL / SHAREDAW_RELEASE_KEY がなければスキップする
+  publish:
+    needs: [ plan, app ]
+    if: ${{ !cancelled() && inputs.publish && needs.plan.outputs.matrix != '{"include":[]}' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Publish
+        env:
+          SHAREDAW_SERVER_URL: ${{ secrets.SHAREDAW_SERVER_URL }}
+          SHAREDAW_RELEASE_KEY: ${{ secrets.SHAREDAW_RELEASE_KEY }}
+        run: |
+          version="$(sed -n 's/^project(ShareDAW VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)"
+          export SHAREDAW_RELEASE_NOTES="$(git log -1 --format=%s)"
+          build=${{ github.run_number }}
+          ls artifacts
+          if [ -d artifacts/ShareDAW-windows ]; then
+            node tools/publish-release.mjs windows artifacts/ShareDAW-windows "$build" "$version"
+          fi
+          if [ -f artifacts/publish-mac/ShareDAW.app.tar ]; then
+            mkdir -p mac && tar -C mac -xf artifacts/publish-mac/ShareDAW.app.tar
+            node tools/publish-release.mjs mac mac/ShareDAW.app "$build" "$version"
+          fi
+          if [ -d artifacts/ShareDAW-linux ]; then
+            chmod +x artifacts/ShareDAW-linux/ShareDAW
+            node tools/publish-release.mjs linux artifacts/ShareDAW-linux "$build" "$version"
+          fi

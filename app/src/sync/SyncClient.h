@@ -25,6 +25,7 @@ struct TransferUrl
     juce::String url;
     juce::String method;
     bool authRequired = false;
+    juce::StringPairArray headers;   // 送るときに付けるヘッダー（署名付き URL のチェックサムなど）
 
     static TransferUrl fromJson (const nlohmann::json&);
 };

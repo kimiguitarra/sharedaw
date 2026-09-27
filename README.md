@@ -85,7 +85,9 @@ C メトロノーム、Q クオンタイズ、S 分割、F3 ミキサー、Ctrl/
    - GitHub: リポジトリの Settings → Secrets and variables → Actions に `SHAREDAW_RELEASE_KEY`、
      あわせて `SHAREDAW_SERVER_URL`（同期サーバーの URL）
 2. Actions → Build → Run workflow（「配信する」にチェック）。ビルドが終わると各 OS のアプリにアップデートが届く
-   （ビルド番号 = Actions の実行番号で新旧を判断する）
+   （ビルド番号 = Actions の実行番号で新旧を判断する）。配信は別の軽いジョブ（publish）なので、
+   配信だけ失敗したときは「Re-run failed jobs」でビルドをやり直さずに再実行できる
+3. 100MB を超えるファイル（Mac 版の本体など）を送るには、Worker に R2 の API キーを設定しておく（server/README.md）
 
 最初の 1 回だけは、これまでどおり Artifacts からアプリを手で入れる（アップデート機能を含むビルドにするため）。
 

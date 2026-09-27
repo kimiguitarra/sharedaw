@@ -23,6 +23,12 @@ TransferUrl TransferUrl::fromJson (const nlohmann::json& j)
     t.url = toJuce (j.value ("url", std::string()));
     t.method = toJuce (j.value ("method", std::string ("GET")));
     t.authRequired = j.value ("authRequired", false);
+
+    if (auto it = j.find ("headers"); it != j.end() && it->is_object())
+        for (auto& [k, v] : it->items())
+            if (v.is_string())
+                t.headers.set (toJuce (k), toJuce (v.get<std::string>()));
+
     return t;
 }
 
@@ -87,6 +93,9 @@ juce::Result SyncClient::uploadBlob (const TransferUrl& t, const juce::MemoryBlo
 {
     int status = 0;
     juce::String headers = "Content-Type: application/octet-stream";
+
+    for (auto& key : t.headers.getAllKeys())
+        headers << "\r\n" << key << ": " << t.headers[key];
 
     if (t.authRequired)
         headers << "\r\nAuthorization: Bearer " << token;

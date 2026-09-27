@@ -12,6 +12,14 @@ export interface TransferUrl {
   method: "PUT" | "GET";
   /** true なら Authorization ヘッダー（Bearer トークン）を付けて送る（開発用の直接転送） */
   authRequired: boolean;
+  /** 送るときに付けるヘッダー（署名付き URL の PUT では SHA-256 のチェックサム。R2 が内容を検証する） */
+  headers?: Record<string, string>;
+}
+
+/** 16 進の SHA-256 を base64 に（x-amz-checksum-sha256 の形式） */
+export function hexToBase64(hash: string): string {
+  const bytes = hash.match(/../g)!.map((h) => parseInt(h, 16));
+  return btoa(String.fromCharCode(...bytes));
 }
 
 const presignExpirySeconds = 3600;
@@ -34,8 +42,11 @@ export async function transferUrl(env: Env, origin: string, hash: string, method
 
   const url = new URL(`https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${env.R2_BUCKET_NAME}/${blobKey(hash)}`);
   url.searchParams.set("X-Amz-Expires", String(presignExpirySeconds));
-  const signed = await client.sign(new Request(url, { method }), { aws: { signQuery: true } });
-  return { hash, url: signed.url, method, authRequired: false };
+
+  // PUT はチェックサムを署名に含める。R2 が内容とハッシュの一致を確かめるので、Worker で大きなファイルをハッシュしなくてよい
+  const headers: Record<string, string> = method === "PUT" ? { "x-amz-checksum-sha256": hexToBase64(hash) } : {};
+  const signed = await client.sign(new Request(url, { method, headers }), { aws: { signQuery: true } });
+  return { hash, url: signed.url, method, authRequired: false, ...(method === "PUT" ? { headers } : {}) };
 }
 
 export async function registeredHashes(env: Env, hashes: string[]): Promise<Set<string>> {
@@ -59,6 +70,21 @@ export async function verifyAndRegister(env: Env, hash: string): Promise<{ hash:
   const existing = await env.DB.prepare("SELECT size FROM blobs WHERE hash = ?").bind(hash).first<{ size: number }>();
   if (existing) return { hash, size: existing.size };
 
+  const head = await env.BLOBS.head(blobKey(hash));
+  if (!head) throw new HttpError(404, "blob_not_uploaded", "アップロードされていません");
+
+  // R2 がチェックサムを検証済みなら、それを使う（Worker の CPU 時間を使わない）
+  const stored = head.checksums?.sha256;
+  if (stored) {
+    if (hex(stored) !== hash) {
+      await env.BLOBS.delete(blobKey(hash));
+      throw new HttpError(400, "hash_mismatch", "アップロードされた内容のハッシュが一致しません", { actual: hex(stored) });
+    }
+
+    await env.DB.prepare("INSERT OR IGNORE INTO blobs (hash, size, created_at) VALUES (?, ?, ?)").bind(hash, head.size, nowIso()).run();
+    return { hash, size: head.size };
+  }
+
   const obj = await env.BLOBS.get(blobKey(hash));
   if (!obj) throw new HttpError(404, "blob_not_uploaded", "アップロードされていません");
 
@@ -80,17 +106,31 @@ export async function verifyAndRegister(env: Env, hash: string): Promise<{ hash:
 
 /** 開発用: Worker 経由のアップロード（その場で検証して登録）。 */
 export async function directUpload(env: Env, hash: string, request: Request) {
-  const data = await request.arrayBuffer();
-  const actual = await sha256Hex(data);
+  // 本文はメモリに溜めずに R2 へ流し、SHA-256 の検証は R2 に任せる（大きなファイルでも Worker のメモリ・CPU を使わない）
+  const length = Number(request.headers.get("content-length") ?? "");
+  let size: number;
 
-  if (actual !== hash) throw new HttpError(400, "hash_mismatch", "アップロードされた内容のハッシュが一致しません", { actual });
+  try {
+    if (request.body && Number.isFinite(length) && length > 0) {
+      const obj = await env.BLOBS.put(blobKey(hash), request.body, { sha256: hash });
+      size = obj?.size ?? length;
+    } else {
+      const data = await request.arrayBuffer();
+      const obj = await env.BLOBS.put(blobKey(hash), data, { sha256: hash });
+      size = obj?.size ?? data.byteLength;
+    }
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    if (/sha|checksum|digest|hash/i.test(message))
+      throw new HttpError(400, "hash_mismatch", "アップロードされた内容のハッシュが一致しません");
+    throw e;
+  }
 
-  await env.BLOBS.put(blobKey(hash), data);
   await env.DB.prepare("INSERT OR IGNORE INTO blobs (hash, size, created_at) VALUES (?, ?, ?)")
-    .bind(hash, data.byteLength, nowIso())
+    .bind(hash, size, nowIso())
     .run();
 
-  return { hash, size: data.byteLength };
+  return { hash, size };
 }
 
 export async function directDownload(env: Env, hash: string): Promise<Response> {

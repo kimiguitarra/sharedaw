@@ -72,9 +72,16 @@ function hashFile(file) {
 }
 
 async function uploadData(transfer, data) {
+  // Worker 経由（R2 の API キー未設定）では 1 回のリクエストが 100MB までに制限される
+  if (transfer.authRequired && data.length > 95 * 1024 * 1024)
+    throw new Error(
+      `${(data.length / 1048576).toFixed(0)}MB のファイルは Worker 経由では送れません。` +
+        "Worker に R2 の API キー（R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY）を設定してください（server/README.md）",
+    );
+
   const res = await fetch(transfer.url, {
     method: "PUT",
-    headers: { "content-type": "application/octet-stream", ...(transfer.authRequired ? auth : {}) },
+    headers: { "content-type": "application/octet-stream", ...(transfer.headers ?? {}), ...(transfer.authRequired ? auth : {}) },
     body: data,
   });
   if (!res.ok) throw new Error(`upload ${transfer.hash}: HTTP ${res.status} ${await res.text()}`);

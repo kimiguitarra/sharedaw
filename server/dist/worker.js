@@ -426,6 +426,11 @@ function guessServiceRegion(url, headers) {
 __name(guessServiceRegion, "guessServiceRegion");
 
 // src/blobs.ts
+function hexToBase64(hash2) {
+  const bytes = hash2.match(/../g).map((h) => parseInt(h, 16));
+  return btoa(String.fromCharCode(...bytes));
+}
+__name(hexToBase64, "hexToBase64");
 var presignExpirySeconds = 3600;
 function presignEnabled(env) {
   return !!(env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY && env.R2_ACCOUNT_ID && env.R2_BUCKET_NAME);
@@ -443,8 +448,9 @@ async function transferUrl(env, origin, hash2, method) {
   });
   const url = new URL(`https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${env.R2_BUCKET_NAME}/${blobKey(hash2)}`);
   url.searchParams.set("X-Amz-Expires", String(presignExpirySeconds));
-  const signed = await client.sign(new Request(url, { method }), { aws: { signQuery: true } });
-  return { hash: hash2, url: signed.url, method, authRequired: false };
+  const headers = method === "PUT" ? { "x-amz-checksum-sha256": hexToBase64(hash2) } : {};
+  const signed = await client.sign(new Request(url, { method, headers }), { aws: { signQuery: true } });
+  return { hash: hash2, url: signed.url, method, authRequired: false, ...method === "PUT" ? { headers } : {} };
 }
 __name(transferUrl, "transferUrl");
 async function registeredHashes(env, hashes) {
@@ -461,6 +467,17 @@ __name(registeredHashes, "registeredHashes");
 async function verifyAndRegister(env, hash2) {
   const existing = await env.DB.prepare("SELECT size FROM blobs WHERE hash = ?").bind(hash2).first();
   if (existing) return { hash: hash2, size: existing.size };
+  const head = await env.BLOBS.head(blobKey(hash2));
+  if (!head) throw new HttpError(404, "blob_not_uploaded", "\u30A2\u30C3\u30D7\u30ED\u30FC\u30C9\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+  const stored = head.checksums?.sha256;
+  if (stored) {
+    if (hex(stored) !== hash2) {
+      await env.BLOBS.delete(blobKey(hash2));
+      throw new HttpError(400, "hash_mismatch", "\u30A2\u30C3\u30D7\u30ED\u30FC\u30C9\u3055\u308C\u305F\u5185\u5BB9\u306E\u30CF\u30C3\u30B7\u30E5\u304C\u4E00\u81F4\u3057\u307E\u305B\u3093", { actual: hex(stored) });
+    }
+    await env.DB.prepare("INSERT OR IGNORE INTO blobs (hash, size, created_at) VALUES (?, ?, ?)").bind(hash2, head.size, nowIso()).run();
+    return { hash: hash2, size: head.size };
+  }
   const obj = await env.BLOBS.get(blobKey(hash2));
   if (!obj) throw new HttpError(404, "blob_not_uploaded", "\u30A2\u30C3\u30D7\u30ED\u30FC\u30C9\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
   const digestStream = new crypto.DigestStream("SHA-256");
@@ -475,12 +492,25 @@ async function verifyAndRegister(env, hash2) {
 }
 __name(verifyAndRegister, "verifyAndRegister");
 async function directUpload(env, hash2, request) {
-  const data = await request.arrayBuffer();
-  const actual = await sha256Hex(data);
-  if (actual !== hash2) throw new HttpError(400, "hash_mismatch", "\u30A2\u30C3\u30D7\u30ED\u30FC\u30C9\u3055\u308C\u305F\u5185\u5BB9\u306E\u30CF\u30C3\u30B7\u30E5\u304C\u4E00\u81F4\u3057\u307E\u305B\u3093", { actual });
-  await env.BLOBS.put(blobKey(hash2), data);
-  await env.DB.prepare("INSERT OR IGNORE INTO blobs (hash, size, created_at) VALUES (?, ?, ?)").bind(hash2, data.byteLength, nowIso()).run();
-  return { hash: hash2, size: data.byteLength };
+  const length = Number(request.headers.get("content-length") ?? "");
+  let size;
+  try {
+    if (request.body && Number.isFinite(length) && length > 0) {
+      const obj = await env.BLOBS.put(blobKey(hash2), request.body, { sha256: hash2 });
+      size = obj?.size ?? length;
+    } else {
+      const data = await request.arrayBuffer();
+      const obj = await env.BLOBS.put(blobKey(hash2), data, { sha256: hash2 });
+      size = obj?.size ?? data.byteLength;
+    }
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    if (/sha|checksum|digest|hash/i.test(message))
+      throw new HttpError(400, "hash_mismatch", "\u30A2\u30C3\u30D7\u30ED\u30FC\u30C9\u3055\u308C\u305F\u5185\u5BB9\u306E\u30CF\u30C3\u30B7\u30E5\u304C\u4E00\u81F4\u3057\u307E\u305B\u3093");
+    throw e;
+  }
+  await env.DB.prepare("INSERT OR IGNORE INTO blobs (hash, size, created_at) VALUES (?, ?, ?)").bind(hash2, size, nowIso()).run();
+  return { hash: hash2, size };
 }
 __name(directUpload, "directUpload");
 async function directDownload(env, hash2) {
