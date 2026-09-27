@@ -36,11 +36,25 @@ public:
     /** 直近のゲインリダクション（dB）。メーター表示用。 */
     float getGainReductionDb() const noexcept                   { return dsp.getGainReductionDb(); }
 
+    /** スペクトラム表示用に、EQ・コンプの後の音（モノラル）を貯める。表示中だけ有効にする。 */
+    void setSpectrumEnabled (bool on) noexcept                   { spectrumEnabled = on; }
+
+    /** 直近の numSamples サンプルをコピーする（メッセージスレッドから）。貯まっていなければ false。 */
+    bool getLatestSamples (float* dest, int numSamples) const;
+
+    double getSampleRate() const noexcept                       { return sampleRate; }
+
 private:
     collab::ChannelStripDsp dsp;
     collab::ChannelStrip current, pending;
     juce::SpinLock lock;
     std::atomic<bool> hasPending { false }, needsReset { false };
+
+    static constexpr int ringSize = 8192;
+    std::array<float, ringSize> ring {};
+    std::atomic<int> ringWrite { 0 };
+    std::atomic<bool> spectrumEnabled { false };
+    double sampleRate = 48000.0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ChannelStripPlugin)
 };

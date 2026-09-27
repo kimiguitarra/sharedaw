@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ui/AppContext.h"
+#include "ui/EqGraph.h"
 
 /**
     トラックの EQ・コンプ（チャンネルストリップ）の編集画面。
@@ -49,14 +50,14 @@ private:
     juce::ComboBox compType;
     juce::TextButton resetEq { "EQ をリセット"_ju }, resetComp { "コンプをリセット"_ju };
 
-    Knob lowCut, lowGain, lowFreq, midGain, midFreq, midQ, highGain, highFreq;
+    EqGraph eqGraph;
+    juce::Label eqHint;
     Knob threshold, ratio, attack, release, makeup;
     GainReductionMeter grMeter;
     juce::Label grLabel, optoNote;
 
     juce::Rectangle<int> eqArea, compArea;
 
-    std::vector<Knob*> eqKnobs()      { return { &lowCut, &lowGain, &lowFreq, &midGain, &midFreq, &midQ, &highGain, &highFreq }; }
     std::vector<Knob*> compKnobs()    { return { &threshold, &ratio, &attack, &release, &makeup }; }
 
     const collab::Track* getTrack() const;

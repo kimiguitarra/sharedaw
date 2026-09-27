@@ -4,11 +4,6 @@
 
 namespace
 {
-    juce::String formatHz (double hz)
-    {
-        return hz >= 1000.0 ? juce::String (hz / 1000.0, hz >= 10000.0 ? 1 : 2) + " kHz" : juce::String (juce::roundToInt (hz)) + " Hz";
-    }
-
     juce::String formatDb (double db)     { return (db > 0.05 ? "+" : "") + juce::String (db, 1) + " dB"; }
     juce::String formatMs (double ms)     { return ms < 10.0 ? juce::String (ms, 2) + " ms" : juce::String (juce::roundToInt (ms)) + " ms"; }
 
@@ -54,11 +49,7 @@ void ChannelStripEditor::GainReductionMeter::paint (juce::Graphics& g)
 //==============================================================================
 ChannelStripEditor::ChannelStripEditor (AppContext& c, std::string id)
     : ctx (c), trackId (std::move (id)),
-      lowCut ("ローカット"_ju, [] (double v) { return v < 20.0 ? "オフ"_ju : formatHz (v); }),
-      lowGain ("Low"_ju, formatDb), lowFreq ("Low 周波数"_ju, formatHz),
-      midGain ("Mid"_ju, formatDb), midFreq ("Mid 周波数"_ju, formatHz),
-      midQ ("Mid Q"_ju, [] (double v) { return juce::String (v, 2); }),
-      highGain ("High"_ju, formatDb), highFreq ("High 周波数"_ju, formatHz),
+      eqGraph (c),
       threshold ("スレッショルド"_ju, formatDb),
       ratio ("レシオ"_ju, [] (double v) { return juce::String (v, 1) + ":1"; }),
       attack ("アタック"_ju, formatMs), release ("リリース"_ju, formatMs),
@@ -109,16 +100,23 @@ ChannelStripEditor::ChannelStripEditor (AppContext& c, std::string id)
     addAndMakeVisible (resetEq);
     addAndMakeVisible (resetComp);
 
-    const collab::ChannelStrip d;
-    bind (lowCut, 0.0, 400.0, d.eq.lowCutHz, 80.0, "ローカット"_ju, [] (auto& s, double v) { s.eq.lowCutHz = v < 20.0 ? 0.0 : v; });
-    bind (lowGain, -15.0, 15.0, d.eq.lowGainDb, 0.0, "EQ Low"_ju, [] (auto& s, double v) { s.eq.lowGainDb = v; });
-    bind (lowFreq, 30.0, 600.0, d.eq.lowFreqHz, 150.0, "EQ Low 周波数"_ju, [] (auto& s, double v) { s.eq.lowFreqHz = v; });
-    bind (midGain, -15.0, 15.0, d.eq.midGainDb, 0.0, "EQ Mid"_ju, [] (auto& s, double v) { s.eq.midGainDb = v; });
-    bind (midFreq, 150.0, 12000.0, d.eq.midFreqHz, 1200.0, "EQ Mid 周波数"_ju, [] (auto& s, double v) { s.eq.midFreqHz = v; });
-    bind (midQ, 0.3, 6.0, d.eq.midQ, 1.2, "EQ Mid Q"_ju, [] (auto& s, double v) { s.eq.midQ = v; });
-    bind (highGain, -15.0, 15.0, d.eq.highGainDb, 0.0, "EQ High"_ju, [] (auto& s, double v) { s.eq.highGainDb = v; });
-    bind (highFreq, 1500.0, 16000.0, d.eq.highFreqHz, 6000.0, "EQ High 周波数"_ju, [] (auto& s, double v) { s.eq.highFreqHz = v; });
+    eqGraph.onEdit = [this] (const juce::String& description, std::function<void (collab::ChannelEq&)> fn, bool merge)
+    {
+        if (! merge)
+            mergeId = juce::Uuid().toString();
 
+        edit (description, [fn] (collab::ChannelStrip& s) { fn (s.eq); }, true);
+    };
+    eqGraph.onEditEnd = [this] { ctx.document.endMerge(); mergeId = {}; };
+    addAndMakeVisible (eqGraph);
+
+    eqHint.setText ("点をドラッグ: 周波数・ゲイン　ホイール: Q（LM・M）　ダブルクリック: リセット　LC・HC は端まで動かすとオフ"_ju,
+                    juce::dontSendNotification);
+    eqHint.setFont (juce::FontOptions (11.0f));
+    eqHint.setColour (juce::Label::textColourId, Theme::textDim);
+    addAndMakeVisible (eqHint);
+
+    const collab::ChannelStrip d;
     bind (threshold, -50.0, 0.0, d.comp.thresholdDb, -18.0, "コンプ スレッショルド"_ju, [] (auto& s, double v) { s.comp.thresholdDb = v; });
     bind (ratio, 1.0, 20.0, d.comp.ratio, 4.0, "コンプ レシオ"_ju, [] (auto& s, double v) { s.comp.ratio = v; });
     bind (attack, 0.05, 50.0, d.comp.attackMs, 3.0, "コンプ アタック"_ju, [] (auto& s, double v) { s.comp.attackMs = v; });
@@ -138,19 +136,22 @@ ChannelStripEditor::ChannelStripEditor (AppContext& c, std::string id)
     addChildComponent (optoNote);
 
     ctx.document.addChangeListener (this);
+    ctx.engine.setSpectrumTrack (trackId);
     update();
     startTimerHz (30);
-    setSize (knobWidth * 8 + 40, 360);
+    setSize (760, 560);
 }
 
 ChannelStripEditor::~ChannelStripEditor()
 {
     ctx.document.removeChangeListener (this);
+    ctx.engine.setSpectrumTrack ({});
 }
 
 void ChannelStripEditor::setTrack (std::string id)
 {
     trackId = std::move (id);
+    ctx.engine.setSpectrumTrack (trackId);
     update();
 }
 
@@ -210,9 +211,6 @@ void ChannelStripEditor::update()
     compType.setSelectedId (s.comp.type == collab::CompType::opto ? 2 : 1, juce::dontSendNotification);
 
     const std::pair<Knob*, double> values[] = {
-        { &lowCut, s.eq.lowCutHz }, { &lowGain, s.eq.lowGainDb }, { &lowFreq, s.eq.lowFreqHz },
-        { &midGain, s.eq.midGainDb }, { &midFreq, s.eq.midFreqHz }, { &midQ, s.eq.midQ },
-        { &highGain, s.eq.highGainDb }, { &highFreq, s.eq.highFreqHz },
         { &threshold, s.comp.thresholdDb }, { &ratio, s.comp.ratio }, { &attack, s.comp.attackMs },
         { &release, s.comp.releaseMs }, { &makeup, s.comp.makeupDb }
     };
@@ -220,8 +218,7 @@ void ChannelStripEditor::update()
     for (auto& [knob, v] : values)
         knob->slider.setValue (v, juce::dontSendNotification);
 
-    for (auto* k : eqKnobs())
-        k->setAlpha (s.eq.enabled ? 1.0f : 0.5f);
+    eqGraph.setEq (s.eq);
 
     const bool opto = s.comp.type == collab::CompType::opto;
 
@@ -263,9 +260,7 @@ void ChannelStripEditor::paint (juce::Graphics& g)
 void ChannelStripEditor::resized()
 {
     auto area = getLocalBounds().reduced (10);
-    const int half = (area.getHeight() - 10) / 2;
-
-    eqArea = area.removeFromTop (half);
+    eqArea = area.removeFromTop (area.getHeight() - 10 - 24 - 12 - knobHeight - 4);
     area.removeFromTop (10);
     compArea = area;
 
@@ -275,9 +270,8 @@ void ChannelStripEditor::resized()
         eqEnabled.setBounds (header.removeFromLeft (80));
         resetEq.setBounds (header.removeFromRight (120));
         r.removeFromTop (4);
-
-        for (auto* k : eqKnobs())
-            k->setBounds (r.removeFromLeft (knobWidth).withHeight (knobHeight));
+        eqHint.setBounds (r.removeFromBottom (16));
+        eqGraph.setBounds (r);
     }
 
     {

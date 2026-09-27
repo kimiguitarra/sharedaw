@@ -86,6 +86,10 @@ public:
     void setMasterVolumeDb (float db);
     float getMasterVolumeDb() const noexcept               { return masterVolumeDb; }
 
+    /** スペクトラム表示（EQ 画面）。有効にしたトラックの EQ・コンプ後の音を読み出す。 */
+    void setSpectrumTrack (const std::string& trackId);
+    bool getSpectrumSamples (float* dest, int numSamples, double& sampleRate) const;
+
     /** トラックのコンプのゲインリダクション（dB、0 以上）。 */
     float getTrackGainReductionDb (const std::string& trackId) const;
 
@@ -228,6 +232,7 @@ private:
 
     std::vector<std::unique_ptr<MidiIn>> midiInputs;
     std::string midiTargetId;
+    std::string spectrumTrackId;
     std::vector<RecordedMidi> pendingMidi;
     void refreshMidiInputs();
     CountInPlugin* countIn = nullptr;

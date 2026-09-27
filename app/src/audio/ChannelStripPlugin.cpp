@@ -15,6 +15,7 @@ ChannelStripPlugin::~ChannelStripPlugin()
 void ChannelStripPlugin::initialise (const te::PluginInitialisationInfo& info)
 {
     const juce::SpinLock::ScopedLockType sl (lock);
+    sampleRate = info.sampleRate;
     dsp.setParams (current);
     dsp.prepare (info.sampleRate);
 }
@@ -67,4 +68,36 @@ void ChannelStripPlugin::applyToBuffer (const te::PluginRenderContext& fc)
 
     // モノラルの入力（オーディオトラック）は両チャンネルに同じ音がある前提で、そのまま処理する
     dsp.process (channels, numChannels, fc.bufferNumSamples);
+
+    // スペクトラム用に貯める（リングバッファ。読む側は多少古い・混ざった値でも表示には十分）
+    if (spectrumEnabled.load (std::memory_order_relaxed))
+    {
+        int w = ringWrite.load (std::memory_order_relaxed);
+
+        for (int i = 0; i < fc.bufferNumSamples; ++i)
+        {
+            float v = channels[0][i];
+
+            if (numChannels > 1)
+                v = 0.5f * (v + channels[1][i]);
+
+            ring[(size_t) w] = v;
+            w = (w + 1) % ringSize;
+        }
+
+        ringWrite.store (w, std::memory_order_release);
+    }
+}
+
+bool ChannelStripPlugin::getLatestSamples (float* dest, int numSamples) const
+{
+    if (numSamples > ringSize)
+        return false;
+
+    const int w = ringWrite.load (std::memory_order_acquire);
+
+    for (int i = 0; i < numSamples; ++i)
+        dest[i] = ring[(size_t) ((w - numSamples + i + ringSize) % ringSize)];
+
+    return true;
 }

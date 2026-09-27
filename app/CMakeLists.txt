@@ -55,6 +55,7 @@ target_sources(ShareDAW PRIVATE
     src/sync/SyncManager.cpp
     src/ui/AppContext.cpp
     src/ui/ChannelStripEditor.cpp
+    src/ui/EqGraph.cpp
     src/ui/ChordEditor.cpp
     src/ui/ChordLane.cpp
     src/ui/Ruler.cpp

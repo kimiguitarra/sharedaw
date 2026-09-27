@@ -693,6 +693,26 @@ void EngineBridge::syncStrip (const collab::Track& t, Binding& b)
         b.strip->setStrip (t.strip);
 }
 
+void EngineBridge::setSpectrumTrack (const std::string& trackId)
+{
+    for (auto& [id, b] : bindings)
+        if (b.strip != nullptr)
+            b.strip->setSpectrumEnabled (id == trackId);
+
+    spectrumTrackId = trackId;
+}
+
+bool EngineBridge::getSpectrumSamples (float* dest, int numSamples, double& sampleRate) const
+{
+    auto it = bindings.find (spectrumTrackId);
+
+    if (it == bindings.end() || it->second.strip == nullptr)
+        return false;
+
+    sampleRate = it->second.strip->getSampleRate();
+    return it->second.strip->getLatestSamples (dest, numSamples);
+}
+
 float EngineBridge::getTrackGainReductionDb (const std::string& trackId) const
 {
     auto it = bindings.find (trackId);
