@@ -204,17 +204,6 @@ void NoteGrid::mouseDown (const juce::MouseEvent& e)
     mergeId = juce::Uuid().toString();
     const auto tool = owner.ctx.state.tool;
 
-    // 消しゴム: クリック（ドラッグでなぞる）したノートを消す
-    if (tool == EditTool::erase && ! e.mods.isPopupMenu())
-    {
-        mode = Mode::erase;
-
-        if (n != nullptr)
-            eraseNote (n->id);
-
-        return;
-    }
-
     // はさみ: クリックした位置でノートを 2 つに分ける
     if (tool == EditTool::split && n != nullptr && ! e.mods.isPopupMenu())
     {
@@ -241,35 +230,6 @@ void NoteGrid::mouseDown (const juce::MouseEvent& e)
         return;
     }
 
-    // のり: クリックしたノートを、同じ高さの次のノートとつなげる
-    if (tool == EditTool::glue && n != nullptr && ! e.mods.isPopupMenu())
-    {
-        const auto id = n->id;
-        const int pitch = n->pitch;
-        const auto from = n->tick;
-        std::string nextId;
-        collab::Tick nextEnd = 0, best = std::numeric_limits<collab::Tick>::max();
-
-        for (auto& x : clip->notes)
-            if (x.id != id && x.pitch == pitch && x.tick >= from && x.tick < best)
-            {
-                best = x.tick;
-                nextId = x.id;
-                nextEnd = x.endTick();
-            }
-
-        if (! nextId.empty())
-            owner.editNotes ("ノートをつなげる"_ju, [id, nextId, nextEnd] (collab::MidiClip& c)
-            {
-                for (auto& x : c.notes)
-                    if (x.id == id)
-                        x.lengthTick = std::max (x.lengthTick, nextEnd - x.tick);
-
-                c.notes.erase (std::remove_if (c.notes.begin(), c.notes.end(), [&] (auto& x) { return x.id == nextId; }), c.notes.end());
-            });
-
-        return;
-    }
 
     if (owner.ctx.state.pencil() && ! e.mods.isPopupMenu())
     {
@@ -360,15 +320,6 @@ void NoteGrid::mouseDown (const juce::MouseEvent& e)
     owner.repaint();
 }
 
-void NoteGrid::eraseNote (const std::string& id)
-{
-    owner.selectedNotes.erase (id);
-    owner.editNotes ("ノートの削除"_ju, [id] (collab::MidiClip& c)
-    {
-        c.notes.erase (std::remove_if (c.notes.begin(), c.notes.end(), [&] (auto& x) { return x.id == id; }), c.notes.end());
-    }, mergeId);
-}
-
 void NoteGrid::mouseDrag (const juce::MouseEvent& e)
 {
     auto* clip = owner.getClip();
@@ -376,15 +327,6 @@ void NoteGrid::mouseDrag (const juce::MouseEvent& e)
     if (clip == nullptr)
         return;
 
-    if (mode == Mode::erase)
-    {
-        bool edge = false;
-
-        if (auto* n = hitNote (e.position, edge))
-            eraseNote (n->id);
-
-        return;
-    }
 
     if (mode == Mode::rubberBand)
     {

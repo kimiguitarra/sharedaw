@@ -60,6 +60,7 @@ private:
     AppContext ctx { document, state, bridge, library, sync, audioCache, {}, {}, {}, {}, {}, {} };
 
     juce::ApplicationCommandManager commandManager;
+    ToolBar toolbar { ctx };
     TransportBar transport { ctx };
     TimelineView timeline { ctx };
     juce::StretchableLayoutManager layout;

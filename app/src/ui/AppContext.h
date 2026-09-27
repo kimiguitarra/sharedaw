@@ -63,8 +63,6 @@ struct AppContext
     /** クリップを at で分割する（はさみツール）。 */
     void splitClipAt (const std::string& clipId, collab::Tick at);
 
-    /** クリップを同じトラックの次のクリップとつなげる（のりツール）。 */
-    void glueClip (const std::string& clipId);
 
     void deleteClips (const std::set<std::string>& clipIds);
     void duplicateClips (const std::set<std::string>& clipIds);

@@ -278,7 +278,7 @@ void TrackLanes::mouseMove (const juce::MouseEvent& e)
 {
     auto hit = findHit (e.position);
 
-    // はさみ・のり・消しゴムはツールのカーソル
+    // はさみはツールのカーソル
     if (ctx.state.tool != EditTool::select && ctx.state.tool != EditTool::pencil)
         return setMouseCursor (Theme::toolCursor (ctx.state.tool));
 
@@ -428,13 +428,9 @@ void TrackLanes::mouseDown (const juce::MouseEvent& e)
 
     const auto& track = project.tracks[(size_t) hit.trackIndex];
 
-    // はさみ・のり・消しゴム（Cubase のツール 3〜5）
-    if (! e.mods.isPopupMenu())
-    {
-        if (tool == EditTool::split)  return ctx.splitClipAt (hit.clipId, tick);
-        if (tool == EditTool::glue)   return ctx.glueClip (hit.clipId);
-        if (tool == EditTool::erase)  return ctx.deleteClips ({ hit.clipId });
-    }
+    // はさみ（Cubase のツール 3）
+    if (! e.mods.isPopupMenu() && tool == EditTool::split)
+        return ctx.splitClipAt (hit.clipId, tick);
 
     // 選択: Ctrl / Shift クリックで追加・解除。選択済みのクリップを押したときは選択をそのままにする（まとめて動かす）
     if (additive && ! e.mods.isPopupMenu())
@@ -533,8 +529,7 @@ void TrackLanes::showLaneMenu (const collab::Track* track, collab::Tick at)
     // Cubase と同じく、空いている所の右クリックでツールと貼り付けなど
     juce::PopupMenu m;
     const std::pair<EditTool, juce::String> list[] = {
-        { EditTool::select, "選択（1）"_ju }, { EditTool::pencil, "鉛筆（2）"_ju }, { EditTool::split, "はさみ（3）"_ju },
-        { EditTool::glue, "のり（4）"_ju }, { EditTool::erase, "消しゴム（5）"_ju }
+        { EditTool::select, "選択（1）"_ju }, { EditTool::pencil, "鉛筆（2）"_ju }, { EditTool::split, "はさみ（3）"_ju }
     };
 
     for (auto& [tool, name] : list)

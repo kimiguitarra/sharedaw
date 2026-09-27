@@ -30,9 +30,7 @@ enum class EditTool
 {
     select,   // 1: 選択・移動・長さの変更（既定）
     pencil,   // 2: オブジェクト（テンポ・拍子・コード・クリップ・ノート）を置く
-    split,    // 3: はさみ（クリック位置でクリップ・ノートを分割）
-    glue,     // 4: のり（クリックしたクリップ・ノートを次のものとつなげる）
-    erase     // 5: 消しゴム（クリックしたものを消す）
+    split     // 3: はさみ（クリック位置でクリップ・ノートを分割）
 };
 
 /**
@@ -50,7 +48,7 @@ struct EditBehaviour
 {
     juce::KeyPress selectToolKey, pencilToolKey;   // ツールの切り替え（テンキー）
     juce::KeyPress selectToolKey2, pencilToolKey2; // 同（キーボード上段の数字）
-    juce::KeyPress splitToolKey, glueToolKey, eraseToolKey;   // 3 / 4 / 5（Cubase と同じ番号）
+    juce::KeyPress splitToolKey;                   // 3（Cubase と同じ番号）
     juce::KeyPress mixerKey;                       // ミキサーの表示
     juce::KeyPress loopToSelectionKey;             // 選択範囲をループ範囲にする
     juce::KeyPress stopKey, toStartKey, recordKey, loopKey;   // テンキーのトランスポート
@@ -67,8 +65,6 @@ struct EditBehaviour
         b.selectToolKey2 = juce::KeyPress ('1');
         b.pencilToolKey2 = juce::KeyPress ('2');
         b.splitToolKey = juce::KeyPress ('3');
-        b.glueToolKey = juce::KeyPress ('4');
-        b.eraseToolKey = juce::KeyPress ('5');
         b.mixerKey = juce::KeyPress (juce::KeyPress::F3Key);
         b.loopToSelectionKey = juce::KeyPress ('p');
         b.stopKey = juce::KeyPress (juce::KeyPress::numberPad0);
@@ -98,7 +94,6 @@ struct EditorState  : public juce::ChangeBroadcaster
     OperationMode mode = OperationMode::cubase;
     EditBehaviour behaviour() const        { return EditBehaviour::forMode (mode); }
     bool pencil() const noexcept           { return tool == EditTool::pencil; }
-    bool eraser() const noexcept           { return tool == EditTool::erase; }
 
     TimeAxis timeline;
     TimeAxis pianoRoll { 120.0, 0.0 };

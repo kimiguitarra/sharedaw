@@ -37,8 +37,6 @@ namespace Theme
     const juce::MouseCursor& pencilCursor();
 
     juce::Path splitToolIcon (juce::Rectangle<float> area);
-    juce::Path glueToolIcon (juce::Rectangle<float> area);
-    juce::Path eraseToolIcon (juce::Rectangle<float> area);
 
     /** ツールごとのマウスカーソル（選択ツールは普通の矢印）。 */
     const juce::MouseCursor& toolCursor (EditTool);

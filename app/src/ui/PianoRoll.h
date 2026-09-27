@@ -38,7 +38,7 @@ public:
 private:
     PianoRollView& owner;
 
-    enum class Mode { none, move, resize, rubberBand, erase };
+    enum class Mode { none, move, resize, rubberBand };
     Mode mode = Mode::none;
 
     struct Orig { collab::Tick tick, length; int pitch; };
@@ -51,7 +51,6 @@ private:
     bool drawingNote = false;   // 鉛筆で置いたノートの長さをドラッグで決めている
 
     const collab::Note* hitNote (juce::Point<float>, bool& nearRightEdge) const;
-    void eraseNote (const std::string& id);
 };
 
 /** ベロシティの表示・編集（ドラッグで描くように変更）。 */

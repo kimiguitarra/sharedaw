@@ -27,12 +27,13 @@ namespace
         cmdToolSelect, cmdToolPencil, cmdModeCubase, cmdModeStudioOne, cmdMixer, cmdLoopToSelection,
         cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
         cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9,
-        cmdToolSplit, cmdToolGlue, cmdToolErase, cmdCopy, cmdCut, cmdPaste, cmdNudgeLeft, cmdNudgeRight,
+        cmdToolSplit, cmdCopy, cmdCut, cmdPaste, cmdNudgeLeft, cmdNudgeRight,
         cmdForward, cmdRewind, cmdShortcuts
     };
 
     constexpr float fontScales[] = { 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
-    constexpr int transportHeight = 46;
+    constexpr int toolbarHeight = 42;
+    constexpr int transportHeight = 48;
     constexpr int statusHeight = 22;
 }
 
@@ -40,6 +41,7 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
                               const InstrumentLibrary& lib, SyncManager& s, juce::PropertiesFile& props)
     : engine (e), document (d), bridge (b), library (lib), sync (s), settings (props)
 {
+    addAndMakeVisible (toolbar);
     addAndMakeVisible (transport);
     addAndMakeVisible (timeline);
     addAndMakeVisible (pianoRoll);
@@ -56,7 +58,7 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     statusBar.setColour (juce::Label::textColourId, Theme::textDim);
     statusBar.setColour (juce::Label::backgroundColourId, Theme::panel);
 
-    transport.onAudioSettings = [this] { showAudioSettings(); };
+    toolbar.onAudioSettings = [this] { showAudioSettings(); };
     audioCache.onThumbnailChanged = [this] { timeline.repaint(); };
 
     // 外部プラグインのエディタ
@@ -138,8 +140,10 @@ void MainComponent::paint (juce::Graphics& g)
 void MainComponent::resized()
 {
     auto area = getLocalBounds();
-    transport.setBounds (area.removeFromTop (transportHeight));
+    // Cubase と同じく、上にツールバー、下にトランスポート
+    toolbar.setBounds (area.removeFromTop (toolbarHeight));
     statusBar.setBounds (area.removeFromBottom (statusHeight));
+    transport.setBounds (area.removeFromBottom (transportHeight));
 
     juce::Component* comps[] = { &timeline, resizer.get(), &pianoRoll };
     layout.layOutComponents (comps, 3, area.getX(), area.getY(), area.getWidth(), area.getHeight(), true, true);
@@ -228,6 +232,7 @@ void MainComponent::timerCallback()
     state.playheadTick = tick;
 
     transport.updatePosition (tick, bridge.getPositionSeconds(), playing);
+    toolbar.update();
     timeline.setPlayheadTick (tick);
     pianoRoll.setPlayheadTick (tick);
 
@@ -892,7 +897,7 @@ void MainComponent::showShortcuts()
 {
     const juce::String text (
         "■ ツール（Cubase と同じ番号。テンキーでも可）\n"_ju
-        "  1 選択 / 2 鉛筆 / 3 はさみ / 4 のり / 5 消しゴム\n"_ju
+        "  1 選択 / 2 鉛筆 / 3 はさみ\n"_ju
         "  空いている所を右クリックでツールの切り替え・貼り付け・トラックの追加\n"_ju
         "\n"_ju
         "■ クリップ（タイムライン）\n"_ju
@@ -906,7 +911,7 @@ void MainComponent::showShortcuts()
         "■ ピアノロール\n"_ju
         "  鉛筆: クリックで追加（ドラッグで長さ）、ノートをクリックで削除\n"_ju
         "  選択: ドラッグで移動・範囲選択、右端で長さ　↑↓: 半音　Shift/Ctrl+↑↓: オクターブ　←→: クオンタイズ値ずつ\n"_ju
-        "  はさみ: クリック位置でノートを分割　のり: 同じ高さの次のノートとつなげる　消しゴム: クリック・なぞって削除\n"_ju
+        "  はさみ: クリック位置でノートを分割\n"_ju
         "  Ctrl+C / X / V / D: コピー / 切り取り / 貼り付け / 複製　Q: クオンタイズ　Ctrl+A: すべて選択\n"_ju
         "\n"_ju
         "■ 再生・録音\n"_ju
@@ -1007,7 +1012,7 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
                          cmdToolSelect, cmdToolPencil, cmdModeCubase, cmdModeStudioOne, cmdMixer, cmdLoopToSelection,
                          cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
                          cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9,
-                         cmdToolSplit, cmdToolGlue, cmdToolErase, cmdCopy, cmdCut, cmdPaste, cmdNudgeLeft, cmdNudgeRight,
+                         cmdToolSplit, cmdCopy, cmdCut, cmdPaste, cmdNudgeLeft, cmdNudgeRight,
                          cmdForward, cmdRewind, cmdShortcuts });
 }
 
@@ -1050,17 +1055,11 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdRewind:     info.setInfo ("1 小節戻る"_ju, {}, "Transport", 0); info.addDefaultKeypress (KP::numberPadSubtract, 0); break;
         case cmdShortcuts:  info.setInfo ("操作とショートカットの一覧…"_ju, {}, "Help", 0); info.addDefaultKeypress (KP::F1Key, 0); break;
         case cmdToolSplit:
-        case cmdToolGlue:
-        case cmdToolErase:
-        {
-            const auto b = state.behaviour();
-            const auto tool = id == cmdToolSplit ? EditTool::split : id == cmdToolGlue ? EditTool::glue : EditTool::erase;
-            info.setInfo (id == cmdToolSplit ? "はさみツール"_ju : id == cmdToolGlue ? "のりツール"_ju : "消しゴムツール"_ju, {}, "Edit", 0);
-            info.defaultKeypresses.add (id == cmdToolSplit ? b.splitToolKey : id == cmdToolGlue ? b.glueToolKey : b.eraseToolKey);
-            info.defaultKeypresses.add (KP (id == cmdToolSplit ? KP::numberPad3 : id == cmdToolGlue ? KP::numberPad4 : KP::numberPad5));
-            info.setTicked (state.tool == tool);
+            info.setInfo ("はさみツール"_ju, {}, "Edit", 0);
+            info.defaultKeypresses.add (state.behaviour().splitToolKey);
+            info.defaultKeypresses.add (KP (KP::numberPad3));
+            info.setTicked (state.tool == EditTool::split);
             break;
-        }
         case cmdQuantise:   info.setInfo ("クオンタイズ"_ju, {}, "Edit", 0); info.addDefaultKeypress ('q', 0); break;
         case cmdPlay:       info.setInfo ("再生／停止"_ju, {}, "Transport", 0); info.addDefaultKeypress (KP::spaceKey, 0); break;
         case cmdToStart:
@@ -1270,8 +1269,6 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdToolSelect:    state.tool = EditTool::select; state.changed(); break;
         case cmdToolPencil:    state.tool = EditTool::pencil; state.changed(); break;
         case cmdToolSplit:     state.tool = EditTool::split; state.changed(); break;
-        case cmdToolGlue:      state.tool = EditTool::glue; state.changed(); break;
-        case cmdToolErase:     state.tool = EditTool::erase; state.changed(); break;
         case cmdCopy:
         case cmdCut:
             if (pianoRoll.hasKeyboardFocus (true) && pianoRoll.hasSelectedNotes())
@@ -1398,8 +1395,6 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addCommandItem (cm, cmdToolSelect);
             m.addCommandItem (cm, cmdToolPencil);
             m.addCommandItem (cm, cmdToolSplit);
-            m.addCommandItem (cm, cmdToolGlue);
-            m.addCommandItem (cm, cmdToolErase);
             m.addCommandItem (cm, cmdSnap);
             break;
         case 2:

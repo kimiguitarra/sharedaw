@@ -84,7 +84,7 @@ std::string TempoLane::findHit (float x) const
 
 void TempoLane::mouseMove (const juce::MouseEvent& e)
 {
-    setMouseCursor (state.eraser() ? Theme::toolCursor (EditTool::erase) : state.pencil() ? Theme::pencilCursor()
+    setMouseCursor (state.pencil() ? Theme::pencilCursor()
                                    : ! findHit (e.position.x).empty() ? juce::MouseCursor::LeftRightResizeCursor
                                                                       : juce::MouseCursor::NormalCursor);
 }
@@ -106,16 +106,6 @@ void TempoLane::mouseDown (const juce::MouseEvent& e)
 
     state.selectedTempoId = dragId;
     state.changed();
-
-    // 消しゴム: クリックしたテンポ変更を消す（先頭は消せない）
-    if (state.eraser())
-    {
-        if (! dragId.empty())
-            deleteSelected();
-
-        dragId = {};
-        return;
-    }
 
     // 鉛筆ツールで空いている所をクリックしたら追加
     if (dragId.empty() && state.pencil())
@@ -331,7 +321,7 @@ std::string MeterLane::findHit (float x) const
 
 void MeterLane::mouseMove (const juce::MouseEvent& e)
 {
-    setMouseCursor (state.eraser() ? Theme::toolCursor (EditTool::erase) : state.pencil() ? Theme::pencilCursor()
+    setMouseCursor (state.pencil() ? Theme::pencilCursor()
                                    : ! findHit (e.position.x).empty() ? juce::MouseCursor::LeftRightResizeCursor
                                                                       : juce::MouseCursor::NormalCursor);
 }
@@ -356,15 +346,6 @@ void MeterLane::mouseDown (const juce::MouseEvent& e)
 
     state.selectedMeterId = dragId;
     state.changed();
-
-    if (state.eraser())
-    {
-        if (! dragId.empty())
-            deleteSelected();
-
-        dragId = {};
-        return;
-    }
 
     // 鉛筆ツールで空いている所をクリックしたら、その小節に追加
     if (dragId.empty() && state.pencil())

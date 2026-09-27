@@ -143,13 +143,6 @@ void MarkerLane::mouseDown (const juce::MouseEvent& e)
     ctx.state.selectedMarkerId = dragId;
     ctx.state.changed();
 
-    if (ctx.state.eraser() && ! e.mods.isPopupMenu())
-    {
-        deleteSelected();
-        dragId = {};
-        return;
-    }
-
     for (auto& m : ctx.document.getProject().markerTrack.events)
         if (m.id == dragId)
             dragOrigTick = m.tick;
