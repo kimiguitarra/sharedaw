@@ -332,7 +332,7 @@ void TrackHeader::showInstrumentMenu()
 
     juce::PopupMenu builtins;
     for (auto [id, name] : { std::pair (collab::builtin::drums, "ドラム"_ju), std::pair (collab::builtin::bass, "ベース"_ju),
-                             std::pair (collab::builtin::piano, "ピアノ"_ju) })
+                             std::pair (collab::builtin::piano, "ピアノ"_ju), std::pair (collab::builtin::epiano, "エレピ"_ju) })
         builtins.addItem (name, [this, id = std::string (id)] { ctx.setBuiltinInstrument (trackId, id); });
 
     juce::PopupMenu plugins;

@@ -88,6 +88,7 @@ namespace builtin
     inline constexpr const char* drums = "builtin.drums";
     inline constexpr const char* bass  = "builtin.bass";
     inline constexpr const char* piano = "builtin.piano";
+    inline constexpr const char* epiano = "builtin.epiano";
 }
 
 } // namespace collab

@@ -16,7 +16,7 @@ namespace
     {
         cmdNew = 0x2000, cmdOpen, cmdSave, cmdUndo, cmdRedo, cmdDelete, cmdSelectAll, cmdDuplicate,
         cmdPlay, cmdToStart, cmdLoop, cmdMetronome, cmdQuantise,
-        cmdAddDrums, cmdAddBass, cmdAddPiano,
+        cmdAddDrums, cmdAddBass, cmdAddPiano, cmdAddEPiano,
         cmdAudioSettings, cmdCredits, cmdAbout, cmdCheckUpdate,
         cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
         cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory, cmdSyncRefreshLocks,
@@ -688,6 +688,7 @@ juce::PopupMenu MainComponent::addTrackMenu()
     instruments.addCommandItem (&commandManager, cmdAddDrums);
     instruments.addCommandItem (&commandManager, cmdAddBass);
     instruments.addCommandItem (&commandManager, cmdAddPiano);
+    instruments.addCommandItem (&commandManager, cmdAddEPiano);
 
     m.addCommandItem (&commandManager, cmdAddAudioTrack);
     m.addSubMenu ("音源トラックを追加"_ju, instruments);
@@ -842,7 +843,7 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
 {
     commands.addArray ({ cmdNew, cmdOpen, cmdSave, cmdUndo, cmdRedo, cmdDelete, cmdSelectAll, cmdDuplicate,
                          cmdPlay, cmdToStart, cmdLoop, cmdMetronome, cmdQuantise,
-                         cmdAddDrums, cmdAddBass, cmdAddPiano, cmdAudioSettings, cmdCredits, cmdAbout, cmdCheckUpdate,
+                         cmdAddDrums, cmdAddBass, cmdAddPiano, cmdAddEPiano, cmdAudioSettings, cmdCredits, cmdAbout, cmdCheckUpdate,
                          cmdRecord, cmdCountIn0, cmdCountIn1, cmdCountIn2,
                          cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
                          cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory, cmdSyncRefreshLocks,
@@ -939,6 +940,7 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdAddDrums:   info.setInfo ("ドラム"_ju, {}, "Track", 0); break;
         case cmdAddBass:    info.setInfo ("ベース"_ju, {}, "Track", 0); break;
         case cmdAddPiano:   info.setInfo ("ピアノ"_ju, {}, "Track", 0); break;
+        case cmdAddEPiano:  info.setInfo ("エレピ"_ju, {}, "Track", 0); break;
         case cmdToolSelect:
             info.setInfo ("選択ツール"_ju, {}, "Edit", 0);
             info.defaultKeypresses.add (state.behaviour().selectToolKey);
@@ -1039,6 +1041,7 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdAddDrums:   ctx.addBuiltinMidiTrack (collab::builtin::drums, "Drums"); break;
         case cmdAddBass:    ctx.addBuiltinMidiTrack (collab::builtin::bass, "Bass"); break;
         case cmdAddPiano:   ctx.addBuiltinMidiTrack (collab::builtin::piano, "Piano"); break;
+        case cmdAddEPiano:  ctx.addBuiltinMidiTrack (collab::builtin::epiano, "E.Piano"); break;
         case cmdAddAudioTrack: ctx.addAudioTrack ("Audio"); break;
         case cmdToolSelect:    state.tool = EditTool::select; state.changed(); break;
         case cmdToolPencil:    state.tool = EditTool::pencil; state.changed(); break;

@@ -1,0 +1,12 @@
+{
+  "id": "builtin.epiano",
+  "version": "1.0.0",
+  "displayName": "エレピ",
+  "type": "melodic",
+  "credits": [],
+  "presets": [
+    { "key": "soft",   "name": "柔らかいエレピ（メロディ向け）", "sfz": "soft.sfz" },
+    { "key": "bright", "name": "明るめのエレピ", "sfz": "bright.sfz" }
+  ],
+  "defaultParams": { "preset": "soft", "volumeDb": 0.0, "pan": 0.0, "tone": 0.0 }
+}
