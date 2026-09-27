@@ -75,12 +75,15 @@ public:
     /** ノートを短く鳴らす（ピアノロールでクリック・入力したときの確認用）。 */
     void previewNote (const std::string& trackId, int pitch, int velocity);
 
-    /** 前回呼んでからのトラックのピーク（dB、左右の大きいほう）。ミキサーのメーター用。trackId が空ならコードトラック。 */
-    float getTrackPeakDb (const std::string& trackId);
+    /** 左右のピーク（dB）。 */
+    struct StereoPeak { float left = -100.0f, right = -100.0f; };
 
-    /** メトロノーム・マスターのピーク（dB）。マスターはマスター音量をかけた後の値。 */
-    float getMetronomePeakDb();
-    float getMasterPeakDb();
+    /** 前回呼んでからのトラックのピーク。ミキサーのメーター用。trackId が空ならコードトラック。 */
+    StereoPeak getTrackPeakDb (const std::string& trackId);
+
+    /** メトロノーム・マスターのピーク。マスターはマスター音量をかけた後の値。 */
+    StereoPeak getMetronomePeakDb();
+    StereoPeak getMasterPeakDb();
 
     /** マスター音量（この PC だけの設定。書き出しにもかかる）。 */
     void setMasterVolumeDb (float db);

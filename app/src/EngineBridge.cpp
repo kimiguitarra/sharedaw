@@ -1600,7 +1600,12 @@ void EngineBridge::Meter::detach()
     measurer = nullptr;
 }
 
-float EngineBridge::getTrackPeakDb (const std::string& trackId)
+static EngineBridge::StereoPeak peakOf (te::LevelMeasurer::Client& c, float offsetDb = 0.0f)
+{
+    return { c.getAndClearAudioLevel (0).dB + offsetDb, c.getAndClearAudioLevel (1).dB + offsetDb };
+}
+
+EngineBridge::StereoPeak EngineBridge::getTrackPeakDb (const std::string& trackId)
 {
     Meter* meter = nullptr;
 
@@ -1610,24 +1615,19 @@ float EngineBridge::getTrackPeakDb (const std::string& trackId)
         meter = it->second.meter.get();
 
     if (meter == nullptr || meter->measurer == nullptr)
-        return -100.0f;
+        return {};
 
-    return juce::jmax (meter->client.getAndClearAudioLevel (0).dB, meter->client.getAndClearAudioLevel (1).dB);
+    return peakOf (meter->client);
 }
 
-static float peakOf (te::LevelMeasurer::Client& c)
+EngineBridge::StereoPeak EngineBridge::getMetronomePeakDb()
 {
-    return juce::jmax (c.getAndClearAudioLevel (0).dB, c.getAndClearAudioLevel (1).dB);
+    return metronomeMeter != nullptr && metronomeMeter->measurer != nullptr ? peakOf (metronomeMeter->client) : StereoPeak();
 }
 
-float EngineBridge::getMetronomePeakDb()
+EngineBridge::StereoPeak EngineBridge::getMasterPeakDb()
 {
-    return metronomeMeter != nullptr && metronomeMeter->measurer != nullptr ? peakOf (metronomeMeter->client) : -100.0f;
-}
-
-float EngineBridge::getMasterPeakDb()
-{
-    return masterMeter != nullptr && masterMeter->measurer != nullptr ? peakOf (masterMeter->client) + masterVolumeDb : -100.0f;
+    return masterMeter != nullptr && masterMeter->measurer != nullptr ? peakOf (masterMeter->client, masterVolumeDb) : StereoPeak();
 }
 
 void EngineBridge::setMasterVolumeDb (float db)

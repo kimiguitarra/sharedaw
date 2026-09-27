@@ -1,5 +1,6 @@
 #include "MixerView.h"
 
+#include "Dialogs.h"
 #include "Theme.h"
 
 #include <collab/ChannelStripDsp.h>
@@ -38,39 +39,49 @@ namespace
 }
 
 //==============================================================================
-/** レベルメーター（ピークを少しずつ下げて表示する）。 */
+/** 左右のレベルメーター（ピークを少しずつ下げて表示し、ピークホールドの線を出す）。 */
 class LevelMeter  : public juce::Component
 {
 public:
-    void push (float db)
+    void push (EngineBridge::StereoPeak peak)
     {
-        const float level = juce::jlimit (meterFloorDb, 6.0f, db);
-        shown = juce::jmax (level, shown - 1.5f);
-        peakHold = level >= peakHold ? level : juce::jmax (meterFloorDb, peakHold - 0.3f);
+        const float levels[2] = { peak.left, peak.right };
+
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            const float level = juce::jlimit (meterFloorDb, 6.0f, levels[ch]);
+            shown[ch] = juce::jmax (level, shown[ch] - 1.5f);
+            peakHold[ch] = level >= peakHold[ch] ? level : juce::jmax (meterFloorDb, peakHold[ch] - 0.3f);
+        }
+
         repaint();
     }
 
     void paint (juce::Graphics& g) override
     {
-        auto r = getLocalBounds().toFloat();
+        auto area = getLocalBounds().toFloat();
         g.setColour (juce::Colour (0xff15171b));
-        g.fillRect (r);
+        g.fillRect (area);
 
-        auto toY = [&] (float db) { return juce::jmap (db, meterFloorDb, 6.0f, r.getBottom(), r.getY()); };
-        const float y = toY (shown);
-        const auto bar = juce::Rectangle<float> (r.getX() + 1.0f, y, r.getWidth() - 2.0f, r.getBottom() - y);
-
+        auto toY = [&] (float db) { return juce::jmap (db, meterFloorDb, 6.0f, area.getBottom(), area.getY()); };
         juce::ColourGradient gradient (juce::Colour (0xffff5252), 0.0f, toY (6.0f), juce::Colour (0xff66bb6a), 0.0f, toY (-18.0f), false);
         gradient.addColour (juce::jmap (-6.0, (double) meterFloorDb, 6.0, 1.0, 0.0), juce::Colour (0xffffd54f));
-        g.setGradientFill (gradient);
-        g.fillRect (bar);
+        const float w = (area.getWidth() - 3.0f) / 2.0f;
 
-        g.setColour (peakHold > 0.0f ? juce::Colour (0xffff5252) : Theme::text.withAlpha (0.7f));
-        g.fillRect (juce::Rectangle<float> (r.getX() + 1.0f, toY (peakHold), r.getWidth() - 2.0f, 1.5f));
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            const auto r = juce::Rectangle<float> (area.getX() + 1.0f + (float) ch * (w + 1.0f), area.getY(), w, area.getHeight());
+            const float y = toY (shown[ch]);
+            g.setGradientFill (gradient);
+            g.fillRect (r.withTop (y));
+
+            g.setColour (peakHold[ch] > 0.0f ? juce::Colour (0xffff5252) : Theme::text.withAlpha (0.7f));
+            g.fillRect (r.withY (toY (peakHold[ch])).withHeight (1.5f));
+        }
     }
 
 private:
-    float shown = meterFloorDb, peakHold = meterFloorDb;
+    float shown[2] = { meterFloorDb, meterFloorDb }, peakHold[2] = { meterFloorDb, meterFloorDb };
 };
 
 //==============================================================================
@@ -747,7 +758,7 @@ public:
         value.setBounds (area.removeFromBottom (16).reduced (8, 0));
         area.removeFromBottom (4);
 
-        meter.setBounds (area.removeFromRight (10));
+        meter.setBounds (area.removeFromRight (13));
         area.removeFromRight (4);
         scaleArea = area.removeFromLeft (30);
         fader.setBounds (area);
@@ -760,6 +771,25 @@ public:
             ctx.state.selectedTrackId = trackId;
             ctx.state.changed();
         }
+    }
+
+    /** 下の名前をダブルクリックで名前を変える。 */
+    void mouseDoubleClick (const juce::MouseEvent& e) override
+    {
+        if (! isTrack() || ! nameArea.contains (e.getPosition()))
+            return;
+
+        Dialogs::askText ("名前の変更"_ju, "トラックの名前"_ju, name, [c = &ctx, id = trackId] (const juce::String& text)
+        {
+            const auto newName = toStd (text.trim());
+
+            if (! newName.empty())
+                c->document.perform ("名前の変更"_ju, [id, newName] (collab::Project& p)
+                {
+                    if (auto* t = p.findTrack (id))
+                        t->name = newName;
+                });
+        }, this);
     }
 
 private:
