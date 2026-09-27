@@ -57,7 +57,7 @@ private:
 
     EditorState state;
     AudioFileCache audioCache;
-    AppContext ctx { document, state, bridge, library, sync, audioCache, {}, {}, {}, {}, {} };
+    AppContext ctx { document, state, bridge, library, sync, audioCache, {}, {}, {}, {}, {}, {} };
 
     juce::ApplicationCommandManager commandManager;
     TransportBar transport { ctx };
@@ -87,6 +87,7 @@ private:
     void loopToSelection();
     void zoom (double factor);
     void toggleMixer();
+    void showShortcuts();
 
     // アプリの更新（MainComponentUpdate.cpp）
     void checkForUpdates (bool interactive);

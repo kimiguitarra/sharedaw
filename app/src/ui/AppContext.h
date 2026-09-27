@@ -1,5 +1,8 @@
 #pragma once
 
+#include <optional>
+#include <set>
+
 #include "EngineBridge.h"
 #include "InstrumentLibrary.h"
 #include "ProjectDocument.h"
@@ -51,6 +54,37 @@ struct AppContext
 
     /** 選択中のトラックで、再生位置にあるクリップを分割する。 */
     void splitAtPlayhead();
+
+    //==============================================================================
+    // クリップの編集（Cubase のプロジェクトウィンドウの操作）
+    struct ClipRef { std::string trackId; bool audio = false; };
+    std::optional<ClipRef> findClip (const std::string& clipId) const;
+
+    /** クリップを at で分割する（はさみツール）。 */
+    void splitClipAt (const std::string& clipId, collab::Tick at);
+
+    /** クリップを同じトラックの次のクリップとつなげる（のりツール）。 */
+    void glueClip (const std::string& clipId);
+
+    void deleteClips (const std::set<std::string>& clipIds);
+    void duplicateClips (const std::set<std::string>& clipIds);
+    void copyClips (const std::set<std::string>& clipIds);
+    /** 再生位置に貼り付ける（元のトラック、なければ選択中の同じ種類のトラックへ）。 */
+    void pasteClips (collab::Tick at);
+    bool hasClipsInClipboard() const noexcept       { return ! clipboard.midi.empty() || ! clipboard.audio.empty(); }
+    void nudgeClips (const std::set<std::string>& clipIds, collab::Tick delta);
+
+    /** クリップの範囲（開始・終わり）。 */
+    std::pair<collab::Tick, collab::Tick> clipRange (const std::string& clipId) const;
+
+    struct ClipClipboard
+    {
+        std::vector<std::pair<std::string, collab::MidiClip>> midi;    // (元のトラック, クリップ)
+        std::vector<std::pair<std::string, collab::AudioClip>> audio;
+        collab::Tick origin = 0;                                         // いちばん左の開始位置
+    };
+
+    ClipClipboard clipboard;
 
     // 外部プラグイン（§3.4）とバウンス（§3.7）
     void setBuiltinInstrument (const std::string& trackId, const std::string& instrumentId);

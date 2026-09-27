@@ -38,7 +38,7 @@ private:
     AppContext& ctx;
 
     enum class Zone { none, body, leftEdge, rightEdge, fadeIn, fadeOut };
-    enum class DragMode { none, move, resizeMidi, trimStart, trimEnd, fadeIn, fadeOut };
+    enum class DragMode { none, move, resizeMidi, trimMidiStart, trimStart, trimEnd, fadeIn, fadeOut, rubberBand };
 
     struct Hit
     {
@@ -53,6 +53,11 @@ private:
     bool dragAudio = false;
     collab::Tick dragOrigStart = 0, dragOrigLength = 0;
     collab::AudioClip dragOrigAudio;
+    collab::MidiClip dragOrigMidi;
+    std::map<std::string, collab::Tick> dragOrigStarts;   // まとめて動かすクリップの元の位置
+    juce::Rectangle<float> band;                          // 範囲選択の枠
+    juce::Point<float> bandStart;
+    std::set<std::string> bandBase;                       // Ctrl を押して始めたときの元の選択
     double dragDownTick = 0;
     juce::String mergeId;
     bool createdByPencil = false;
@@ -64,6 +69,8 @@ private:
     void paintAudioClip (juce::Graphics&, const collab::AudioClip&, juce::Rectangle<float>, juce::Colour, bool selected);
     void showClipMenu (const collab::Track&, const std::string& clipId, bool audio);
     void createMidiClip (const std::string& trackId, int bar, bool thenDragLength);
+    void updateBandSelection();
+    void showLaneMenu (const collab::Track*, collab::Tick at);
     void editClip (const juce::String& description, std::function<void (collab::Track&)> fn, const juce::String& merge = {});
 };
 

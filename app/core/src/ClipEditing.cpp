@@ -112,4 +112,56 @@ AudioClip trimAudioClipEnd (const AudioClip& c, Tick newEnd, SampleCount sourceL
     return r;
 }
 
+MidiClip trimMidiClipStart (const MidiClip& c, Tick newStart, Tick minLength)
+{
+    newStart = std::clamp<Tick> (newStart, 0, c.endTick() - std::max<Tick> (1, minLength));
+    const Tick delta = newStart - c.startTick;
+
+    MidiClip r = c;
+    r.startTick = newStart;
+    r.lengthTick = c.lengthTick - delta;
+
+    for (auto& n : r.notes)
+        n.tick -= delta;
+
+    return r;
+}
+
+MidiClip glueMidiClips (const MidiClip& a, const MidiClip& b)
+{
+    MidiClip r = a;
+    const Tick start = std::min (a.startTick, b.startTick);
+    const Tick end = std::max (a.endTick(), b.endTick());
+
+    for (auto& n : r.notes)
+        n.tick += a.startTick - start;
+
+    for (auto n : b.notes)
+    {
+        n.tick += b.startTick - start;
+        r.notes.push_back (n);
+    }
+
+    r.startTick = start;
+    r.lengthTick = end - start;
+    return r;
+}
+
+std::optional<AudioClip> glueAudioClips (const AudioClip& a, const AudioClip& b, const TempoMap& map)
+{
+    const auto& first = a.startTick <= b.startTick ? a : b;
+    const auto& second = a.startTick <= b.startTick ? b : a;
+
+    // 同じ実体で、元ファイル上もタイムライン上も続いていること（分割したものを元に戻す）
+    if (first.audioHash != second.audioHash
+        || first.sourceOffsetSamples + first.lengthSamples != second.sourceOffsetSamples
+        || std::llabs (audioClipEndTick (first, map) - second.startTick) > 2)
+        return std::nullopt;
+
+    AudioClip r = first;
+    r.lengthSamples = first.lengthSamples + second.lengthSamples;
+    r.fadeOutSamples = second.fadeOutSamples;
+    return r;
+}
+
 } // namespace collab

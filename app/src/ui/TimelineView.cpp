@@ -57,7 +57,9 @@ TrackLanes::Hit TrackLanes::findHit (juce::Point<float> p) const
         if (p.x >= x1 && p.x <= x2)
         {
             hit.clipId = it->id;
-            hit.zone = x2 - p.x <= edgeGrab && x2 - x1 > edgeGrab * 2 ? Zone::rightEdge : Zone::body;
+            hit.zone = x2 - p.x <= edgeGrab && x2 - x1 > edgeGrab * 2 ? Zone::rightEdge
+                     : p.x - x1 <= edgeGrab && x2 - x1 > edgeGrab * 3 ? Zone::leftEdge
+                                                                     : Zone::body;
             return hit;
         }
     }
@@ -136,7 +138,7 @@ void TrackLanes::paint (juce::Graphics& g)
                 continue;
 
             paintMidiClip (g, c, juce::Rectangle<float> (x1, (float) row.getY() + 3.0f, x2 - x1, (float) rowHeight - 7.0f),
-                           colour, c.id == ctx.state.selectedClipId);
+                           colour, ctx.state.isClipSelected (c.id));
         }
 
         for (auto& c : t.audioClips)
@@ -148,7 +150,7 @@ void TrackLanes::paint (juce::Graphics& g)
                 continue;
 
             paintAudioClip (g, c, juce::Rectangle<float> (x1, (float) row.getY() + 3.0f, juce::jmax (2.0f, x2 - x1), (float) rowHeight - 7.0f),
-                            colour, c.id == ctx.state.selectedClipId);
+                            colour, ctx.state.isClipSelected (c.id));
         }
     }
 
@@ -159,6 +161,15 @@ void TrackLanes::paint (juce::Graphics& g)
         const float x2 = (float) axis.tickToX ((double) ctx.state.loopEnd);
         g.setColour (Theme::loopRange);
         g.fillRect (juce::Rectangle<float> (x1, 0.0f, x2 - x1, (float) getHeight()));
+    }
+
+    // 範囲選択の枠
+    if (dragMode == DragMode::rubberBand && ! band.isEmpty())
+    {
+        g.setColour (Theme::selection.withAlpha (0.15f));
+        g.fillRect (band);
+        g.setColour (Theme::selection);
+        g.drawRect (band, 1.0f);
     }
 
     if (project.tracks.empty())
@@ -197,10 +208,10 @@ void TrackLanes::paintMidiClip (juce::Graphics& g, const collab::MidiClip& c, ju
 
     for (auto& n : c.notes)
     {
-        if (n.tick >= c.lengthTick)
+        if (n.tick >= c.lengthTick || n.endTick() <= 0)
             continue;
 
-        const float x1 = (float) axis.tickToX ((double) (c.startTick + n.tick));
+        const float x1 = (float) axis.tickToX ((double) (c.startTick + juce::jmax<collab::Tick> (0, n.tick)));
         const float x2 = (float) axis.tickToX ((double) juce::jmin (c.startTick + n.endTick(), c.endTick()));
         const float y = inner.getBottom() - ((float) (n.pitch - lo) + 0.5f) / range * inner.getHeight();
         g.fillRect (juce::Rectangle<float> (x1, y - 1.0f, juce::jmax (1.5f, x2 - x1), 2.5f));
@@ -266,6 +277,10 @@ void TrackLanes::paintAudioClip (juce::Graphics& g, const collab::AudioClip& c, 
 void TrackLanes::mouseMove (const juce::MouseEvent& e)
 {
     auto hit = findHit (e.position);
+
+    // はさみ・のり・消しゴムはツールのカーソル
+    if (ctx.state.tool != EditTool::select && ctx.state.tool != EditTool::pencil)
+        return setMouseCursor (Theme::toolCursor (ctx.state.tool));
 
     switch (hit.zone)
     {
@@ -341,7 +356,7 @@ void TrackLanes::showClipMenu (const collab::Track& track, const std::string& cl
                         t->midiClips.push_back (copy);
                     }
             });
-            ctx.state.selectedClipId = newId;
+            ctx.state.selectClip (newId);
             ctx.state.changed();
         });
     }
@@ -366,47 +381,75 @@ void TrackLanes::mouseDown (const juce::MouseEvent& e)
     grabKeyboardFocus();
     auto hit = findHit (e.position);
     const auto& project = ctx.document.getProject();
+    const auto tool = ctx.state.tool;
+    const auto tick = snap (ctx.state.timeline.xToTick (e.position.x), e.mods);
+    const bool additive = e.mods.isCommandDown() || e.mods.isShiftDown();
     dragMode = DragMode::none;
     dragTrackId = {};
 
-    if (hit.trackIndex < 0)
+    if (hit.trackIndex >= 0)
     {
-        ctx.state.selectedClipId = {};
+        ctx.state.selectedTrackId = project.tracks[(size_t) hit.trackIndex].id;
+        ctx.state.changed();
+    }
+
+    // 空いている所
+    if (hit.clipId.empty())
+    {
+        const auto* track = hit.trackIndex >= 0 ? &project.tracks[(size_t) hit.trackIndex] : nullptr;
+
+        if (e.mods.isPopupMenu())
+            return showLaneMenu (track, tick);
+
+        if (tool == EditTool::pencil && track != nullptr && track->type == collab::TrackType::midi)
+        {
+            // 鉛筆ツール: クリックした小節から 1 小節のクリップを作り、そのままドラッグで長さを決める
+            const auto bar = ctx.document.getTempoMap().tickToBar ((collab::Tick) juce::jmax (0.0, ctx.state.timeline.xToTick (e.position.x)));
+            createMidiClip (track->id, bar, true);
+            return;
+        }
+
+        // 選択ツール: ドラッグで範囲選択（Ctrl / Shift で追加）
+        if (! additive)
+            ctx.state.selectClip ({});
+
         ctx.state.changed();
 
-        // トラックの下の空いている所: トラックの追加
-        if (e.mods.isPopupMenu() && ctx.addTrackMenu)
-            ctx.addTrackMenu().showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this));
+        if (tool == EditTool::select)
+        {
+            dragMode = DragMode::rubberBand;
+            bandStart = e.position;
+            band = {};
+            bandBase = additive ? ctx.state.clipSelection() : std::set<std::string>();
+        }
 
         return;
     }
 
     const auto& track = project.tracks[(size_t) hit.trackIndex];
-    ctx.state.selectedTrackId = track.id;
-    ctx.state.selectedClipId = hit.clipId;
-    ctx.state.changed();
 
-    if (hit.clipId.empty())
+    // はさみ・のり・消しゴム（Cubase のツール 3〜5）
+    if (! e.mods.isPopupMenu())
     {
-        if (track.type != collab::TrackType::midi)
-            return;
+        if (tool == EditTool::split)  return ctx.splitClipAt (hit.clipId, tick);
+        if (tool == EditTool::glue)   return ctx.glueClip (hit.clipId);
+        if (tool == EditTool::erase)  return ctx.deleteClips ({ hit.clipId });
+    }
 
-        const auto bar = ctx.document.getTempoMap().tickToBar ((collab::Tick) juce::jmax (0.0, ctx.state.timeline.xToTick (e.position.x)));
-
-        if (e.mods.isPopupMenu())
-        {
-            juce::PopupMenu m;
-            m.addItem ("ここに MIDI クリップを作成"_ju, [this, trackId = track.id, bar] { createMidiClip (trackId, bar, false); });
-            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this));
-        }
-        else if (ctx.state.pencil())
-        {
-            // 鉛筆ツール: クリックした小節から 1 小節のクリップを作り、そのままドラッグで長さを決める
-            createMidiClip (track.id, bar, true);
-        }
-
+    // 選択: Ctrl / Shift クリックで追加・解除。選択済みのクリップを押したときは選択をそのままにする（まとめて動かす）
+    if (additive && ! e.mods.isPopupMenu())
+    {
+        ctx.state.toggleClip (hit.clipId);
+        ctx.state.changed();
         return;
     }
+
+    if (! ctx.state.isClipSelected (hit.clipId))
+        ctx.state.selectClip (hit.clipId);
+    else
+        ctx.state.selectedClipId = hit.clipId;
+
+    ctx.state.changed();
 
     if (e.mods.isPopupMenu())
         return showClipMenu (track, hit.clipId, hit.audio);
@@ -416,6 +459,11 @@ void TrackLanes::mouseDown (const juce::MouseEvent& e)
     dragAudio = hit.audio;
     dragDownTick = ctx.state.timeline.xToTick (e.position.x);
     mergeId = juce::Uuid().toString();
+
+    dragOrigStarts.clear();
+
+    for (auto& id : ctx.state.clipSelection())
+        dragOrigStarts[id] = ctx.clipRange (id).first;
 
     if (hit.audio)
     {
@@ -437,14 +485,92 @@ void TrackLanes::mouseDown (const juce::MouseEvent& e)
     }
     else if (auto* clip = track.findMidiClip (hit.clipId))
     {
-        dragMode = hit.zone == Zone::rightEdge ? DragMode::resizeMidi : DragMode::move;
+        dragMode = hit.zone == Zone::rightEdge ? DragMode::resizeMidi
+                 : hit.zone == Zone::leftEdge  ? DragMode::trimMidiStart
+                                               : DragMode::move;
         dragOrigStart = clip->startTick;
         dragOrigLength = clip->lengthTick;
+        dragOrigMidi = *clip;
     }
+}
+
+void TrackLanes::updateBandSelection()
+{
+    const auto& project = ctx.document.getProject();
+    const auto& axis = ctx.state.timeline;
+    const auto& map = ctx.document.getTempoMap();
+    auto selection = bandBase;
+
+    for (size_t i = 0; i < project.tracks.size(); ++i)
+    {
+        const float top = (float) ((int) i * rowHeight - scrollY), bottom = top + (float) rowHeight;
+
+        if (bottom < band.getY() || top > band.getBottom())
+            continue;
+
+        auto consider = [&] (const std::string& id, collab::Tick s, collab::Tick e)
+        {
+            const float x1 = (float) axis.tickToX ((double) s), x2 = (float) axis.tickToX ((double) e);
+
+            if (x2 >= band.getX() && x1 <= band.getRight())
+                selection.insert (id);
+        };
+
+        for (auto& c : project.tracks[i].midiClips)  consider (c.id, c.startTick, c.endTick());
+        for (auto& c : project.tracks[i].audioClips) consider (c.id, c.startTick, collab::audioClipEndTick (c, map));
+    }
+
+    ctx.state.selectedClipIds = selection;
+
+    if (! selection.count (ctx.state.selectedClipId))
+        ctx.state.selectedClipId = selection.empty() ? std::string() : *selection.begin();
+
+    ctx.state.changed();
+}
+
+void TrackLanes::showLaneMenu (const collab::Track* track, collab::Tick at)
+{
+    // Cubase と同じく、空いている所の右クリックでツールと貼り付けなど
+    juce::PopupMenu m;
+    const std::pair<EditTool, juce::String> list[] = {
+        { EditTool::select, "選択（1）"_ju }, { EditTool::pencil, "鉛筆（2）"_ju }, { EditTool::split, "はさみ（3）"_ju },
+        { EditTool::glue, "のり（4）"_ju }, { EditTool::erase, "消しゴム（5）"_ju }
+    };
+
+    for (auto& [tool, name] : list)
+        m.addItem (name, true, ctx.state.tool == tool, [this, tool = tool] { ctx.state.tool = tool; ctx.state.changed(); });
+
+    m.addSeparator();
+    m.addItem ("貼り付け（再生位置へ）"_ju, ctx.hasClipsInClipboard(), false, [this]
+    {
+        ctx.pasteClips ((collab::Tick) std::llround (ctx.state.snapCursor (ctx.state.playheadTick, ctx.document.getTempoMap(), {})));
+    });
+
+    if (track != nullptr && track->type == collab::TrackType::midi)
+    {
+        const auto bar = ctx.document.getTempoMap().tickToBar (at);
+        m.addItem ("ここに MIDI クリップを作成"_ju, [this, trackId = track->id, bar] { createMidiClip (trackId, bar, false); });
+    }
+
+    if (ctx.addTrackMenu)
+    {
+        m.addSeparator();
+        m.addSubMenu ("トラックを追加"_ju, ctx.addTrackMenu());
+    }
+
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
 }
 
 void TrackLanes::mouseDrag (const juce::MouseEvent& e)
 {
+    if (dragMode == DragMode::rubberBand)
+    {
+        band = juce::Rectangle<float> (bandStart, e.position);
+        updateBandSelection();
+        repaint();
+        return;
+    }
+
     if (dragMode == DragMode::none || (e.getDistanceFromDragStart() < 3 && ! createdByPencil))
         return;
 
@@ -469,6 +595,20 @@ void TrackLanes::mouseDrag (const juce::MouseEvent& e)
         {
             if (auto* c = t.findMidiClip (clipId))
                 c->lengthTick = end - c->startTick;
+        }, mergeId);
+        return;
+    }
+
+    if (dragMode == DragMode::trimMidiStart)
+    {
+        // 左端: 開始位置を動かす（ノートの位置は変えず、外に出たノートは隠れる）
+        const auto minLen = juce::jmax<collab::Tick> (1, ctx.state.timelineGrid.stepTicks());
+        const auto updated = collab::trimMidiClipStart (dragOrigMidi, snap ((double) dragOrigStart + delta, e.mods), minLen);
+
+        editClip ("クリップの長さ変更"_ju, [updated] (collab::Track& t)
+        {
+            if (auto* c = t.findMidiClip (updated.id))
+                *c = updated;
         }, mergeId);
         return;
     }
@@ -509,6 +649,8 @@ void TrackLanes::mouseDrag (const juce::MouseEvent& e)
             case DragMode::none:
             case DragMode::move:
             case DragMode::resizeMidi:
+            case DragMode::trimMidiStart:
+            case DragMode::rubberBand:
                 break;
         }
 
@@ -522,8 +664,31 @@ void TrackLanes::mouseDrag (const juce::MouseEvent& e)
         return;
     }
 
-    // 移動（同じ種類のトラックへなら、トラックをまたいで移動できる）
+    // 複数のクリップを選んでいるときは、まとめて同じだけ動かす（トラックはそのまま）
     const auto newStart = snap ((double) dragOrigStart + delta, e.mods);
+
+    if (dragOrigStarts.size() > 1)
+    {
+        const auto shift = newStart - dragOrigStart;
+        auto origs = dragOrigStarts;
+
+        ctx.document.perform ("クリップの移動"_ju, [origs, shift] (collab::Project& p)
+        {
+            for (auto& t : p.tracks)
+            {
+                for (auto& c : t.midiClips)
+                    if (auto it = origs.find (c.id); it != origs.end())
+                        c.startTick = std::max<collab::Tick> (0, it->second + shift);
+
+                for (auto& c : t.audioClips)
+                    if (auto it = origs.find (c.id); it != origs.end())
+                        c.startTick = std::max<collab::Tick> (0, it->second + shift);
+            }
+        }, mergeId);
+        return;
+    }
+
+    // 移動（同じ種類のトラックへなら、トラックをまたいで移動できる）
     const auto& project = ctx.document.getProject();
     auto targetTrackId = dragTrackId;
     const auto wantType = dragAudio ? collab::TrackType::audio : collab::TrackType::midi;
@@ -575,6 +740,9 @@ void TrackLanes::mouseDrag (const juce::MouseEvent& e)
 
 void TrackLanes::mouseUp (const juce::MouseEvent&)
 {
+    if (dragMode == DragMode::rubberBand)
+        repaint();
+
     dragMode = DragMode::none;
     createdByPencil = false;
     ctx.document.endMerge();
@@ -605,7 +773,7 @@ void TrackLanes::createMidiClip (const std::string& trackId, int bar, bool thenD
     }, mergeId);
 
     ctx.state.selectedTrackId = trackId;
-    ctx.state.selectedClipId = clip.id;
+    ctx.state.selectClip (clip.id);
     ctx.state.changed();
 
     if (thenDragLength)

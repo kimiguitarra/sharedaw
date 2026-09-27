@@ -37,4 +37,16 @@ AudioClip trimAudioClipStart (const AudioClip&, Tick newStart, const TempoMap&);
 /** 長さを変える（開始位置は変えない）。newEnd は tick、sourceLength を超えない。 */
 AudioClip trimAudioClipEnd (const AudioClip&, Tick newEnd, SampleCount sourceLength, const TempoMap&);
 
+/**
+    MIDI クリップの開始位置を newStart に動かす（終わりの位置は変えない）。ノートの位置（絶対）は変えないので、
+    縮めて外に出たノートは消えずに隠れ、伸ばし直すとまた見える（Cubase と同じ）。
+*/
+MidiClip trimMidiClipStart (const MidiClip&, Tick newStart, Tick minLength);
+
+/** 2 つの MIDI クリップを 1 つにする（a の先頭から b の終わりまで。b のノートは a の中へ移す）。 */
+MidiClip glueMidiClips (const MidiClip& a, const MidiClip& b);
+
+/** 元ファイルで続いている 2 つのオーディオクリップを 1 つにする（続いていなければ nullopt）。 */
+std::optional<AudioClip> glueAudioClips (const AudioClip& a, const AudioClip& b, const TempoMap&);
+
 } // namespace collab

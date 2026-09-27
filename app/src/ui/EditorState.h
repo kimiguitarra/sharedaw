@@ -1,5 +1,7 @@
 #pragma once
 
+#include <set>
+
 #include "Common.h"
 #include "collab/Grid.h"
 #include "collab/TempoMap.h"
@@ -26,8 +28,11 @@ struct TimeAxis
 /** マウスで使う道具（Cubase のツールに相当）。 */
 enum class EditTool
 {
-    select,   // 選択・移動・長さ変更（既定）
-    pencil    // オブジェクト（テンポ・拍子・コード・クリップ・ノート）を置く
+    select,   // 1: 選択・移動・長さの変更（既定）
+    pencil,   // 2: オブジェクト（テンポ・拍子・コード・クリップ・ノート）を置く
+    split,    // 3: はさみ（クリック位置でクリップ・ノートを分割）
+    glue,     // 4: のり（クリックしたクリップ・ノートを次のものとつなげる）
+    erase     // 5: 消しゴム（クリックしたものを消す）
 };
 
 /**
@@ -45,6 +50,7 @@ struct EditBehaviour
 {
     juce::KeyPress selectToolKey, pencilToolKey;   // ツールの切り替え（テンキー）
     juce::KeyPress selectToolKey2, pencilToolKey2; // 同（キーボード上段の数字）
+    juce::KeyPress splitToolKey, glueToolKey, eraseToolKey;   // 3 / 4 / 5（Cubase と同じ番号）
     juce::KeyPress mixerKey;                       // ミキサーの表示
     juce::KeyPress loopToSelectionKey;             // 選択範囲をループ範囲にする
     juce::KeyPress stopKey, toStartKey, recordKey, loopKey;   // テンキーのトランスポート
@@ -60,6 +66,9 @@ struct EditBehaviour
         b.pencilToolKey = juce::KeyPress (juce::KeyPress::numberPad2);
         b.selectToolKey2 = juce::KeyPress ('1');
         b.pencilToolKey2 = juce::KeyPress ('2');
+        b.splitToolKey = juce::KeyPress ('3');
+        b.glueToolKey = juce::KeyPress ('4');
+        b.eraseToolKey = juce::KeyPress ('5');
         b.mixerKey = juce::KeyPress (juce::KeyPress::F3Key);
         b.loopToSelectionKey = juce::KeyPress ('p');
         b.stopKey = juce::KeyPress (juce::KeyPress::numberPad0);
@@ -89,6 +98,7 @@ struct EditorState  : public juce::ChangeBroadcaster
     OperationMode mode = OperationMode::cubase;
     EditBehaviour behaviour() const        { return EditBehaviour::forMode (mode); }
     bool pencil() const noexcept           { return tool == EditTool::pencil; }
+    bool eraser() const noexcept           { return tool == EditTool::erase; }
 
     TimeAxis timeline;
     TimeAxis pianoRoll { 120.0, 0.0 };
@@ -130,7 +140,46 @@ struct EditorState  : public juce::ChangeBroadcaster
     bool autoScroll = true;                     // 再生中に再生位置を追ってスクロールする（F）
 
     std::string selectedTrackId;
-    std::string selectedClipId;
+    std::string selectedClipId;             // 主に選んでいるクリップ（ピアノロールで開くもの）
+    std::set<std::string> selectedClipIds;  // 選択中のクリップすべて（selectedClipId を含む）
+
+    bool isClipSelected (const std::string& id) const   { return selectedClipIds.count (id) > 0 || (! id.empty() && id == selectedClipId); }
+
+    /** クリップを 1 つだけ選ぶ（空なら選択なし）。 */
+    void selectClip (const std::string& id)
+    {
+        selectedClipId = id;
+        selectedClipIds.clear();
+
+        if (! id.empty())
+            selectedClipIds.insert (id);
+    }
+
+    /** Ctrl / Shift クリック: 選択に加える・外す。 */
+    void toggleClip (const std::string& id)
+    {
+        if (selectedClipIds.erase (id) > 0)
+        {
+            if (selectedClipId == id)
+                selectedClipId = selectedClipIds.empty() ? std::string() : *selectedClipIds.begin();
+        }
+        else
+        {
+            selectedClipIds.insert (id);
+            selectedClipId = id;
+        }
+    }
+
+    /** 選択中のクリップ（主のクリップも含む）。 */
+    std::set<std::string> clipSelection() const
+    {
+        auto s = selectedClipIds;
+
+        if (! selectedClipId.empty())
+            s.insert (selectedClipId);
+
+        return s;
+    }
     std::string selectedChordId;
     std::string selectedTempoId;
     std::string selectedMeterId;

@@ -62,12 +62,17 @@ TransportBar::TransportBar (AppContext& c) : ctx (c)
         addAndMakeVisible (b);
 
     // ツール（Cubase と同じくテンキーの 1 / 2 でも切り替えられる）
-    selectTool.setTooltip ("選択ツール（テンキー 1）: 選択・移動・長さの変更"_ju);
-    pencilTool.setTooltip ("鉛筆ツール（テンキー 2）: テンポ・拍子・コード・クリップ・ノートを置く"_ju);
-    selectTool.onClick = [this] { ctx.state.tool = EditTool::select; ctx.state.changed(); };
-    pencilTool.onClick = [this] { ctx.state.tool = EditTool::pencil; ctx.state.changed(); };
-    addAndMakeVisible (selectTool);
-    addAndMakeVisible (pencilTool);
+    selectTool.setTooltip ("選択ツール（1）: 選択・移動・長さの変更。Ctrl/Shift+クリックで追加、空いている所をドラッグで範囲選択"_ju);
+    pencilTool.setTooltip ("鉛筆ツール（2）: テンポ・拍子・コード・マーカー・クリップ・ノートを置く"_ju);
+    splitTool.setTooltip ("はさみツール（3）: クリックした位置でクリップ・ノートを分割"_ju);
+    glueTool.setTooltip ("のりツール（4）: クリックしたクリップ・ノートを次のものとつなげる"_ju);
+    eraseTool.setTooltip ("消しゴムツール（5）: クリックしたものを消す（ピアノロールではなぞって消せる）"_ju);
+
+    for (auto* b : { &selectTool, &pencilTool, &splitTool, &glueTool, &eraseTool })
+    {
+        b->onClick = [this, b] { ctx.state.tool = b->tool; ctx.state.changed(); };
+        addAndMakeVisible (b);
+    }
 
     addAndMakeVisible (metronomeVolume);
 
@@ -194,8 +199,8 @@ TransportBar::~TransportBar()
 
 void TransportBar::changeListenerCallback (juce::ChangeBroadcaster*)
 {
-    selectTool.setToggleState (ctx.state.tool == EditTool::select, juce::dontSendNotification);
-    pencilTool.setToggleState (ctx.state.tool == EditTool::pencil, juce::dontSendNotification);
+    for (auto* b : { &selectTool, &pencilTool, &splitTool, &glueTool, &eraseTool })
+        b->setToggleState (ctx.state.tool == b->tool, juce::dontSendNotification);
     loopButton.setToggleState (ctx.state.loopEnabled, juce::dontSendNotification);
     metronomeButton.setToggleState (ctx.state.metronomeEnabled, juce::dontSendNotification);
     snapButton.setToggleState (ctx.state.snapEnabled(), juce::dontSendNotification);
@@ -251,28 +256,31 @@ void TransportBar::resized()
 
     for (auto* b : { &toStartButton, &playButton, &stopButton, &recordButton })
     {
-        b->setBounds (area.removeFromLeft (44));
-        area.removeFromLeft (4);
+        b->setBounds (area.removeFromLeft (38));
+        area.removeFromLeft (3);
     }
 
-    area.removeFromLeft (10);
-    selectTool.setBounds (area.removeFromLeft (34));
-    area.removeFromLeft (2);
-    pencilTool.setBounds (area.removeFromLeft (34));
+    area.removeFromLeft (8);
 
-    area.removeFromLeft (12);
-    barBeatLabel.setBounds (area.removeFromLeft (130));
-    area.removeFromLeft (6);
-    timeLabel.setBounds (area.removeFromLeft (110));
+    for (auto* b : { &selectTool, &pencilTool, &splitTool, &glueTool, &eraseTool })
+    {
+        b->setBounds (area.removeFromLeft (30));
+        area.removeFromLeft (1);
+    }
+
+    area.removeFromLeft (8);
+    barBeatLabel.setBounds (area.removeFromLeft (118));
+    area.removeFromLeft (4);
+    timeLabel.setBounds (area.removeFromLeft (100));
     area.removeFromLeft (6);
     bpmLabel.setBounds (area.removeFromLeft (84));
     area.removeFromLeft (2);
     meterLabel.setBounds (area.removeFromLeft (46));
     area.removeFromLeft (16);
 
-    loopButton.setBounds (area.removeFromLeft (70));
+    loopButton.setBounds (area.removeFromLeft (60));
     area.removeFromLeft (4);
-    metronomeButton.setBounds (area.removeFromLeft (100));
+    metronomeButton.setBounds (area.removeFromLeft (96));
     area.removeFromLeft (4);
     metronomeVolume.setBounds (area.removeFromLeft (70));
     area.removeFromLeft (12);
@@ -299,9 +307,16 @@ void TransportBar::ToolButton::paintButton (juce::Graphics& g, bool highlighted,
     g.drawRoundedRectangle (r, 4.0f, 1.0f);
 
     auto iconArea = r.reduced (r.getWidth() * 0.26f, r.getHeight() * 0.22f);
-    auto icon = pencil ? Theme::pencilToolIcon (iconArea) : Theme::selectToolIcon (iconArea);
     g.setColour (on ? Theme::text : Theme::textDim);
-    g.fillPath (icon);
+
+    switch (tool)
+    {
+        case EditTool::select: g.fillPath (Theme::selectToolIcon (iconArea)); break;
+        case EditTool::pencil: g.fillPath (Theme::pencilToolIcon (iconArea)); break;
+        case EditTool::split:  g.strokePath (Theme::splitToolIcon (iconArea), juce::PathStrokeType (1.4f)); break;
+        case EditTool::glue:   g.strokePath (Theme::glueToolIcon (iconArea), juce::PathStrokeType (1.4f)); break;
+        case EditTool::erase:  g.strokePath (Theme::eraseToolIcon (iconArea), juce::PathStrokeType (1.4f)); break;
+    }
 }
 
 //==============================================================================

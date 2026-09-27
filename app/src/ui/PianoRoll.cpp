@@ -161,7 +161,7 @@ void NoteGrid::paint (juce::Graphics& g)
 
         const auto r = juce::Rectangle<float> (x1, y + 1.0f, juce::jmax (3.0f, x2 - x1), (float) owner.noteHeight - 2.0f);
         const bool selected = owner.selectedNotes.count (n.id) > 0;
-        const bool outside = n.tick >= clip->lengthTick;
+        const bool outside = n.tick < 0 || n.tick >= clip->lengthTick;
 
         g.setColour (velocityColour (n.velocity, base).withAlpha (outside ? 0.3f : 1.0f));
         g.fillRoundedRectangle (r, 2.0f);
@@ -180,8 +180,8 @@ void NoteGrid::paint (juce::Graphics& g)
 
 void NoteGrid::mouseMove (const juce::MouseEvent& e)
 {
-    if (owner.ctx.state.pencil())
-        return setMouseCursor (Theme::pencilCursor());
+    if (owner.ctx.state.tool != EditTool::select)
+        return setMouseCursor (Theme::toolCursor (owner.ctx.state.tool));
 
     bool edge = false;
     auto* n = hitNote (e.position, edge);
@@ -202,6 +202,74 @@ void NoteGrid::mouseDown (const juce::MouseEvent& e)
     bool edge = false;
     auto* n = hitNote (e.position, edge);
     mergeId = juce::Uuid().toString();
+    const auto tool = owner.ctx.state.tool;
+
+    // 消しゴム: クリック（ドラッグでなぞる）したノートを消す
+    if (tool == EditTool::erase && ! e.mods.isPopupMenu())
+    {
+        mode = Mode::erase;
+
+        if (n != nullptr)
+            eraseNote (n->id);
+
+        return;
+    }
+
+    // はさみ: クリックした位置でノートを 2 つに分ける
+    if (tool == EditTool::split && n != nullptr && ! e.mods.isPopupMenu())
+    {
+        const auto at = owner.snap (owner.axis().xToTick (e.position.x), false, e.mods) - clip->startTick;
+        const auto id = n->id;
+
+        if (at > n->tick && at < n->endTick())
+        {
+            auto second = *n;
+            second.id = collab::generateUuid();
+            second.tick = at;
+            second.lengthTick = n->endTick() - at;
+
+            owner.editNotes ("ノートの分割"_ju, [id, at, second] (collab::MidiClip& c)
+            {
+                for (auto& x : c.notes)
+                    if (x.id == id)
+                        x.lengthTick = at - x.tick;
+
+                c.notes.push_back (second);
+            });
+        }
+
+        return;
+    }
+
+    // のり: クリックしたノートを、同じ高さの次のノートとつなげる
+    if (tool == EditTool::glue && n != nullptr && ! e.mods.isPopupMenu())
+    {
+        const auto id = n->id;
+        const int pitch = n->pitch;
+        const auto from = n->tick;
+        std::string nextId;
+        collab::Tick nextEnd = 0, best = std::numeric_limits<collab::Tick>::max();
+
+        for (auto& x : clip->notes)
+            if (x.id != id && x.pitch == pitch && x.tick >= from && x.tick < best)
+            {
+                best = x.tick;
+                nextId = x.id;
+                nextEnd = x.endTick();
+            }
+
+        if (! nextId.empty())
+            owner.editNotes ("ノートをつなげる"_ju, [id, nextId, nextEnd] (collab::MidiClip& c)
+            {
+                for (auto& x : c.notes)
+                    if (x.id == id)
+                        x.lengthTick = std::max (x.lengthTick, nextEnd - x.tick);
+
+                c.notes.erase (std::remove_if (c.notes.begin(), c.notes.end(), [&] (auto& x) { return x.id == nextId; }), c.notes.end());
+            });
+
+        return;
+    }
 
     if (owner.ctx.state.pencil() && ! e.mods.isPopupMenu())
     {
@@ -292,12 +360,31 @@ void NoteGrid::mouseDown (const juce::MouseEvent& e)
     owner.repaint();
 }
 
+void NoteGrid::eraseNote (const std::string& id)
+{
+    owner.selectedNotes.erase (id);
+    owner.editNotes ("ノートの削除"_ju, [id] (collab::MidiClip& c)
+    {
+        c.notes.erase (std::remove_if (c.notes.begin(), c.notes.end(), [&] (auto& x) { return x.id == id; }), c.notes.end());
+    }, mergeId);
+}
+
 void NoteGrid::mouseDrag (const juce::MouseEvent& e)
 {
     auto* clip = owner.getClip();
 
     if (clip == nullptr)
         return;
+
+    if (mode == Mode::erase)
+    {
+        bool edge = false;
+
+        if (auto* n = hitNote (e.position, edge))
+            eraseNote (n->id);
+
+        return;
+    }
 
     if (mode == Mode::rubberBand)
     {
@@ -411,7 +498,9 @@ bool NoteGrid::keyPressed (const juce::KeyPress& key)
 
     if (code == juce::KeyPress::upKey || code == juce::KeyPress::downKey)
     {
-        const int d = (code == juce::KeyPress::upKey ? 1 : -1) * (key.getModifiers().isShiftDown() ? 12 : 1);
+        // Shift または Ctrl と一緒ならオクターブ
+        const bool octave = key.getModifiers().isShiftDown() || key.getModifiers().isCommandDown();
+        const int d = (code == juce::KeyPress::upKey ? 1 : -1) * (octave ? 12 : 1);
         owner.editNotes ("ノートの移調"_ju, [sel, d] (collab::MidiClip& c)
         {
             for (auto& n : c.notes)
@@ -658,10 +747,109 @@ void PianoRollView::followPlayhead (double tick)
     }
 }
 
-void PianoRollView::previewNote (int pitch, int velocity)
+void PianoRollView::previewNote (int pitch, int vel)
 {
     if (auto* t = getTrack())
-        ctx.engine.previewNote (t->id, pitch, velocity);
+        ctx.engine.previewNote (t->id, pitch, vel);
+}
+
+//==============================================================================
+void PianoRollView::copySelectedNotes (bool cut)
+{
+    auto* clip = getClip();
+
+    if (clip == nullptr || selectedNotes.empty())
+        return;
+
+    noteClipboard.clear();
+    collab::Tick origin = std::numeric_limits<collab::Tick>::max();
+
+    for (auto& n : clip->notes)
+        if (selectedNotes.count (n.id) > 0)
+        {
+            noteClipboard.push_back (n);
+            origin = std::min (origin, n.tick);
+        }
+
+    for (auto& n : noteClipboard)
+        n.tick -= origin;   // いちばん左のノートを 0 に
+
+    if (cut)
+        deleteSelectedNotes();
+}
+
+void PianoRollView::pasteNotes()
+{
+    auto* clip = getClip();
+
+    if (clip == nullptr || noteClipboard.empty())
+        return;
+
+    // 再生位置がクリップの中ならそこ、外ならクリップの先頭に貼る（Cubase と同じく位置は再生位置が基準）
+    auto at = (collab::Tick) std::llround (ctx.state.snapCursor (ctx.state.playheadTick, ctx.document.getTempoMap(), {})) - clip->startTick;
+
+    if (at < 0 || at >= clip->lengthTick)
+        at = 0;
+
+    auto notes = noteClipboard;
+    std::set<std::string> ids;
+
+    for (auto& n : notes)
+    {
+        n.id = collab::generateUuid();
+        n.tick += at;
+        ids.insert (n.id);
+    }
+
+    editNotes ("ノートの貼り付け"_ju, [notes] (collab::MidiClip& c) { c.notes.insert (c.notes.end(), notes.begin(), notes.end()); });
+    selectedNotes = ids;
+    repaint();
+}
+
+void PianoRollView::duplicateSelectedNotes()
+{
+    auto* clip = getClip();
+
+    if (clip == nullptr || selectedNotes.empty())
+        return;
+
+    // 選んだノートの範囲の直後に同じ並びで置く（Cubase の Ctrl+D）
+    collab::Tick first = std::numeric_limits<collab::Tick>::max(), last = 0;
+
+    for (auto& n : clip->notes)
+        if (selectedNotes.count (n.id) > 0)
+        {
+            first = std::min (first, n.tick);
+            last = std::max (last, n.endTick());
+        }
+
+    // 小節の途中で終わっていても、グリッドの単位で揃える
+    const auto step = std::max<collab::Tick> (1, ctx.state.grid.stepTicks());
+    const auto span = ((last - first + step - 1) / step) * step;
+    std::vector<collab::Note> copies;
+    std::set<std::string> ids;
+
+    for (auto& n : clip->notes)
+        if (selectedNotes.count (n.id) > 0)
+        {
+            auto c = n;
+            c.id = collab::generateUuid();
+            c.tick += span;
+            copies.push_back (c);
+            ids.insert (c.id);
+        }
+
+    editNotes ("ノートの複製"_ju, [copies] (collab::MidiClip& c)
+    {
+        c.notes.insert (c.notes.end(), copies.begin(), copies.end());
+
+        // はみ出したらクリップを伸ばす
+        for (auto& n : copies)
+            c.lengthTick = std::max (c.lengthTick, n.endTick());
+    });
+
+    selectedNotes = ids;
+    repaint();
 }
 
 void PianoRollView::focusEditor()

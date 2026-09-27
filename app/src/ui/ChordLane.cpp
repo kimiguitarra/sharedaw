@@ -110,7 +110,7 @@ std::string ChordLane::findStartHit (float x) const
 
 void ChordLane::mouseMove (const juce::MouseEvent& e)
 {
-    setMouseCursor (ctx.state.pencil() ? Theme::pencilCursor()
+    setMouseCursor (ctx.state.eraser() ? Theme::toolCursor (EditTool::erase) : ctx.state.pencil() ? Theme::pencilCursor()
                                        : ! findStartHit (e.position.x).empty() ? juce::MouseCursor::LeftRightResizeCursor
                                                                                : juce::MouseCursor::NormalCursor);
 }
@@ -143,6 +143,16 @@ void ChordLane::mouseDown (const juce::MouseEvent& e)
     dragId = findHit (e.position.x);
     ctx.state.selectedChordId = dragId;
     ctx.state.changed();
+
+    // 消しゴム: クリックしたコードを消す
+    if (ctx.state.eraser() && ! e.mods.isPopupMenu())
+    {
+        if (! dragId.empty())
+            deleteSelected();
+
+        dragId = {};
+        return;
+    }
 
     if (dragId.empty())
     {

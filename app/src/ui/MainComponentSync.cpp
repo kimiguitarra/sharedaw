@@ -411,7 +411,7 @@ void MainComponent::jumpTo (const collab::Change& c)
     if (c.scopeKind == collab::ScopeKind::track && document.getProject().findTrack (c.scopeId) != nullptr)
     {
         state.selectedTrackId = c.scopeId;
-        state.selectedClipId = {};
+        state.selectClip ({});
     }
 
     if (c.fromTick >= 0)

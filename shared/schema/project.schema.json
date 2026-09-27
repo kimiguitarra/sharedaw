@@ -446,7 +446,8 @@
           "$ref": "#/definitions/uuid"
         },
         "tick": {
-          "$ref": "#/definitions/tick"
+          "type": "integer",
+          "description": "クリップ先頭からの tick。左端を縮めたクリップでは負（隠れたノート）になりうる"
         },
         "lengthTick": {
           "type": "integer",

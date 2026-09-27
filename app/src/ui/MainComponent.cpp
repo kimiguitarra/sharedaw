@@ -26,7 +26,9 @@ namespace
         cmdRecord, cmdCountIn0, cmdCountIn1, cmdCountIn2,
         cmdToolSelect, cmdToolPencil, cmdModeCubase, cmdModeStudioOne, cmdMixer, cmdLoopToSelection,
         cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
-        cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9
+        cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9,
+        cmdToolSplit, cmdToolGlue, cmdToolErase, cmdCopy, cmdCut, cmdPaste, cmdNudgeLeft, cmdNudgeRight,
+        cmdForward, cmdRewind, cmdShortcuts
     };
 
     constexpr float fontScales[] = { 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
@@ -179,12 +181,12 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
         if (ctx.selectedTrack() == nullptr && ! state.selectedTrackId.empty())
         {
             state.selectedTrackId = {};
-            state.selectedClipId = {};
+            state.selectClip ({});
             state.changed();
         }
         else if (ctx.selectedClip() == nullptr && ! state.selectedClipId.empty())
         {
-            state.selectedClipId = {};
+            state.selectClip ({});
             state.changed();
         }
     }
@@ -279,7 +281,8 @@ void MainComponent::newProject()
         {
             bridge.stop();
             document.newProject (name.isEmpty() ? juce::String ("無題"_ju) : name);
-            state.selectedTrackId = state.selectedClipId = {};
+            state.selectedTrackId = {};
+            state.selectClip ({});
             state.timeline.scrollTick = 0;
             state.changed();
             bridge.returnToStart();
@@ -312,7 +315,8 @@ void MainComponent::openProjectFolder (const juce::File& folder)
     {
         bridge.stop();
         document.load (folder);
-        state.selectedTrackId = state.selectedClipId = {};
+        state.selectedTrackId = {};
+            state.selectClip ({});
         state.timeline.scrollTick = 0;
         state.changed();
         bridge.returnToStart();
@@ -684,7 +688,7 @@ void MainComponent::importMidiRecording (std::vector<EngineBridge::RecordedMidi>
     if (! lastClip.empty())
     {
         state.selectedTrackId = lastTrack;
-        state.selectedClipId = lastClip;
+        state.selectClip (lastClip);
         state.changed();
     }
 }
@@ -748,26 +752,19 @@ void MainComponent::deleteSelection()
         return;
     }
 
-    if (! state.selectedClipId.empty() && ctx.selectedTrack() != nullptr)
-    {
-        auto trackId = state.selectedTrackId, clipId = state.selectedClipId;
-        document.perform ("クリップの削除"_ju, [trackId, clipId] (collab::Project& p)
-        {
-            if (auto* t = p.findTrack (trackId))
-            {
-                std::erase_if (t->midiClips, [&] (auto& c) { return c.id == clipId; });
-                std::erase_if (t->audioClips, [&] (auto& c) { return c.id == clipId; });
-            }
-        });
-    }
+    ctx.deleteClips (state.clipSelection());
 }
 
 void MainComponent::duplicateClip()
 {
-    auto* clip = ctx.selectedClip();
+    // ピアノロールでノートを選んでいればノート、なければ選択中のクリップ（複数可）
+    if (pianoRoll.hasKeyboardFocus (true) && pianoRoll.hasSelectedNotes())
+        return pianoRoll.duplicateSelectedNotes();
 
-    if (clip == nullptr)
-        return;
+    if (state.clipSelection().size() != 1 || ctx.selectedClip() == nullptr)
+        return ctx.duplicateClips (state.clipSelection());
+
+    auto* clip = ctx.selectedClip();
 
     auto trackId = state.selectedTrackId;
     auto copy = *clip;
@@ -783,7 +780,7 @@ void MainComponent::duplicateClip()
             t->midiClips.push_back (copy);
     });
 
-    state.selectedClipId = copy.id;
+    state.selectClip (copy.id);
     state.changed();
 }
 
@@ -891,6 +888,59 @@ void MainComponent::openChannelStrip (const std::string& trackId)
     stripWindow->toFront (true);
 }
 
+void MainComponent::showShortcuts()
+{
+    const juce::String text (
+        "■ ツール（Cubase と同じ番号。テンキーでも可）\n"_ju
+        "  1 選択 / 2 鉛筆 / 3 はさみ / 4 のり / 5 消しゴム\n"_ju
+        "  空いている所を右クリックでツールの切り替え・貼り付け・トラックの追加\n"_ju
+        "\n"_ju
+        "■ クリップ（タイムライン）\n"_ju
+        "  クリック: 選択　Ctrl/Shift+クリック: 選択に追加・解除　空いている所をドラッグ: 範囲選択\n"_ju
+        "  ドラッグ: 移動（複数でもまとめて）　左端・右端をドラッグ: 長さ（MIDI・オーディオとも）\n"_ju
+        "  Alt を押しながら: スナップを一時的に解除\n"_ju
+        "  Ctrl+C / X / V: コピー / 切り取り / 貼り付け（再生位置へ）　Ctrl+D: 複製　Delete: 削除\n"_ju
+        "  Ctrl+← / →: クオンタイズ値ずつずらす　S: 再生位置で分割\n"_ju
+        "  鉛筆: 空いている所をクリック（ドラッグで長さ）で MIDI クリップを作成　ダブルクリック: ピアノロールで開く\n"_ju
+        "\n"_ju
+        "■ ピアノロール\n"_ju
+        "  鉛筆: クリックで追加（ドラッグで長さ）、ノートをクリックで削除\n"_ju
+        "  選択: ドラッグで移動・範囲選択、右端で長さ　↑↓: 半音　Shift/Ctrl+↑↓: オクターブ　←→: クオンタイズ値ずつ\n"_ju
+        "  はさみ: クリック位置でノートを分割　のり: 同じ高さの次のノートとつなげる　消しゴム: クリック・なぞって削除\n"_ju
+        "  Ctrl+C / X / V / D: コピー / 切り取り / 貼り付け / 複製　Q: クオンタイズ　Ctrl+A: すべて選択\n"_ju
+        "\n"_ju
+        "■ 再生・録音\n"_ju
+        "  Space: 再生／停止　テンキー 0: 停止（停止中なら先頭へ）　Home / テンキー .: 先頭へ\n"_ju
+        "  テンキー + / -: 1 小節進む / 戻る　R / テンキー *: 録音　L / テンキー /: ループ　P: 選択範囲をループ範囲に\n"_ju
+        "  C: メトロノーム　F: 自動スクロール　J: スナップ　G / H: 縮小 / 拡大\n"_ju
+        "\n"_ju
+        "■ マーカー\n"_ju
+        "  Insert: 再生位置に追加　Shift+1〜9: マーカーへ移動　ダブルクリック: 名前\n"_ju
+        "\n"_ju
+        "■ そのほか\n"_ju
+        "  F3: ミキサー　Ctrl+Z / Ctrl+Shift+Z: 元に戻す / やり直し　Ctrl+S: 保存　Ctrl+I: オーディオを読み込む\n"_ju
+        "  BPM・拍子: トランスポートバーの数字をクリックして入力、ホイールで増減\n"_ju);
+
+    auto editor = std::make_unique<juce::TextEditor>();
+    editor->setMultiLine (true);
+    editor->setReadOnly (true);
+    editor->setScrollbarsShown (true);
+    editor->setFont (juce::FontOptions (14.0f));
+    editor->setColour (juce::TextEditor::backgroundColourId, Theme::background);
+    editor->setColour (juce::TextEditor::textColourId, Theme::text);
+    editor->setText (text, false);
+    editor->setSize (760, 560);
+
+    juce::DialogWindow::LaunchOptions o;
+    o.content.setOwned (editor.release());
+    o.dialogTitle = "操作とショートカット"_ju;
+    o.dialogBackgroundColour = Theme::panel;
+    o.escapeKeyTriggersCloseButton = true;
+    o.useNativeTitleBar = true;
+    o.resizable = true;
+    o.launchAsync();
+}
+
 void MainComponent::zoom (double factor)
 {
     // ピアノロールにフォーカスがあればピアノロール、それ以外はタイムライン。再生位置を中心に拡大・縮小する
@@ -956,7 +1006,9 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
                          cmdAddAudioTrack, cmdImportAudio, cmdImportMidi, cmdSplit, cmdPlugins,
                          cmdToolSelect, cmdToolPencil, cmdModeCubase, cmdModeStudioOne, cmdMixer, cmdLoopToSelection,
                          cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
-                         cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9 });
+                         cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9,
+                         cmdToolSplit, cmdToolGlue, cmdToolErase, cmdCopy, cmdCut, cmdPaste, cmdNudgeLeft, cmdNudgeRight,
+                         cmdForward, cmdRewind, cmdShortcuts });
 }
 
 void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommandInfo& info)
@@ -988,7 +1040,27 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
             info.addDefaultKeypress (KP::backspaceKey, 0);
             break;
         case cmdSelectAll:  info.setInfo ("すべてのノートを選択"_ju, {}, "Edit", 0); info.addDefaultKeypress ('a', cmd); break;
-        case cmdDuplicate:  info.setInfo ("クリップを複製"_ju, {}, "Edit", 0); info.addDefaultKeypress ('d', cmd); break;
+        case cmdDuplicate:  info.setInfo ("複製（クリップ・ノート）"_ju, {}, "Edit", 0); info.addDefaultKeypress ('d', cmd); break;
+        case cmdCopy:       info.setInfo ("コピー"_ju, {}, "Edit", 0); info.addDefaultKeypress ('c', cmd); break;
+        case cmdCut:        info.setInfo ("切り取り"_ju, {}, "Edit", 0); info.addDefaultKeypress ('x', cmd); break;
+        case cmdPaste:      info.setInfo ("貼り付け（再生位置へ）"_ju, {}, "Edit", 0); info.addDefaultKeypress ('v', cmd); break;
+        case cmdNudgeLeft:  info.setInfo ("クリップを左へずらす"_ju, {}, "Edit", 0); info.addDefaultKeypress (KP::leftKey, cmd); break;
+        case cmdNudgeRight: info.setInfo ("クリップを右へずらす"_ju, {}, "Edit", 0); info.addDefaultKeypress (KP::rightKey, cmd); break;
+        case cmdForward:    info.setInfo ("1 小節進む"_ju, {}, "Transport", 0); info.addDefaultKeypress (KP::numberPadAdd, 0); break;
+        case cmdRewind:     info.setInfo ("1 小節戻る"_ju, {}, "Transport", 0); info.addDefaultKeypress (KP::numberPadSubtract, 0); break;
+        case cmdShortcuts:  info.setInfo ("操作とショートカットの一覧…"_ju, {}, "Help", 0); info.addDefaultKeypress (KP::F1Key, 0); break;
+        case cmdToolSplit:
+        case cmdToolGlue:
+        case cmdToolErase:
+        {
+            const auto b = state.behaviour();
+            const auto tool = id == cmdToolSplit ? EditTool::split : id == cmdToolGlue ? EditTool::glue : EditTool::erase;
+            info.setInfo (id == cmdToolSplit ? "はさみツール"_ju : id == cmdToolGlue ? "のりツール"_ju : "消しゴムツール"_ju, {}, "Edit", 0);
+            info.defaultKeypresses.add (id == cmdToolSplit ? b.splitToolKey : id == cmdToolGlue ? b.glueToolKey : b.eraseToolKey);
+            info.defaultKeypresses.add (KP (id == cmdToolSplit ? KP::numberPad3 : id == cmdToolGlue ? KP::numberPad4 : KP::numberPad5));
+            info.setTicked (state.tool == tool);
+            break;
+        }
         case cmdQuantise:   info.setInfo ("クオンタイズ"_ju, {}, "Edit", 0); info.addDefaultKeypress ('q', 0); break;
         case cmdPlay:       info.setInfo ("再生／停止"_ju, {}, "Transport", 0); info.addDefaultKeypress (KP::spaceKey, 0); break;
         case cmdToStart:
@@ -1197,6 +1269,46 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdAddAudioTrack: ctx.addAudioTrack ("Audio"); break;
         case cmdToolSelect:    state.tool = EditTool::select; state.changed(); break;
         case cmdToolPencil:    state.tool = EditTool::pencil; state.changed(); break;
+        case cmdToolSplit:     state.tool = EditTool::split; state.changed(); break;
+        case cmdToolGlue:      state.tool = EditTool::glue; state.changed(); break;
+        case cmdToolErase:     state.tool = EditTool::erase; state.changed(); break;
+        case cmdCopy:
+        case cmdCut:
+            if (pianoRoll.hasKeyboardFocus (true) && pianoRoll.hasSelectedNotes())
+                pianoRoll.copySelectedNotes (info.commandID == cmdCut);
+            else
+            {
+                ctx.copyClips (state.clipSelection());
+
+                if (info.commandID == cmdCut)
+                    ctx.deleteClips (state.clipSelection());
+            }
+            break;
+        case cmdPaste:
+            if (pianoRoll.hasKeyboardFocus (true) && pianoRoll.hasNotesInClipboard())
+                pianoRoll.pasteNotes();
+            else
+                ctx.pasteClips ((collab::Tick) std::llround (state.snapCursor (bridge.getPositionTick(), document.getTempoMap(), {})));
+            break;
+        case cmdNudgeLeft:
+        case cmdNudgeRight:
+        {
+            const auto step = std::max<collab::Tick> (1, state.grid.stepTicks());
+            ctx.nudgeClips (state.clipSelection(), info.commandID == cmdNudgeLeft ? -step : step);
+            break;
+        }
+        case cmdForward:
+        case cmdRewind:
+        {
+            const auto& map = document.getTempoMap();
+            const int bar = map.tickToBar ((collab::Tick) std::llround (bridge.getPositionTick()));
+            const auto barStart = map.barToTick (bar);
+            const bool onBar = std::llabs ((collab::Tick) std::llround (bridge.getPositionTick()) - barStart) < 5;
+            const int target = info.commandID == cmdForward ? bar + 1 : (onBar ? juce::jmax (1, bar - 1) : bar);
+            bridge.setPositionTick ((double) map.barToTick (target));
+            break;
+        }
+        case cmdShortcuts:     showShortcuts(); break;
         case cmdModeCubase:    setOperationMode (OperationMode::cubase); break;
         case cmdModeStudioOne: setOperationMode (OperationMode::studioOne); break;
         case cmdMixer:         toggleMixer(); break;
@@ -1272,14 +1384,22 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addCommandItem (cm, cmdUndo);
             m.addCommandItem (cm, cmdRedo);
             m.addSeparator();
+            m.addCommandItem (cm, cmdCut);
+            m.addCommandItem (cm, cmdCopy);
+            m.addCommandItem (cm, cmdPaste);
             m.addCommandItem (cm, cmdDelete);
             m.addCommandItem (cm, cmdSelectAll);
             m.addCommandItem (cm, cmdDuplicate);
+            m.addCommandItem (cm, cmdNudgeLeft);
+            m.addCommandItem (cm, cmdNudgeRight);
             m.addCommandItem (cm, cmdSplit);
             m.addCommandItem (cm, cmdQuantise);
             m.addSeparator();
             m.addCommandItem (cm, cmdToolSelect);
             m.addCommandItem (cm, cmdToolPencil);
+            m.addCommandItem (cm, cmdToolSplit);
+            m.addCommandItem (cm, cmdToolGlue);
+            m.addCommandItem (cm, cmdToolErase);
             m.addCommandItem (cm, cmdSnap);
             break;
         case 2:
@@ -1364,6 +1484,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
         }
         case 6:
             m.addCommandItem (cm, cmdCredits);
+            m.addCommandItem (cm, cmdShortcuts);
             m.addCommandItem (cm, cmdCheckUpdate);
             m.addCommandItem (cm, cmdAbout);
             break;

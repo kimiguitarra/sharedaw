@@ -93,3 +93,42 @@ TEST_CASE ("split MIDI clip")
     CHECK (r->second.notes[0].id == "new1");
     CHECK_FALSE (splitMidiClip (c, 0, "x", [] { return std::string(); }));
 }
+
+TEST_CASE ("trimming a MIDI clip's start keeps notes in place and restores them when extended")
+{
+    MidiClip c { "m", 3840, 3840, { { "n1", 0, 240, 60, 100 }, { "n2", 1920, 240, 62, 100 } } };
+
+    auto shorter = trimMidiClipStart (c, 3840 + 960, 240);
+    CHECK (shorter.startTick == 4800);
+    CHECK (shorter.endTick() == c.endTick());
+    CHECK (shorter.notes[0].tick == -960);    // 隠れたノート
+    CHECK (shorter.notes[1].tick == 960);     // 絶対位置は同じ
+
+    auto back = trimMidiClipStart (shorter, 3840, 240);
+    CHECK (back == c);
+
+    CHECK (trimMidiClipStart (c, 99999, 240).lengthTick == 240);   // 最低の長さは残す
+}
+
+TEST_CASE ("glue MIDI and audio clips")
+{
+    MidiClip a { "a", 0, 3840, { { "n1", 0, 240, 60, 100 } } };
+    MidiClip b { "b", 3840, 1920, { { "n2", 0, 240, 64, 100 } } };
+    auto g = glueMidiClips (a, b);
+    CHECK (g.id == "a");
+    CHECK (g.lengthTick == 5760);
+    REQUIRE (g.notes.size() == 2);
+    CHECK (g.notes[1].tick == 3840);
+
+    const auto map = TempoMap (Project::createEmpty ("t"));
+    auto parts = splitAudioClip (clip(), 3840 + 960, map, "b");
+    REQUIRE (parts);
+    auto joined = glueAudioClips (parts->first, parts->second, map);
+    REQUIRE (joined);
+    CHECK (joined->lengthSamples == clip().lengthSamples);
+    CHECK (joined->sourceOffsetSamples == clip().sourceOffsetSamples);
+
+    auto other = parts->second;
+    other.audioHash = std::string (64, 'b');
+    CHECK (! glueAudioClips (parts->first, other, map));
+}

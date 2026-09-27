@@ -38,7 +38,7 @@ public:
 private:
     PianoRollView& owner;
 
-    enum class Mode { none, move, resize, rubberBand };
+    enum class Mode { none, move, resize, rubberBand, erase };
     Mode mode = Mode::none;
 
     struct Orig { collab::Tick tick, length; int pitch; };
@@ -51,6 +51,7 @@ private:
     bool drawingNote = false;   // 鉛筆で置いたノートの長さをドラッグで決めている
 
     const collab::Note* hitNote (juce::Point<float>, bool& nearRightEdge) const;
+    void eraseNote (const std::string& id);
 };
 
 /** ベロシティの表示・編集（ドラッグで描くように変更）。 */
@@ -94,6 +95,13 @@ public:
 
     /** ノートを短く鳴らす（クリック・入力したときの確認用）。 */
     void previewNote (int pitch, int velocity);
+
+    // コピー・貼り付け・複製（Ctrl+C / X / V / D）
+    void copySelectedNotes (bool cut);
+    void pasteNotes();
+    void duplicateSelectedNotes();
+    bool hasNotesInClipboard() const noexcept   { return ! noteClipboard.empty(); }
+    std::vector<collab::Note> noteClipboard;
 
     //==============================================================================
     AppContext& ctx;

@@ -83,6 +83,100 @@ juce::Path pencilToolIcon (juce::Rectangle<float> area)
     return p;
 }
 
+juce::Path splitToolIcon (juce::Rectangle<float> area)
+{
+    // はさみ（2 つの輪と交差する刃）
+    juce::Path p;
+    p.addEllipse (0.5f, 10.5f, 5.0f, 5.0f);
+    p.addEllipse (10.5f, 10.5f, 5.0f, 5.0f);
+    p.startNewSubPath (4.5f, 11.0f);
+    p.lineTo (12.0f, 0.5f);
+    p.startNewSubPath (11.5f, 11.0f);
+    p.lineTo (4.0f, 0.5f);
+    p.applyTransform (p.getTransformToScaleToFit (area, true));
+    return p;
+}
+
+juce::Path glueToolIcon (juce::Rectangle<float> area)
+{
+    // のりのチューブ
+    juce::Path p;
+    p.addRoundedRectangle (1.0f, 6.0f, 10.0f, 9.0f, 2.0f);
+    p.startNewSubPath (11.0f, 8.0f);
+    p.lineTo (14.0f, 9.0f);
+    p.lineTo (14.0f, 12.0f);
+    p.lineTo (11.0f, 13.0f);
+    p.startNewSubPath (3.0f, 6.0f);
+    p.lineTo (3.0f, 2.0f);
+    p.lineTo (9.0f, 2.0f);
+    p.lineTo (9.0f, 6.0f);
+    p.applyTransform (p.getTransformToScaleToFit (area, true));
+    return p;
+}
+
+juce::Path eraseToolIcon (juce::Rectangle<float> area)
+{
+    // 消しゴム（斜めの直方体）
+    juce::Path p;
+    p.startNewSubPath (1.0f, 11.0f);
+    p.lineTo (9.0f, 3.0f);
+    p.lineTo (15.0f, 9.0f);
+    p.lineTo (9.0f, 15.0f);
+    p.lineTo (5.0f, 15.0f);
+    p.closeSubPath();
+    p.startNewSubPath (5.0f, 7.0f);
+    p.lineTo (11.0f, 13.0f);
+    p.applyTransform (p.getTransformToScaleToFit (area, true));
+    return p;
+}
+
+static juce::MouseCursor makeToolCursor (juce::Path (*icon) (juce::Rectangle<float>), int hotX, int hotY)
+{
+    constexpr int size = 24;
+    juce::Image image (juce::Image::ARGB, size, size, true);
+    juce::Graphics g (image);
+    auto path = icon ({ 2.0f, 2.0f, (float) size - 4.0f, (float) size - 4.0f });
+    g.setColour (juce::Colours::black);
+    g.strokePath (path, juce::PathStrokeType (3.0f));
+    g.setColour (juce::Colours::white);
+    g.strokePath (path, juce::PathStrokeType (1.4f));
+    return juce::MouseCursor (image, hotX, hotY);
+}
+
+const juce::MouseCursor& splitCursor()
+{
+    static const juce::MouseCursor cursor = makeToolCursor (splitToolIcon, 12, 2);
+    return cursor;
+}
+
+const juce::MouseCursor& glueCursor()
+{
+    static const juce::MouseCursor cursor = makeToolCursor (glueToolIcon, 20, 12);
+    return cursor;
+}
+
+const juce::MouseCursor& eraseCursor()
+{
+    static const juce::MouseCursor cursor = makeToolCursor (eraseToolIcon, 4, 16);
+    return cursor;
+}
+
+const juce::MouseCursor& toolCursor (EditTool tool)
+{
+    static const juce::MouseCursor normal;
+
+    switch (tool)
+    {
+        case EditTool::pencil: return pencilCursor();
+        case EditTool::split:  return splitCursor();
+        case EditTool::glue:   return glueCursor();
+        case EditTool::erase:  return eraseCursor();
+        case EditTool::select: break;
+    }
+
+    return normal;
+}
+
 const juce::MouseCursor& pencilCursor()
 {
     static const juce::MouseCursor cursor = []

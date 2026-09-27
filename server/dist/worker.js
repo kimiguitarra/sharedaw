@@ -2056,7 +2056,8 @@ var project_schema_default = {
           $ref: "#/definitions/uuid"
         },
         tick: {
-          $ref: "#/definitions/tick"
+          type: "integer",
+          description: "\u30AF\u30EA\u30C3\u30D7\u5148\u982D\u304B\u3089\u306E tick\u3002\u5DE6\u7AEF\u3092\u7E2E\u3081\u305F\u30AF\u30EA\u30C3\u30D7\u3067\u306F\u8CA0\uFF08\u96A0\u308C\u305F\u30CE\u30FC\u30C8\uFF09\u306B\u306A\u308A\u3046\u308B"
         },
         lengthTick: {
           type: "integer",

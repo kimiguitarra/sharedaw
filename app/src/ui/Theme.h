@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Common.h"
+#include "EditorState.h"
 
 namespace Theme
 {
@@ -34,6 +35,13 @@ namespace Theme
 
     /** 鉛筆ツールのマウスカーソル（先端がホットスポット）。 */
     const juce::MouseCursor& pencilCursor();
+
+    juce::Path splitToolIcon (juce::Rectangle<float> area);
+    juce::Path glueToolIcon (juce::Rectangle<float> area);
+    juce::Path eraseToolIcon (juce::Rectangle<float> area);
+
+    /** ツールごとのマウスカーソル（選択ツールは普通の矢印）。 */
+    const juce::MouseCursor& toolCursor (EditTool);
 
     class LookAndFeel  : public juce::LookAndFeel_V4
     {

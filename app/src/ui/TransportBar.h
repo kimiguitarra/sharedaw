@@ -23,13 +23,14 @@ private:
     /** ツール（選択・鉛筆）のボタン。アイコンだけを描く。 */
     struct ToolButton  : public juce::Button
     {
-        ToolButton (bool pencilIcon) : juce::Button ({}), pencil (pencilIcon) {}
+        explicit ToolButton (EditTool t) : juce::Button ({}), tool (t) {}
         void paintButton (juce::Graphics&, bool highlighted, bool down) override;
-        bool pencil;
+        EditTool tool;
     };
 
     AppContext& ctx;
-    ToolButton selectTool { false }, pencilTool { true };
+    ToolButton selectTool { EditTool::select }, pencilTool { EditTool::pencil }, splitTool { EditTool::split },
+               glueTool { EditTool::glue }, eraseTool { EditTool::erase };
     juce::TextButton toStartButton, playButton, stopButton, recordButton, loopButton, metronomeButton, settingsButton;
     juce::ComboBox quantiseBox;
     MidiActivityLight midiLight;

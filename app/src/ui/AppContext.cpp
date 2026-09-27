@@ -38,7 +38,7 @@ void AppContext::addBuiltinMidiTrack (const std::string& instrumentId, const juc
     });
 
     state.selectedTrackId = t.id;
-    state.selectedClipId = {};
+    state.selectClip ({});
     state.changed();
 }
 
@@ -60,7 +60,7 @@ std::string AppContext::addAudioTrack (const juce::String& name)
     });
 
     state.selectedTrackId = t.id;
-    state.selectedClipId = {};
+    state.selectClip ({});
     state.changed();
     return t.id;
 }
@@ -131,7 +131,7 @@ void AppContext::importAudioFiles (const juce::Array<juce::File>& files, std::st
     });
 
     state.selectedTrackId = trackId;
-    state.selectedClipId = clips.front().id;
+    state.selectClip (clips.front().id);
     state.changed();
 }
 
@@ -394,13 +394,320 @@ void AppContext::importMidiFiles (const juce::Array<juce::File>& files, std::str
     if (! newTracks.empty())
     {
         state.selectedTrackId = newTracks.front().id;
-        state.selectedClipId = newTracks.front().midiClips.front().id;
+        state.selectClip (newTracks.front().midiClips.front().id);
     }
     else
     {
         state.selectedTrackId = clipsForExisting.front().first;
-        state.selectedClipId = clipsForExisting.front().second.id;
+        state.selectClip (clipsForExisting.front().second.id);
     }
 
     state.changed();
+}
+
+//==============================================================================
+std::optional<AppContext::ClipRef> AppContext::findClip (const std::string& clipId) const
+{
+    for (auto& t : document.getProject().tracks)
+    {
+        for (auto& c : t.midiClips)
+            if (c.id == clipId)
+                return ClipRef { t.id, false };
+
+        for (auto& c : t.audioClips)
+            if (c.id == clipId)
+                return ClipRef { t.id, true };
+    }
+
+    return std::nullopt;
+}
+
+std::pair<collab::Tick, collab::Tick> AppContext::clipRange (const std::string& clipId) const
+{
+    const auto& map = document.getTempoMap();
+
+    for (auto& t : document.getProject().tracks)
+    {
+        for (auto& c : t.midiClips)
+            if (c.id == clipId)
+                return { c.startTick, c.endTick() };
+
+        for (auto& c : t.audioClips)
+            if (c.id == clipId)
+                return { c.startTick, collab::audioClipEndTick (c, map) };
+    }
+
+    return { 0, 0 };
+}
+
+void AppContext::splitClipAt (const std::string& clipId, collab::Tick at)
+{
+    auto ref = findClip (clipId);
+
+    if (! ref)
+        return;
+
+    const auto [start, end] = clipRange (clipId);
+
+    if (at <= start || at >= end)
+        return;
+
+    const auto newId = collab::generateUuid();
+    const auto trackId = ref->trackId;
+    const auto& map = document.getTempoMap();
+
+    document.perform ("クリップの分割"_ju, [trackId, clipId, at, newId, map] (collab::Project& p)
+    {
+        auto* t = p.findTrack (trackId);
+
+        if (t == nullptr)
+            return;
+
+        for (size_t i = 0; i < t->audioClips.size(); ++i)
+            if (t->audioClips[i].id == clipId)
+                if (auto r = collab::splitAudioClip (t->audioClips[i], at, map, newId))
+                {
+                    t->audioClips[i] = r->first;
+                    t->audioClips.push_back (r->second);
+                    return;
+                }
+
+        for (size_t i = 0; i < t->midiClips.size(); ++i)
+            if (t->midiClips[i].id == clipId)
+                if (auto r = collab::splitMidiClip (t->midiClips[i], at, newId, [] { return collab::generateUuid(); }))
+                {
+                    t->midiClips[i] = r->first;
+                    t->midiClips.push_back (r->second);
+                    return;
+                }
+    });
+}
+
+void AppContext::glueClip (const std::string& clipId)
+{
+    auto ref = findClip (clipId);
+
+    if (! ref)
+        return;
+
+    const auto trackId = ref->trackId;
+    const auto& map = document.getTempoMap();
+    const auto* track = document.getProject().findTrack (trackId);
+
+    // 同じトラックで、このクリップの後ろにあるいちばん近いクリップとつなげる
+    std::string nextId;
+    collab::Tick best = std::numeric_limits<collab::Tick>::max();
+    const auto [start, end] = clipRange (clipId);
+
+    auto consider = [&] (const std::string& id, collab::Tick s)
+    {
+        if (id != clipId && s >= start && s < best)
+        {
+            best = s;
+            nextId = id;
+        }
+    };
+
+    for (auto& c : track->midiClips)  if (! ref->audio) consider (c.id, c.startTick);
+    for (auto& c : track->audioClips) if (ref->audio)   consider (c.id, c.startTick);
+
+    if (nextId.empty())
+        return;
+
+    if (ref->audio)
+    {
+        const collab::AudioClip* a = nullptr;
+        const collab::AudioClip* b = nullptr;
+
+        for (auto& c : track->audioClips)
+        {
+            if (c.id == clipId) a = &c;
+            if (c.id == nextId) b = &c;
+        }
+
+        auto joined = collab::glueAudioClips (*a, *b, map);
+
+        if (! joined)
+        {
+            Dialogs::showInfo ("のり"_ju, "オーディオは、分割した続きのクリップ同士だけつなげられます。"_ju);
+            return;
+        }
+
+        auto result = *joined;
+        document.perform ("クリップをつなげる"_ju, [trackId, clipId, nextId, result] (collab::Project& p)
+        {
+            if (auto* t = p.findTrack (trackId))
+            {
+                std::erase_if (t->audioClips, [&] (auto& c) { return c.id == clipId || c.id == nextId; });
+                t->audioClips.push_back (result);
+            }
+        });
+    }
+    else
+    {
+        document.perform ("クリップをつなげる"_ju, [trackId, clipId, nextId] (collab::Project& p)
+        {
+            auto* t = p.findTrack (trackId);
+            auto* a = t != nullptr ? t->findMidiClip (clipId) : nullptr;
+            auto* b = t != nullptr ? t->findMidiClip (nextId) : nullptr;
+
+            if (a == nullptr || b == nullptr)
+                return;
+
+            auto glued = collab::glueMidiClips (*a, *b);
+            *a = glued;
+            std::erase_if (t->midiClips, [&] (auto& c) { return c.id == nextId; });
+        });
+    }
+
+    state.selectClip (clipId);
+    state.changed();
+}
+
+void AppContext::deleteClips (const std::set<std::string>& ids)
+{
+    if (ids.empty())
+        return;
+
+    document.perform (ids.size() > 1 ? "クリップの削除（"_ju + juce::String ((int) ids.size()) + " 個）"_ju : "クリップの削除"_ju,
+                      [ids] (collab::Project& p)
+    {
+        for (auto& t : p.tracks)
+        {
+            std::erase_if (t.midiClips, [&] (auto& c) { return ids.count (c.id) > 0; });
+            std::erase_if (t.audioClips, [&] (auto& c) { return ids.count (c.id) > 0; });
+        }
+    });
+
+    state.selectClip ({});
+    state.changed();
+}
+
+void AppContext::copyClips (const std::set<std::string>& ids)
+{
+    if (ids.empty())
+        return;
+
+    ClipClipboard cb;
+    cb.origin = std::numeric_limits<collab::Tick>::max();
+
+    for (auto& t : document.getProject().tracks)
+    {
+        for (auto& c : t.midiClips)
+            if (ids.count (c.id) > 0)
+            {
+                cb.midi.push_back ({ t.id, c });
+                cb.origin = std::min (cb.origin, c.startTick);
+            }
+
+        for (auto& c : t.audioClips)
+            if (ids.count (c.id) > 0)
+            {
+                cb.audio.push_back ({ t.id, c });
+                cb.origin = std::min (cb.origin, c.startTick);
+            }
+    }
+
+    if (! cb.midi.empty() || ! cb.audio.empty())
+        clipboard = std::move (cb);
+}
+
+void AppContext::pasteClips (collab::Tick at)
+{
+    if (! hasClipsInClipboard())
+        return;
+
+    const auto& project = document.getProject();
+    const auto* selected = selectedTrack();
+    auto cb = clipboard;
+    const auto offset = at - cb.origin;
+    std::set<std::string> newIds;
+
+    // 貼り付け先: 元のトラックがあればそこ。1 つのトラックだけからのコピーなら、選択中の同じ種類のトラックへ
+    std::set<std::string> sourceTracks;
+    for (auto& [id, c] : cb.midi)  sourceTracks.insert (id);
+    for (auto& [id, c] : cb.audio) sourceTracks.insert (id);
+
+    auto targetFor = [&] (const std::string& from, collab::TrackType type) -> std::string
+    {
+        if (sourceTracks.size() == 1 && selected != nullptr && selected->type == type)
+            return selected->id;
+
+        auto* t = project.findTrack (from);
+        return t != nullptr ? from : std::string();
+    };
+
+    for (auto& [trackId, c] : cb.midi)
+    {
+        trackId = targetFor (trackId, collab::TrackType::midi);
+        c.id = collab::generateUuid();
+        c.startTick = std::max<collab::Tick> (0, c.startTick + offset);
+
+        for (auto& n : c.notes)
+            n.id = collab::generateUuid();
+
+        newIds.insert (c.id);
+    }
+
+    for (auto& [trackId, c] : cb.audio)
+    {
+        trackId = targetFor (trackId, collab::TrackType::audio);
+        c.id = collab::generateUuid();
+        c.startTick = std::max<collab::Tick> (0, c.startTick + offset);
+        newIds.insert (c.id);
+    }
+
+    document.perform ("貼り付け"_ju, [cb] (collab::Project& p)
+    {
+        for (auto& [trackId, c] : cb.midi)
+            if (auto* t = p.findTrack (trackId))
+                t->midiClips.push_back (c);
+
+        for (auto& [trackId, c] : cb.audio)
+            if (auto* t = p.findTrack (trackId))
+                t->audioClips.push_back (c);
+    });
+
+    state.selectedClipIds = newIds;
+    state.selectedClipId = newIds.empty() ? std::string() : *newIds.begin();
+    state.changed();
+}
+
+void AppContext::duplicateClips (const std::set<std::string>& ids)
+{
+    if (ids.empty())
+        return;
+
+    // 選んだクリップ全体の終わりの位置に、同じ並びで置く（Cubase の「複製」）
+    collab::Tick end = 0;
+
+    for (auto& id : ids)
+        end = std::max (end, clipRange (id).second);
+
+    auto saved = clipboard;
+    copyClips (ids);
+    auto* selected = selectedTrack();
+    auto keepTrack = state.selectedTrackId;
+
+    // 複製は元のトラックに置く（選択中のトラックへは移さない）
+    state.selectedTrackId = {};
+    pasteClips (end);
+    state.selectedTrackId = keepTrack;
+    clipboard = saved;
+    juce::ignoreUnused (selected);
+}
+
+void AppContext::nudgeClips (const std::set<std::string>& ids, collab::Tick delta)
+{
+    if (ids.empty())
+        return;
+
+    document.perform ("クリップの移動"_ju, [ids, delta] (collab::Project& p)
+    {
+        for (auto& t : p.tracks)
+        {
+            for (auto& c : t.midiClips)  if (ids.count (c.id) > 0) c.startTick = std::max<collab::Tick> (0, c.startTick + delta);
+            for (auto& c : t.audioClips) if (ids.count (c.id) > 0) c.startTick = std::max<collab::Tick> (0, c.startTick + delta);
+        }
+    });
 }
