@@ -91,26 +91,61 @@ ApiResponse SyncClient::post (const juce::String& path, const nlohmann::json& bo
 
 juce::Result SyncClient::uploadBlob (const TransferUrl& t, const juce::MemoryBlock& data) const
 {
-    int status = 0;
-    juce::String headers = "Content-Type: application/octet-stream";
+    auto put = [&] (const juce::String& url, const juce::StringPairArray& extra, bool withAuth, juce::String& errorText) -> int
+    {
+        int status = 0;
+        juce::String headers = "Content-Type: application/octet-stream";
 
-    for (auto& key : t.headers.getAllKeys())
-        headers << "\r\n" << key << ": " << t.headers[key];
+        for (auto& key : extra.getAllKeys())
+            headers << "\r\n" << key << ": " << extra[key];
 
-    if (t.authRequired)
-        headers << "\r\nAuthorization: Bearer " << token;
+        if (withAuth)
+            headers << "\r\nAuthorization: Bearer " << token;
 
-    auto stream = juce::URL (t.url).withPOSTData (data)
-                    .createInputStream (juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inPostData)
-                                          .withExtraHeaders (headers)
-                                          .withHttpRequestCmd ("PUT")
-                                          .withConnectionTimeoutMs (timeoutMs)
-                                          .withStatusCode (&status));
+        auto stream = juce::URL (url).withPOSTData (data)
+                        .createInputStream (juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inPostData)
+                                              .withExtraHeaders (headers)
+                                              .withHttpRequestCmd ("PUT")
+                                              .withConnectionTimeoutMs (timeoutMs)
+                                              .withStatusCode (&status));
 
-    if (stream == nullptr || status < 200 || status >= 300)
-        return juce::Result::fail ("アップロードに失敗しました（HTTP "_ju + juce::String (status) + "）"_ju);
+        if (stream != nullptr)
+        {
+            const auto body = stream->readEntireStreamAsString();
 
-    stream->readEntireStreamAsString();
+            // S3 / R2 のエラーは XML（<Code>…</Code><Message>…</Message>）
+            if (status < 200 || status >= 300)
+            {
+                const auto code = body.fromFirstOccurrenceOf ("<Code>", false, false).upToFirstOccurrenceOf ("</Code>", false, false);
+                const auto message = body.fromFirstOccurrenceOf ("<Message>", false, false).upToFirstOccurrenceOf ("</Message>", false, false);
+                errorText = code.isNotEmpty() ? code + (message.isNotEmpty() ? ": " + message : juce::String()) : body.substring (0, 200);
+            }
+        }
+
+        return stream == nullptr ? 0 : status;
+    };
+
+    juce::String error;
+    int status = put (t.url, t.headers, t.authRequired, error);
+
+    // 署名付き URL（R2 へ直接）で失敗したら、サーバー（Worker）経由で送り直す
+    if ((status < 200 || status >= 300) && ! t.authRequired)
+    {
+        juce::String fallbackError;
+        const int fallback = put (serverUrl + "/blobs/" + toJuce (t.hash) + "/data", {}, true, fallbackError);
+
+        if (fallback >= 200 && fallback < 300)
+            return juce::Result::ok();   // Worker 経由のアップロードはその場で検証・登録される
+
+        return juce::Result::fail ("アップロードに失敗しました（直接: HTTP "_ju + juce::String (status)
+                                   + (error.isNotEmpty() ? " " + error : juce::String())
+                                   + "、サーバー経由: HTTP "_ju + juce::String (fallback)
+                                   + (fallbackError.isNotEmpty() ? " " + fallbackError : juce::String()) + "）"_ju);
+    }
+
+    if (status < 200 || status >= 300)
+        return juce::Result::fail ("アップロードに失敗しました（HTTP "_ju + juce::String (status)
+                                   + (error.isNotEmpty() ? " " + error : juce::String()) + "）"_ju);
 
     // 署名付き URL で直接送った場合は、サーバーにハッシュを検証してもらう
     if (! t.authRequired)

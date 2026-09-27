@@ -63,6 +63,8 @@ private:
     std::map<std::string, collab::Tick> dragOrigStarts;   // まとめて動かすクリップの元の位置
     juce::Rectangle<float> band;                          // 範囲選択の枠
     int splitRow = -1;                                    // はさみ: 切る位置の縦線を出すトラック
+    int ghostRow = -1;                                    // 鉛筆: クリックで作られるクリップの枠
+    collab::Tick ghostStart = 0, ghostEnd = 0;
     double splitTick = -1.0;
     juce::Point<float> bandStart;
     std::set<std::string> bandBase;                       // Ctrl を押して始めたときの元の選択
@@ -94,10 +96,17 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+
+    /** マーカー〜コードのレーンの上のホイール（レーンから親へ渡ってくる）: Ctrl でズーム、Shift で横スクロール。 */
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
     void setPlayheadTick (double tick);
 
     /** テンポ・拍子・コードのレーンにフォーカスがあれば、そこで選択中のものを削除する（削除したら true）。 */
     bool deleteLaneSelection();
+
+    /** コードトラックにフォーカスがあるときのコピー・貼り付け（処理したら true）。 */
+    bool copyChord (bool cut)                         { return chordLane.hasKeyboardFocus (false) && chordLane.copySelected (cut); }
+    bool pasteChord (double tick)                     { return chordLane.hasKeyboardFocus (false) && chordLane.paste (tick); }
 
     /** 再生位置が見えるようにスクロールする。 */
     void followPlayhead (double tick);

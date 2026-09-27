@@ -110,6 +110,7 @@ collab::Tick MarkerLane::snap (double tick, const juce::ModifierKeys& mods) cons
 
 void MarkerLane::mouseMove (const juce::MouseEvent& e)
 {
+    setGhost (ctx.state.pencil() && findHit (e.position.x).empty() ? (double) snap (ctx.state.timeline.xToTick (e.position.x), e.mods) : -1.0);
     setMouseCursor (ctx.state.pencil() && findHit (e.position.x).empty() ? Theme::pencilCursor()
                                                                         : juce::MouseCursor::NormalCursor);
 }
@@ -251,4 +252,25 @@ void MarkerLane::rename (const std::string& id)
         }, this);
         return;
     }
+}
+
+void MarkerLane::setGhost (double tick)
+{
+    if (std::abs (tick - ghostTick) > 0.5)
+    {
+        ghostTick = tick;
+        repaint();
+    }
+}
+
+void MarkerLane::mouseExit (const juce::MouseEvent&)
+{
+    setGhost (-1.0);
+}
+
+void MarkerLane::paintOverChildren (juce::Graphics& g)
+{
+    // 鉛筆ツール: クリックしたら置かれる位置
+    if (ghostTick >= 0.0 && ctx.state.pencil())
+        TimeGrid::drawPencilGhostLine (g, (float) ctx.state.timeline.tickToX (ghostTick), getHeight());
 }

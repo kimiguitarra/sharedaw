@@ -40,6 +40,8 @@ private:
     PianoRollView& owner;
     double splitX = -1.0;     // はさみで切る位置（なければ -1）
     float splitY = -1.0f;
+    double ghostTick = -1.0;  // 鉛筆で置かれるノートの位置（なければ ghostPitch = -1）
+    int ghostPitch = -1;
 
     enum class Mode { none, move, resize, rubberBand };
     Mode mode = Mode::none;
@@ -72,6 +74,19 @@ private:
     float lastX = 0;
     juce::String mergeId;
     void applyAt (float x1, float x2, float y);
+};
+
+/** オーディオクリップを選んだときに下部パネルに出す拡大波形（グリッド線つき）。 */
+class AudioClipGrid  : public juce::Component
+{
+public:
+    explicit AudioClipGrid (PianoRollView& o) : owner (o) {}
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+
+private:
+    PianoRollView& owner;
 };
 
 /** ピアノロール（§3.2）。選択中の MIDI クリップを編集する。 */
@@ -115,6 +130,8 @@ public:
 
     const collab::Track* getTrack() const  { return ctx.selectedTrack(); }
     const collab::MidiClip* getClip() const { return ctx.selectedClip(); }
+    /** 選択中のオーディオクリップ（あればピアノロールの代わりに波形を拡大表示する）。 */
+    const collab::AudioClip* getAudioClip() const;
     bool isDrumTrack() const;
 
     float pitchToY (int pitch) const       { return (float) ((127 - pitch) * noteHeight - scrollY); }
@@ -134,6 +151,7 @@ private:
     PianoKeyboard keyboard { *this };
     NoteGrid grid { *this };
     VelocityLane velocity { *this };
+    AudioClipGrid audioGrid { *this };
     PlayheadOverlay playhead;
     juce::ScrollBar hScroll { false }, vScroll { true };
 
@@ -145,9 +163,11 @@ private:
 
     std::string shownClipId;
     bool shownAsDrums = false;
+    bool shownAsAudio = false;
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
     void scrollBarMoved (juce::ScrollBar*, double) override;
     void clipChanged();
-    int keyboardWidth() const              { return isDrumTrack() ? 170 : 70; }
+    void updateTitle();
+    int keyboardWidth() const              { return getAudioClip() != nullptr ? 0 : (isDrumTrack() ? 170 : 70); }
 };

@@ -22,6 +22,8 @@ public:
     void mouseUp (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
+    void paintOverChildren (juce::Graphics&) override;
     bool keyPressed (const juce::KeyPress&) override;
 
     /** 選択中のテンポ変更を削除する（先頭は消せない）。削除したら true。 */
@@ -37,6 +39,8 @@ private:
     void editEvent (const std::string& id);
     void addEventAt (collab::Tick tick);
     void showMenu (const std::string& id, collab::Tick tick);
+    double ghostTick = -1.0;   // 鉛筆ツールで置く位置（なければ -1）
+    void setGhost (double tick);
     void changeListenerCallback (juce::ChangeBroadcaster*) override    { repaint(); }
 };
 
@@ -55,6 +59,8 @@ public:
     void mouseUp (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
+    void paintOverChildren (juce::Graphics&) override;
     bool keyPressed (const juce::KeyPress&) override;
 
     /** 選択中の拍子変更を削除する（1 小節目は消せない）。削除したら true。 */
@@ -74,5 +80,7 @@ private:
     void addEventAt (int bar);
     int barAt (float x) const;
     void showMenu (const std::string& id, int bar);
+    double ghostTick = -1.0;   // 鉛筆ツールで置く位置（なければ -1）
+    void setGhost (double tick);
     void changeListenerCallback (juce::ChangeBroadcaster*) override    { repaint(); }
 };

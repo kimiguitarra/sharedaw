@@ -23,15 +23,23 @@ public:
     void mouseDoubleClick (const juce::MouseEvent&) override;
     bool keyPressed (const juce::KeyPress&) override;
     void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
+    void paintOverChildren (juce::Graphics&) override;
 
     /** 選択中のコードイベントを削除する（削除したら true）。 */
     bool deleteSelected();
+
+    /** コピー・切り取り・貼り付け（Ctrl+C / X / V。貼り付けは再生位置の拍へ）。 */
+    bool copySelected (bool cut);
+    bool paste (double playheadTick);
+    static bool hasClipboard()                     { return clipboard.has_value(); }
 
     /** イベントの表示用テキスト。 */
     static juce::String displayText (const collab::ChordEvent&);
 
 private:
     AppContext& ctx;
+    static inline std::optional<collab::ChordEvent> clipboard;
     std::string dragId;
     collab::Tick dragOrigTick = 0;
     double dragDownTick = 0;
@@ -55,5 +63,7 @@ private:
     };
 
     std::vector<Box> layoutBoxes() const;
+    double ghostTick = -1.0;   // 鉛筆ツールで置く位置（なければ -1）
+    void setGhost (double tick);
     void changeListenerCallback (juce::ChangeBroadcaster*) override    { repaint(); }
 };

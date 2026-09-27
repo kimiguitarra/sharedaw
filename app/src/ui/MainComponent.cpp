@@ -1407,6 +1407,8 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdCut:
             if (pianoRoll.hasKeyboardFocus (true) && pianoRoll.hasSelectedNotes())
                 pianoRoll.copySelectedNotes (info.commandID == cmdCut);
+            else if (timeline.copyChord (info.commandID == cmdCut))
+                break;
             else
             {
                 ctx.copyClips (state.clipSelection());
@@ -1418,6 +1420,8 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdPaste:
             if (pianoRoll.hasKeyboardFocus (true) && pianoRoll.hasNotesInClipboard())
                 pianoRoll.pasteNotes();
+            else if (timeline.pasteChord (bridge.getPositionTick()))
+                break;
             else
                 ctx.pasteClips ((collab::Tick) std::llround (state.snapCursor (bridge.getPositionTick(), document.getTempoMap(), {})));
             break;

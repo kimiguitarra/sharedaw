@@ -67,8 +67,10 @@ void TempoLane::paint (juce::Graphics& g)
         const bool selected = e.id == state.selectedTempoId;
         g.setColour (selected ? Theme::selection : Theme::tempo);
         g.fillRect (juce::Rectangle<float> (x, 0.0f, selected ? 3.0f : 2.0f, (float) getHeight()));
+        // 左にスクロールして変更点が見えなくなっても、値は左端に残す（次の変更点の手前まで）
+        const float textX = juce::jmin (juce::jmax (x + 4.0f, 4.0f), juce::jmax (x + 4.0f, next - 64.0f));
         g.setColour (Theme::text);
-        g.drawText (formatBpm (e.bpm), juce::Rectangle<float> (x + 4.0f, 0.0f, 80.0f, (float) getHeight()),
+        g.drawText (formatBpm (e.bpm), juce::Rectangle<float> (textX, 0.0f, 80.0f, (float) getHeight()),
                     juce::Justification::centredLeft);
     }
 }
@@ -84,6 +86,9 @@ std::string TempoLane::findHit (float x) const
 
 void TempoLane::mouseMove (const juce::MouseEvent& e)
 {
+    setGhost (state.pencil() && findHit (e.position.x).empty()
+                ? (double) state.timelineGrid.snap ((collab::Tick) juce::jmax (0.0, state.timeline.xToTick (e.position.x)), document.getTempoMap())
+                : -1.0);
     setMouseCursor (state.pencil() ? Theme::pencilCursor()
                                    : ! findHit (e.position.x).empty() ? juce::MouseCursor::LeftRightResizeCursor
                                                                       : juce::MouseCursor::NormalCursor);
@@ -292,6 +297,31 @@ void MeterLane::paint (juce::Graphics& g)
     TimeGrid::drawGrid (g, getLocalBounds(), axis, map, nullptr);
     g.setFont (juce::FontOptions (12.0f));
 
+    // 左にスクロールして変更点が見えなくなっても、いまの拍子を左端に出す
+    {
+        const collab::MeterEvent* current = nullptr;
+        float nextX = (float) getWidth();
+
+        for (auto& e : document.getProject().meterTrack.events)
+        {
+            const float x = (float) axis.tickToX ((double) map.barToTick (e.bar));
+
+            if (x < 0.0f && (current == nullptr || e.bar > current->bar))
+                current = &e;
+            else if (x >= 0.0f)
+                nextX = juce::jmin (nextX, x);
+        }
+
+        if (current != nullptr && nextX > 50.0f)
+        {
+            g.setColour (Theme::meter.withAlpha (0.25f));
+            g.fillRect (juce::Rectangle<float> (0.0f, 3.0f, 44.0f, (float) getHeight() - 6.0f));
+            g.setColour (Theme::text);
+            g.drawText (juce::String (current->numerator) + "/" + juce::String (current->denominator),
+                        juce::Rectangle<float> (4.0f, 0.0f, 60.0f, (float) getHeight()), juce::Justification::centredLeft);
+        }
+    }
+
     for (auto& e : document.getProject().meterTrack.events)
     {
         const float x = (float) axis.tickToX ((double) map.barToTick (e.bar));
@@ -321,6 +351,7 @@ std::string MeterLane::findHit (float x) const
 
 void MeterLane::mouseMove (const juce::MouseEvent& e)
 {
+    setGhost (state.pencil() && findHit (e.position.x).empty() ? (double) document.getTempoMap().barToTick (barAt (e.position.x)) : -1.0);
     setMouseCursor (state.pencil() ? Theme::pencilCursor()
                                    : ! findHit (e.position.x).empty() ? juce::MouseCursor::LeftRightResizeCursor
                                                                       : juce::MouseCursor::NormalCursor);
@@ -506,4 +537,46 @@ void MeterLane::addEventAt (int bar)
             p.meterTrack.events.push_back ({ collab::generateUuid(), bar, m->first, m->second });
         });
     }, this);
+}
+
+void TempoLane::setGhost (double tick)
+{
+    if (std::abs (tick - ghostTick) > 0.5)
+    {
+        ghostTick = tick;
+        repaint();
+    }
+}
+
+void TempoLane::mouseExit (const juce::MouseEvent&)
+{
+    setGhost (-1.0);
+}
+
+void TempoLane::paintOverChildren (juce::Graphics& g)
+{
+    // 鉛筆ツール: クリックしたら置かれる位置
+    if (ghostTick >= 0.0 && state.pencil())
+        TimeGrid::drawPencilGhostLine (g, (float) state.timeline.tickToX (ghostTick), getHeight());
+}
+
+void MeterLane::setGhost (double tick)
+{
+    if (std::abs (tick - ghostTick) > 0.5)
+    {
+        ghostTick = tick;
+        repaint();
+    }
+}
+
+void MeterLane::mouseExit (const juce::MouseEvent&)
+{
+    setGhost (-1.0);
+}
+
+void MeterLane::paintOverChildren (juce::Graphics& g)
+{
+    // 鉛筆ツール: クリックしたら置かれる位置
+    if (ghostTick >= 0.0 && state.pencil())
+        TimeGrid::drawPencilGhostLine (g, (float) state.timeline.tickToX (ghostTick), getHeight());
 }

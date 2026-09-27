@@ -75,6 +75,31 @@ void KeyLane::paint (juce::Graphics& g)
 
     g.setFont (juce::FontOptions (12.5f, juce::Font::bold));
 
+    // 左にスクロールして変更点が見えなくなっても、いまのキーを左端に出す
+    {
+        const collab::KeyEvent* current = nullptr;
+        float nextX = (float) getWidth();
+
+        for (auto& e : events)
+        {
+            const float x = (float) axis.tickToX ((double) map.barToTick (e.bar));
+
+            if (x < 0.0f && (current == nullptr || e.bar > current->bar))
+                current = &e;
+            else if (x >= 0.0f)
+                nextX = juce::jmin (nextX, x);
+        }
+
+        if (current != nullptr && nextX > 90.0f)
+        {
+            g.setColour (keyColour.withAlpha (0.2f));
+            g.fillRect (juce::Rectangle<float> (0.0f, 3.0f, 80.0f, (float) getHeight() - 6.0f));
+            g.setColour (Theme::text);
+            g.drawText ("Key: "_ju + toJuce (collab::chord::keyName ({ current->tonic, current->minor })),
+                        juce::Rectangle<float> (5.0f, 0.0f, 110.0f, (float) getHeight()), juce::Justification::centredLeft);
+        }
+    }
+
     for (auto& e : events)
     {
         const float x = (float) axis.tickToX ((double) map.barToTick (e.bar));
@@ -109,6 +134,7 @@ int KeyLane::barAt (float x) const
 
 void KeyLane::mouseMove (const juce::MouseEvent& e)
 {
+    setGhost (ctx.state.pencil() && findHit (e.position.x).empty() ? (double) ctx.document.getTempoMap().barToTick (barAt (e.position.x)) : -1.0);
     setMouseCursor (ctx.state.pencil() ? Theme::pencilCursor()
                                        : ! findHit (e.position.x).empty() ? juce::MouseCursor::LeftRightResizeCursor
                                                                           : juce::MouseCursor::NormalCursor);
@@ -321,4 +347,25 @@ void KeyLane::mouseDoubleClick (const juce::MouseEvent& e)
 {
     if (auto id = findHit (e.position.x); ! id.empty())
         changeKey (id);
+}
+
+void KeyLane::setGhost (double tick)
+{
+    if (std::abs (tick - ghostTick) > 0.5)
+    {
+        ghostTick = tick;
+        repaint();
+    }
+}
+
+void KeyLane::mouseExit (const juce::MouseEvent&)
+{
+    setGhost (-1.0);
+}
+
+void KeyLane::paintOverChildren (juce::Graphics& g)
+{
+    // 鉛筆ツール: クリックしたら置かれる位置
+    if (ghostTick >= 0.0 && ctx.state.pencil())
+        TimeGrid::drawPencilGhostLine (g, (float) ctx.state.timeline.tickToX (ghostTick), getHeight());
 }

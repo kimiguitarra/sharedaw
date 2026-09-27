@@ -85,4 +85,37 @@ namespace TimeGrid
             }
         });
     }
+
+    //==============================================================================
+    // 鉛筆ツールで、クリックしたら置かれる位置の目印（ゴースト）
+
+    /** 縦の線と上の「+」（テンポ・拍子・キー・マーカー）。 */
+    inline void drawPencilGhostLine (juce::Graphics& g, float x, int height)
+    {
+        g.setColour (Theme::selection.withAlpha (0.8f));
+        g.fillRect (juce::Rectangle<float> (x - 1.0f, 0.0f, 2.0f, (float) height));
+        g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+        g.drawText ("+", juce::Rectangle<float> (x + 3.0f, 0.0f, 12.0f, (float) height), juce::Justification::centredLeft);
+    }
+
+    /** 点線の枠（クリップ・コード・ノート）。 */
+    inline void drawPencilGhostBox (juce::Graphics& g, juce::Rectangle<float> r, bool withPlus = true)
+    {
+        g.setColour (Theme::selection.withAlpha (0.18f));
+        g.fillRoundedRectangle (r, 3.0f);
+
+        juce::Path outline;
+        outline.addRoundedRectangle (r.reduced (0.5f), 3.0f);
+        juce::Path dashed;
+        const float dashes[] = { 4.0f, 3.0f };
+        juce::PathStrokeType (1.2f).createDashedStroke (dashed, outline, dashes, 2);
+        g.setColour (Theme::selection.withAlpha (0.9f));
+        g.fillPath (dashed);
+
+        if (withPlus && r.getWidth() > 14.0f && r.getHeight() > 10.0f)
+        {
+            g.setFont (juce::FontOptions (juce::jmin (14.0f, r.getHeight() - 2.0f), juce::Font::bold));
+            g.drawText ("+", r.reduced (4.0f, 0.0f), juce::Justification::centredLeft);
+        }
+    }
 }

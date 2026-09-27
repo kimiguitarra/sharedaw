@@ -183,7 +183,8 @@ struct EditorState  : public juce::ChangeBroadcaster
     std::string selectedKeyId;
 
     // トラックの高さ（この PC の表示設定。トラック ID ごと）
-    static constexpr int defaultTrackHeight = 72, minTrackHeight = 30, maxTrackHeight = 300;
+    static constexpr int defaultTrackHeight = 72, minTrackHeight = 36, maxTrackHeight = 288;
+    static constexpr int trackHeightSteps[] = { 36, 54, 72, 108, 144, 216, 288 };   // 高さは段階式
     std::map<std::string, int> trackHeights;
 
     int trackHeight (const std::string& trackId) const

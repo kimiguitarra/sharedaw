@@ -48,6 +48,7 @@ public:
     const juce::String& getLoadedSfzText() const noexcept       { return loadedText; }
 
 private:
+    bool freeWheeling = false;   // synthLock の中で読み書きする
     std::unique_ptr<sfz::Sfizz> createSynth (const juce::String& path, const juce::String& text) const;
 
     juce::SpinLock synthLock;

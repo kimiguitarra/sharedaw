@@ -48,6 +48,7 @@ bool SfizzPlugin::setSfz (const juce::String& virtualPath, const juce::String& s
     {
         const juce::SpinLock::ScopedLockType sl (synthLock);
         old = std::exchange (synth, std::move (newSynth));
+        freeWheeling = false;   // 新しいシンセは通常モードで始まる（ロック中なのでオーディオスレッドと競合しない）
     }
 
     return true;   // old は（オーディオスレッドの外で）ここで破棄される
@@ -125,6 +126,18 @@ void SfizzPlugin::applyToBuffer (const te::PluginRenderContext& fc)
 
     if (! sl.isLocked() || synth == nullptr)
         return;
+
+    // 書き出し（バウンス・ミックスダウン）はリアルタイムより速く進むので、サンプルの読み込みを待つようにする
+    // （待たないと、ディスクから少しずつ読むサンプルの後半＝シンバルの余韻などが途切れる）
+    if (fc.isRendering != freeWheeling)
+    {
+        freeWheeling = fc.isRendering;
+
+        if (freeWheeling)
+            synth->enableFreeWheeling();
+        else
+            synth->disableFreeWheeling();
+    }
 
     // MIDI をサンプル位置に変換（タイムスタンプはブロック先頭からの秒）
     struct Event { int sample; juce::MidiMessage msg; };

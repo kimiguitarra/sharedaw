@@ -1,6 +1,8 @@
 #include "PianoRoll.h"
 
 #include "TimeGrid.h"
+#include "audio/AudioFiles.h"
+#include "collab/ClipEditing.h"
 #include "collab/GmDrumMap.h"
 #include "collab/Uuid.h"
 
@@ -177,6 +179,14 @@ void NoteGrid::paint (juce::Graphics& g)
         g.drawRect (rubberBand, 1.0f);
     }
 
+    // 鉛筆で置かれるノート
+    if (ghostPitch >= 0 && owner.ctx.state.pencil() && mode == Mode::none && ! drawingNote)
+    {
+        const auto step = (double) juce::jmax<collab::Tick> (10, owner.ctx.state.grid.stepTicks());
+        const float x1 = (float) axis.tickToX (ghostTick), x2 = (float) axis.tickToX (ghostTick + step);
+        TimeGrid::drawPencilGhostBox (g, { x1, owner.pitchToY (ghostPitch) + 1.0f, juce::jmax (4.0f, x2 - x1), (float) owner.noteHeight - 2.0f }, false);
+    }
+
     // はさみで切る位置
     if (splitX >= 0.0 && owner.ctx.state.tool == EditTool::split)
     {
@@ -187,15 +197,43 @@ void NoteGrid::paint (juce::Graphics& g)
 
 void NoteGrid::mouseExit (const juce::MouseEvent&)
 {
-    if (splitX >= 0.0)
+    if (splitX >= 0.0 || ghostPitch >= 0)
     {
         splitX = -1.0;
+        ghostPitch = -1;
         repaint();
     }
 }
 
 void NoteGrid::mouseMove (const juce::MouseEvent& e)
 {
+    // 鉛筆: 空いている所なら、クリックで置かれるノートの枠
+    {
+        bool onEdge = false;
+        auto* clip = owner.getClip();
+        const bool pencilFree = owner.ctx.state.pencil() && clip != nullptr && hitNote (e.position, onEdge) == nullptr;
+        double tick = -1.0;
+        int pitch = -1;
+
+        if (pencilFree)
+        {
+            const auto abs = owner.snap (owner.axis().xToTick (e.position.x), true, e.mods);
+
+            if (abs >= clip->startTick && abs < clip->endTick())
+            {
+                tick = (double) abs;
+                pitch = owner.yToPitch (e.position.y);
+            }
+        }
+
+        if (std::abs (tick - ghostTick) > 0.5 || pitch != ghostPitch)
+        {
+            ghostTick = tick;
+            ghostPitch = pitch;
+            repaint();
+        }
+    }
+
     // はさみ: ノートの上なら切る位置に縦線
     {
         bool onEdge = false;
@@ -581,6 +619,81 @@ void VelocityLane::mouseUp (const juce::MouseEvent&)
 }
 
 //==============================================================================
+void AudioClipGrid::paint (juce::Graphics& g)
+{
+    g.fillAll (Theme::lane);
+
+    const auto& axis = owner.axis();
+    const auto& map = owner.ctx.document.getTempoMap();
+    auto* clip = owner.getAudioClip();
+    auto* track = owner.getTrack();
+
+    if (clip == nullptr || track == nullptr)
+        return;
+
+    const float x1 = (float) axis.tickToX ((double) clip->startTick);
+    const float x2 = (float) axis.tickToX ((double) collab::audioClipEndTick (*clip, map));
+    const auto colour = Theme::parseColour (track->color);
+    const auto r = juce::Rectangle<float> (x1, 4.0f, juce::jmax (2.0f, x2 - x1), (float) getHeight() - 8.0f);
+
+    g.setColour (colour.withAlpha (0.18f));
+    g.fillRect (r);
+
+    TimeGrid::drawGrid (g, getLocalBounds(), axis, map, &owner.ctx.state.grid);
+
+    // 中心線
+    g.setColour (Theme::gridBeat);
+    g.drawHorizontalLine (getHeight() / 2, r.getX(), r.getRight());
+
+    if (auto* thumb = owner.ctx.audioCache.getThumbnail (owner.ctx.document.getProjectDir(), clip->audioHash))
+    {
+        g.setColour (colour.brighter (0.6f));
+        const double start = (double) clip->sourceOffsetSamples / collab::kSampleRate;
+        const double end = start + (double) clip->lengthSamples / collab::kSampleRate;
+        thumb->drawChannels (g, r.reduced (0.0f, 6.0f).toNearestInt(), start, end,
+                             juce::Decibels::decibelsToGain ((float) clip->gainDb));
+    }
+    else
+    {
+        g.setColour (Theme::warning);
+        g.setFont (juce::FontOptions (14.0f));
+        g.drawText ("オーディオが見つかりません"_ju, getLocalBounds(), juce::Justification::centred);
+    }
+
+    // フェード
+    const auto len = (float) juce::jmax<collab::SampleCount> (1, clip->lengthSamples);
+    const float fadeInW = r.getWidth() * (float) clip->fadeInSamples / len;
+    const float fadeOutW = r.getWidth() * (float) clip->fadeOutSamples / len;
+    g.setColour (juce::Colours::black.withAlpha (0.3f));
+    juce::Path fades;
+    fades.addTriangle (r.getX(), r.getBottom(), r.getX() + fadeInW, r.getY(), r.getX(), r.getY());
+    fades.addTriangle (r.getRight(), r.getBottom(), r.getRight() - fadeOutW, r.getY(), r.getRight(), r.getY());
+    g.fillPath (fades);
+
+    g.setColour (colour);
+    g.drawRect (r, 1.0f);
+
+    g.setColour (Theme::text);
+    g.setFont (juce::FontOptions (12.0f));
+    auto label = toJuce (clip->displayName);
+    if (std::abs (clip->gainDb) > 0.05)
+        label << "  " << juce::String (clip->gainDb, 1) << " dB";
+    g.drawText (label, r.reduced (6.0f, 2.0f).removeFromTop (16.0f), juce::Justification::centredLeft, true);
+}
+
+void AudioClipGrid::mouseDown (const juce::MouseEvent& e)
+{
+    // クリックした位置へ再生位置を動かす（クオンタイズ値にスナップ）
+    const double tick = owner.axis().xToTick (e.position.x);
+    owner.ctx.engine.setPositionTick (owner.ctx.state.snapCursor (juce::jmax (0.0, tick), owner.ctx.document.getTempoMap(), e.mods));
+}
+
+void AudioClipGrid::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
+{
+    owner.handleWheel (e, w, this);
+}
+
+//==============================================================================
 PianoRollView::PianoRollView (AppContext& c)
     : ctx (c),
       ruler (c.document, c.state, c.state.pianoRoll),
@@ -627,6 +740,7 @@ PianoRollView::PianoRollView (AppContext& c)
     addAndMakeVisible (keyboard);
     addAndMakeVisible (grid);
     addAndMakeVisible (velocity);
+    addChildComponent (audioGrid);
     addAndMakeVisible (hScroll);
     addAndMakeVisible (vScroll);
     addAndMakeVisible (playhead);
@@ -657,6 +771,19 @@ PianoRollView::~PianoRollView()
     ctx.state.removeChangeListener (this);
 }
 
+const collab::AudioClip* PianoRollView::getAudioClip() const
+{
+    if (getClip() != nullptr)
+        return nullptr;
+
+    if (auto* t = getTrack())
+        for (auto& c : t->audioClips)
+            if (c.id == ctx.state.selectedClipId)
+                return &c;
+
+    return nullptr;
+}
+
 bool PianoRollView::isDrumTrack() const
 {
     auto* t = getTrack();
@@ -674,6 +801,11 @@ void PianoRollView::paint (juce::Graphics& g)
 void PianoRollView::resized()
 {
     shownAsDrums = isDrumTrack();
+    shownAsAudio = getAudioClip() != nullptr;
+
+    for (auto* c : std::initializer_list<juce::Component*> { &keyboard, &grid, &velocity, &vScroll, &snapToggle, &quantiseButton })
+        c->setVisible (! shownAsAudio);
+    audioGrid.setVisible (shownAsAudio);
 
     auto area = getLocalBounds().withTrimmedTop (3);
     auto toolbar = area.removeFromTop (toolbarHeight).reduced (6, 3);
@@ -684,6 +816,19 @@ void PianoRollView::resized()
     quantiseButton.setBounds (toolbar.removeFromLeft (100));
     toolbar.removeFromLeft (10);
     hintLabel.setBounds (toolbar);
+
+    if (shownAsAudio)
+    {
+        area.removeFromRight (scrollBarSize);
+        hScroll.setBounds (area.removeFromBottom (scrollBarSize));
+        ruler.setBounds (area.removeFromTop (rulerHeight));
+        audioGrid.setBounds (area);
+        grid.setBounds (area.getX(), area.getY(), area.getWidth(), 0);   // 表示幅の計算（スクロールバー）用
+        playhead.setBounds (ruler.getX(), ruler.getY(), ruler.getWidth(), audioGrid.getBottom() - ruler.getY());
+        playhead.refresh();
+        updateScrollBars();
+        return;
+    }
 
     vScroll.setBounds (area.removeFromRight (scrollBarSize).withTrimmedTop (rulerHeight).withTrimmedBottom (velocityHeight + scrollBarSize));
 
@@ -900,7 +1045,7 @@ void PianoRollView::handleWheel (const juce::MouseEvent& e, const juce::MouseWhe
     {
         ax.zoomAround (e.getEventRelativeTo (&grid).position.x, w.deltaY > 0 ? 1.15 : 1.0 / 1.15, 10.0, 2000.0);
     }
-    else if (e.mods.isShiftDown() || std::abs (w.deltaX) > std::abs (w.deltaY))
+    else if (e.mods.isShiftDown() || std::abs (w.deltaX) > std::abs (w.deltaY) || shownAsAudio)
     {
         const float d = std::abs (w.deltaX) > std::abs (w.deltaY) ? w.deltaX : w.deltaY;
         ax.scrollTick = juce::jmax (0.0, ax.scrollTick - d * 400.0 / ax.pixelsPerTick());
@@ -947,12 +1092,32 @@ void PianoRollView::scrollBarMoved (juce::ScrollBar* bar, double newStart)
 void PianoRollView::clipChanged()
 {
     auto* clip = getClip();
-    shownClipId = clip != nullptr ? clip->id : std::string();
+    auto* audio = getAudioClip();
+    shownClipId = clip != nullptr ? clip->id : (audio != nullptr ? audio->id : std::string());
     selectedNotes.clear();
+
+    if (audio != nullptr)
+    {
+        resized();
+
+        if (audioGrid.getWidth() > 0)
+        {
+            const auto start = (double) audio->startTick;
+            const double len = juce::jmax ((double) collab::kPpq, (double) collab::audioClipEndTick (*audio, ctx.document.getTempoMap()) - start);
+            axis().pixelsPerQuarter = juce::jlimit (10.0, 2000.0, audioGrid.getWidth() * 0.9 / (len / collab::kPpq));
+            axis().scrollTick = juce::jmax (0.0, start - len * 0.03);
+        }
+
+        updateTitle();
+        resized();
+        repaint();
+        return;
+    }
 
     if (clip == nullptr)
     {
         titleLabel.setText ("ピアノロール"_ju, juce::dontSendNotification);
+        updateTitle();
         resized();
         repaint();
         return;
@@ -981,10 +1146,27 @@ void PianoRollView::clipChanged()
     repaint();
 }
 
+void PianoRollView::updateTitle()
+{
+    auto* t = getTrack();
+    const auto& map = ctx.document.getTempoMap();
+
+    if (auto* clip = getClip(); t != nullptr && clip != nullptr)
+        titleLabel.setText (toJuce (t->name) + "  " + juce::String (map.tickToBar (clip->startTick)) + "小節〜"_ju, juce::dontSendNotification);
+    else if (auto* audio = getAudioClip(); t != nullptr && audio != nullptr)
+        titleLabel.setText (toJuce (t->name) + "  " + juce::String (map.tickToBar (audio->startTick)) + "小節〜（オーディオ）"_ju, juce::dontSendNotification);
+
+    hintLabel.setText (getAudioClip() != nullptr
+                         ? "オーディオクリップの拡大表示　クリック: 再生位置　Ctrl+ホイール: ズーム　ホイール: 横スクロール"_ju
+                         : "鉛筆: クリックでノート追加（ドラッグで長さ）・ノートをクリックで削除　選択: ドラッグで移動・範囲選択、右端で長さ　↑↓: 移調　Del: 削除"_ju,
+                       juce::dontSendNotification);
+}
+
 void PianoRollView::changeListenerCallback (juce::ChangeBroadcaster*)
 {
     auto* clip = getClip();
-    const auto id = clip != nullptr ? clip->id : std::string();
+    auto* audio = getAudioClip();
+    const auto id = clip != nullptr ? clip->id : (audio != nullptr ? audio->id : std::string());
 
     if (id != shownClipId)
     {
@@ -1004,12 +1186,7 @@ void PianoRollView::changeListenerCallback (juce::ChangeBroadcaster*)
         }
     }
 
-    if (auto* t = getTrack(); t != nullptr && clip != nullptr)
-    {
-        const auto& map = ctx.document.getTempoMap();
-        titleLabel.setText (toJuce (t->name) + "  " + juce::String (map.tickToBar (clip->startTick)) + "小節〜"_ju,
-                            juce::dontSendNotification);
-    }
+    updateTitle();
 
     snapToggle.setToggleState (ctx.state.snapEnabled(), juce::dontSendNotification);
     gridBox.setSelectedId (ctx.state.quantisePresetIndex() + 1, juce::dontSendNotification);

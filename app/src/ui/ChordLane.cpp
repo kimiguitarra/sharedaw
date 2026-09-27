@@ -156,9 +156,9 @@ std::string ChordLane::findStartHit (float x) const
 
 void ChordLane::mouseMove (const juce::MouseEvent& e)
 {
-    setMouseCursor (ctx.state.pencil() ? Theme::pencilCursor()
-                                       : ! findStartHit (e.position.x).empty() ? juce::MouseCursor::LeftRightResizeCursor
-                                                                               : juce::MouseCursor::NormalCursor);
+    setGhost (ctx.state.pencil() && findHit (e.position.x).empty() ? (double) snapToBeat (ctx.state.timeline.xToTick (e.position.x), e.mods) : -1.0);
+    // コードは長さを持たないので、札の上でも普通の矢印（ドラッグで移動はできる）
+    setMouseCursor (ctx.state.pencil() && findHit (e.position.x).empty() ? Theme::pencilCursor() : juce::MouseCursor::NormalCursor);
 }
 
 collab::Tick ChordLane::snapToBeat (double tick, const juce::ModifierKeys& mods) const
@@ -199,6 +199,7 @@ void ChordLane::mouseDown (const juce::MouseEvent& e)
             juce::PopupMenu m;
             m.addItem ("ここにコードを入力…"_ju, [this, tick] { addAt (tick); });
             m.addItem ("ここに空のコードを置く"_ju, [this, tick] { addEmptyAt (tick); });
+            m.addItem ("ここに貼り付け"_ju, hasClipboard(), false, [this, tick] { paste ((double) tick); });
             m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this));
         }
 
@@ -231,6 +232,9 @@ void ChordLane::mouseDown (const juce::MouseEvent& e)
                     }
             });
         });
+        m.addSeparator();
+        m.addItem ("コピー（Ctrl+C）"_ju, [this] { copySelected (false); });
+        m.addItem ("切り取り（Ctrl+X）"_ju, [this] { copySelected (true); });
         m.addItem ("削除"_ju, [this] { deleteSelected(); });
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this));
     }
@@ -281,6 +285,56 @@ bool ChordLane::keyPressed (const juce::KeyPress& key)
     }
 
     return false;
+}
+
+bool ChordLane::copySelected (bool cut)
+{
+    for (auto& ev : ctx.document.getProject().chordTrack.events)
+        if (ev.id == ctx.state.selectedChordId)
+        {
+            clipboard = ev;
+
+            if (cut)
+                deleteSelected();
+
+            return true;
+        }
+
+    return false;
+}
+
+bool ChordLane::paste (double playheadTick)
+{
+    if (! clipboard)
+        return false;
+
+    const auto tick = snapToBeat (playheadTick, {});
+    auto e = *clipboard;
+    std::string id = collab::generateUuid();
+
+    // その拍に既にコードがあれば、中身を置き換える
+    for (auto& ev : ctx.document.getProject().chordTrack.events)
+        if (ev.tick == tick)
+            id = ev.id;
+
+    e.id = id;
+    e.tick = tick;
+
+    ctx.document.perform ("コードの貼り付け"_ju, [e] (collab::Project& p)
+    {
+        for (auto& x : p.chordTrack.events)
+            if (x.id == e.id)
+            {
+                x = e;
+                return;
+            }
+
+        p.chordTrack.events.push_back (e);
+    });
+
+    ctx.state.selectedChordId = e.id;
+    ctx.state.changed();
+    return true;
 }
 
 bool ChordLane::deleteSelected()
@@ -376,4 +430,25 @@ void ChordLane::addAt (collab::Tick tick)
         state->selectedChordId = e.id;
         state->changed();
     });
+}
+
+void ChordLane::setGhost (double tick)
+{
+    if (std::abs (tick - ghostTick) > 0.5)
+    {
+        ghostTick = tick;
+        repaint();
+    }
+}
+
+void ChordLane::mouseExit (const juce::MouseEvent&)
+{
+    setGhost (-1.0);
+}
+
+void ChordLane::paintOverChildren (juce::Graphics& g)
+{
+    // 鉛筆ツール: クリックしたら置かれる位置
+    if (ghostTick >= 0.0 && ctx.state.pencil())
+        TimeGrid::drawPencilGhostBox (g, { (float) ctx.state.timeline.tickToX (ghostTick), 3.0f, 34.0f, (float) getHeight() - 9.0f });
 }

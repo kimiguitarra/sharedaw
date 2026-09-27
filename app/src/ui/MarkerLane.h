@@ -22,6 +22,8 @@ public:
     void mouseUp (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
+    void paintOverChildren (juce::Graphics&) override;
     bool keyPressed (const juce::KeyPress&) override;
 
     /** 選択中のマーカーを削除する（削除したら true）。 */
@@ -44,5 +46,7 @@ private:
     std::string findHit (float x) const;
     collab::Tick snap (double tick, const juce::ModifierKeys&) const;
     void rename (const std::string& id);
+    double ghostTick = -1.0;   // 鉛筆ツールで置く位置（なければ -1）
+    void setGhost (double tick);
     void changeListenerCallback (juce::ChangeBroadcaster*) override    { repaint(); }
 };

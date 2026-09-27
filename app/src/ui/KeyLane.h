@@ -22,6 +22,8 @@ public:
     void mouseUp (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
+    void paintOverChildren (juce::Graphics&) override;
     bool keyPressed (const juce::KeyPress&) override;
 
     /** 選択中のキーを削除する（削除したら true）。 */
@@ -41,5 +43,7 @@ private:
     void changeKey (const std::string& id);
     void showMenu (const std::string& id, int bar);
     void estimateFromChords (int bar);
+    double ghostTick = -1.0;   // 鉛筆ツールで置く位置（なければ -1）
+    void setGhost (double tick);
     void changeListenerCallback (juce::ChangeBroadcaster*) override    { repaint(); }
 };

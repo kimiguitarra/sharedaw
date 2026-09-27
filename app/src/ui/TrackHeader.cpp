@@ -392,7 +392,13 @@ void TrackHeader::mouseDrag (const juce::MouseEvent& e)
 
     if (drag == Drag::resize)
     {
-        const int h = juce::jlimit (EditorState::minTrackHeight, EditorState::maxTrackHeight, dragStartHeight + dy);
+        // 段階式（Cubase のトラックの高さと同じく、決まった高さに吸い付く）
+        const int wanted = dragStartHeight + dy;
+        int h = EditorState::trackHeightSteps[0];
+
+        for (int step : EditorState::trackHeightSteps)
+            if (std::abs (step - wanted) < std::abs (h - wanted))
+                h = step;
 
         if (h != ctx.state.trackHeight (trackId))
         {

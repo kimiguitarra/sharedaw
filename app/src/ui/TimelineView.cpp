@@ -191,6 +191,14 @@ void TrackLanes::paint (juce::Graphics& g)
         g.fillRect (juce::Rectangle<float> (x1, 0.0f, x2 - x1, (float) getHeight()));
     }
 
+    // 鉛筆: クリックで作られるクリップの枠
+    if (ctx.state.pencil() && ghostRow >= 0 && ghostRow < (int) project.tracks.size() && dragMode == DragMode::none)
+    {
+        const float top = (float) (rowTop (ghostRow) - scrollY) + 3.0f;
+        const float x1 = (float) axis.tickToX ((double) ghostStart), x2 = (float) axis.tickToX ((double) ghostEnd);
+        TimeGrid::drawPencilGhostBox (g, { x1, top, x2 - x1, (float) rowHeightAt (ghostRow) - 7.0f });
+    }
+
     // はさみ: 切る位置の縦線（クリップの上にいるとき）
     if (ctx.state.tool == EditTool::split && splitRow >= 0 && splitRow < (int) project.tracks.size())
     {
@@ -315,6 +323,31 @@ void TrackLanes::mouseMove (const juce::MouseEvent& e)
 {
     auto hit = findHit (e.position);
 
+    // 鉛筆: 空いている MIDI トラックの上なら、クリックで作られるクリップ（1 小節）の枠を出す
+    {
+        int row = -1;
+        collab::Tick start = 0, end = 0;
+        const auto& tracks = ctx.document.getProject().tracks;
+
+        if (ctx.state.pencil() && hit.clipId.empty() && hit.trackIndex >= 0
+            && tracks[(size_t) hit.trackIndex].type == collab::TrackType::midi)
+        {
+            const auto& map = ctx.document.getTempoMap();
+            const int bar = map.tickToBar ((collab::Tick) juce::jmax (0.0, ctx.state.timeline.xToTick (e.position.x)));
+            row = hit.trackIndex;
+            start = map.barToTick (bar);
+            end = map.barToTick (bar + 1);
+        }
+
+        if (row != ghostRow || start != ghostStart)
+        {
+            ghostRow = row;
+            ghostStart = start;
+            ghostEnd = end;
+            repaint();
+        }
+    }
+
     // はさみはツールのカーソルと、切る位置の縦線
     if (ctx.state.tool == EditTool::split)
     {
@@ -350,9 +383,10 @@ void TrackLanes::mouseMove (const juce::MouseEvent& e)
 
 void TrackLanes::mouseExit (const juce::MouseEvent&)
 {
-    if (splitRow >= 0)
+    if (splitRow >= 0 || ghostRow >= 0)
     {
         splitRow = -1;
+        ghostRow = -1;
         repaint();
     }
 }
@@ -1130,6 +1164,11 @@ void TimelineView::scrollBarMoved (juce::ScrollBar* bar, double newStart)
         layoutHeaders();
         lanes.repaint();
     }
+}
+
+void TimelineView::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
+{
+    handleWheel (e, w);
 }
 
 void TimelineView::handleWheel (const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
