@@ -1,5 +1,7 @@
 #pragma once
 
+#include "collab/chord/Degree.h"
+
 #include <vector>
 
 #include "collab/chord/Chord.h"
@@ -21,6 +23,9 @@ struct GeneratedNote
 
 chord::Chord toChord (const ChordSymbol&);
 ChordSymbol toChordSymbol (const chord::Chord&);
+
+/** その位置のキー（キートラックが空なら std::nullopt）。 */
+std::optional<chord::Key> keyAt (const Project&, const TempoMap&, Tick);
 
 /** コードトラックの終端（最後のコードは曲の末尾まで。曲がそれより短ければ次の小節線まで）。 */
 Tick chordTrackEndTick (const Project&, const TempoMap&);

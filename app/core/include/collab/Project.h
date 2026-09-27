@@ -125,6 +125,28 @@ struct MarkerTrack
 /** マーカートラックの ID（プロジェクト ID から決まる。古いプロジェクトでも全員で同じ ID になるように）。 */
 std::string markerTrackIdFor (const std::string& projectId);
 
+/** キー（調）の変更。小節の頭に置く。コードのディグリー表示・ディグリー入力の基準になる。 */
+struct KeyEvent
+{
+    std::string id;
+    int bar = 1;            // 1 始まり
+    int tonic = 0;          // 主音のピッチクラス（0 = C … 11 = B）
+    bool minor = false;
+
+    bool operator== (const KeyEvent&) const = default;
+};
+
+struct KeyTrack
+{
+    std::string id;
+    std::vector<KeyEvent> events;   // 空ならキー未設定
+
+    bool operator== (const KeyTrack&) const = default;
+};
+
+/** キートラックの ID（マーカートラックと同じくプロジェクト ID から決まる）。 */
+std::string keyTrackIdFor (const std::string& projectId);
+
 /**
     マスターのリミッター（ヴィンテージ系リミッターの操作感）。
     THRESHOLD を下げるほど入力が持ち上がり、CEILING を超えないように抑える。CHARACTER は速さ（0 = ゆっくり・なめらか、10 = 速い）。
@@ -350,6 +372,7 @@ struct Project
     MeterTrack meterTrack;
     ChordTrack chordTrack;
     MarkerTrack markerTrack;
+    KeyTrack keyTrack;
     MasterBus master;
     std::vector<Track> tracks;
 

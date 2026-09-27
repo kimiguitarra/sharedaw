@@ -373,6 +373,17 @@ ojson projectToJson (const Project& source)
         o["markerTrack"] = { { "id", p.markerTrack.id.empty() ? markerTrackIdFor (p.projectId) : p.markerTrack.id }, { "events", events } };
     }
 
+    // キートラック（空のときは省略する。古いアプリ・サーバーでも読めるように）
+    if (! p.keyTrack.events.empty())
+    {
+        ojson events = ojson::array();
+
+        for (auto& e : p.keyTrack.events)
+            events.push_back ({ { "id", e.id }, { "bar", e.bar }, { "tonic", e.tonic }, { "mode", e.minor ? "minor" : "major" } });
+
+        o["keyTrack"] = { { "id", p.keyTrack.id.empty() ? keyTrackIdFor (p.projectId) : p.keyTrack.id }, { "events", events } };
+    }
+
     // マスター（既定値のときは省略する。古いアプリ・サーバーでも読めるように）
     if (! p.master.isDefault())
     {
@@ -495,6 +506,18 @@ Project projectFromJson (const json& j)
             for (auto& e : it->at ("events"))
                 p.markerTrack.events.push_back ({ get<std::string> (e, "id"), get<Tick> (e, "tick"),
                                                   toNfc (getOr<std::string> (e, "name", {})) });
+        }
+
+        // キートラック（ない場合はキー未設定）
+        p.keyTrack.id = keyTrackIdFor (p.projectId);
+
+        if (auto it = j.find ("keyTrack"); it != j.end())
+        {
+            p.keyTrack.id = getOr<std::string> (*it, "id", p.keyTrack.id);
+
+            for (auto& e : it->at ("events"))
+                p.keyTrack.events.push_back ({ get<std::string> (e, "id"), get<int> (e, "bar"), get<int> (e, "tonic"),
+                                               getOr<std::string> (e, "mode", "major") == "minor" });
         }
 
         // マスター（ない場合は既定値）

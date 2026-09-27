@@ -617,6 +617,7 @@ private:
             if (scope == "chord")  scope = p.chordTrack.id;
             if (scope == "marker") scope = p.markerTrack.id;
             if (scope == "master") scope = p.master.id;
+            if (scope == "key")    scope = p.keyTrack.id;
 
             for (auto& t : p.tracks)
                 if (t.name == scope)

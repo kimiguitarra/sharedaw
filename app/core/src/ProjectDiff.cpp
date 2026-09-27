@@ -1,4 +1,5 @@
 #include "collab/ProjectDiff.h"
+#include "collab/chord/Degree.h"
 
 #include <algorithm>
 #include <cmath>
@@ -368,7 +369,7 @@ std::vector<Change> ProjectDiff::forScope (const std::string& scopeId) const
 
 std::vector<std::string> allScopeIds (const Project& p)
 {
-    std::vector<std::string> ids { p.tempoTrack.id, p.meterTrack.id, p.chordTrack.id, p.markerTrack.id, p.master.id };
+    std::vector<std::string> ids { p.tempoTrack.id, p.meterTrack.id, p.chordTrack.id, p.markerTrack.id, p.keyTrack.id, p.master.id };
 
     for (auto& t : p.tracks)
         ids.push_back (t.id);
@@ -382,6 +383,7 @@ bool scopeEquals (const Project& a, const Project& b, const std::string& id)
     if (id == a.meterTrack.id || id == b.meterTrack.id)  return a.meterTrack == b.meterTrack;
     if (id == a.chordTrack.id || id == b.chordTrack.id)  return a.chordTrack == b.chordTrack;
     if (id == a.markerTrack.id || id == b.markerTrack.id) return a.markerTrack == b.markerTrack;
+    if (id == a.keyTrack.id || id == b.keyTrack.id)      return a.keyTrack == b.keyTrack;
     if (id == a.master.id || id == b.master.id)          return a.master == b.master;
 
     auto* ta = a.findTrack (id);
@@ -526,6 +528,30 @@ ProjectDiff diffProjects (const Project& beforeIn, const Project& afterIn)
                 add (barRange (mapA, o.tick, o.tick + 1) + " " + label (o) + "を削除", o.tick);
     }
 
+    // キー
+    {
+        auto name = [] (const KeyEvent& e) { return chord::keyName ({ e.tonic, e.minor }); };
+        auto add = [&] (std::string s, int bar)
+        {
+            const auto t = mapB.barToTick (bar);
+            diff.changes.push_back ({ after.keyTrack.id, ScopeKind::key, "キー", Change::Category::keys, std::move (s), t, t + 1 });
+        };
+
+        for (auto& e : after.keyTrack.events)
+        {
+            auto* o = findById (before.keyTrack.events, e.id);
+
+            if (o == nullptr)
+                add (std::to_string (e.bar) + "小節 キーを " + name (e) + " に設定", e.bar);
+            else if (! (*o == e))
+                add (std::to_string (e.bar) + "小節 キーを変更（" + name (*o) + " → " + name (e) + "）", e.bar);
+        }
+
+        for (auto& o : before.keyTrack.events)
+            if (findById (after.keyTrack.events, o.id) == nullptr)
+                add (std::to_string (o.bar) + "小節 キー " + name (o) + " を削除", o.bar);
+    }
+
     // マスター（リミッター）
     {
         const auto& la = before.master.limiter;
@@ -594,6 +620,7 @@ PullResult mergeForPull (const Project& base, const Project& local, const Projec
     mergeSpecial (local.meterTrack.id, &Project::meterTrack);
     mergeSpecial (local.chordTrack.id, &Project::chordTrack);
     mergeSpecial (local.markerTrack.id, &Project::markerTrack);
+    mergeSpecial (local.keyTrack.id, &Project::keyTrack);
     mergeSpecial (local.master.id, &Project::master);
 
     // トラック

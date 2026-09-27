@@ -74,8 +74,26 @@ void ChordLane::paint (juce::Graphics& g)
         g.fillRoundedRectangle (r, 3.0f);
         g.setColour (selected ? Theme::selection : colour);
         g.drawRoundedRectangle (r, 3.0f, selected ? 2.0f : 1.0f);
-        g.setColour (e.noChord ? Theme::textDim : Theme::text);
-        g.drawText (displayText (e), r.reduced (6.0f, 0.0f), juce::Justification::centredLeft, true);
+        // コード名（上）とディグリー（下。キーが決まっているとき）
+        const auto key = e.chord && ! e.noChord ? collab::keyAt (project, map, e.tick) : std::nullopt;
+        auto textArea = r.reduced (6.0f, 0.0f);
+
+        if (key)
+        {
+            const auto chord = collab::toChord (*e.chord);
+            g.setColour (Theme::text);
+            g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
+            g.drawText (displayText (e), textArea.removeFromTop (textArea.getHeight() * 0.55f), juce::Justification::bottomLeft, true);
+            g.setColour (chordColour.brighter (0.3f));
+            g.setFont (juce::FontOptions (11.5f));
+            g.drawText (toJuce (collab::chord::degreeName (chord, *key)), textArea, juce::Justification::topLeft, true);
+        }
+        else
+        {
+            g.setColour (e.noChord ? Theme::textDim : Theme::text);
+            g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
+            g.drawText (displayText (e), textArea, juce::Justification::centredLeft, true);
+        }
     }
 }
 
@@ -264,7 +282,7 @@ void ChordLane::openEditor (const std::string& id)
             continue;
 
         auto* doc = &ctx.document;
-        ChordEditor::show (displayText (ev),
+        ChordEditor::show (displayText (ev), collab::keyAt (ctx.document.getProject(), ctx.document.getTempoMap(), ev.tick),
                            [doc, id] (ChordEditor::Result r)
                            {
                                doc->perform ("コードの変更"_ju, [id, r] (collab::Project& p)
@@ -295,7 +313,8 @@ void ChordLane::addAt (collab::Tick tick)
     auto* doc = &ctx.document;
     auto* state = &ctx.state;
 
-    ChordEditor::show (initial, [doc, state, tick] (ChordEditor::Result r)
+    ChordEditor::show (initial, collab::keyAt (ctx.document.getProject(), ctx.document.getTempoMap(), tick),
+                       [doc, state, tick] (ChordEditor::Result r)
     {
         collab::ChordEvent e;
         e.id = collab::generateUuid();

@@ -1825,6 +1825,52 @@ var project_schema_default = {
         }
       }
     },
+    keyTrack: {
+      type: "object",
+      required: [
+        "id",
+        "events"
+      ],
+      additionalProperties: false,
+      properties: {
+        id: {
+          $ref: "#/definitions/uuid"
+        },
+        events: {
+          type: "array",
+          items: {
+            type: "object",
+            required: [
+              "id",
+              "bar",
+              "tonic",
+              "mode"
+            ],
+            additionalProperties: false,
+            properties: {
+              id: {
+                $ref: "#/definitions/uuid"
+              },
+              bar: {
+                type: "integer",
+                minimum: 1
+              },
+              tonic: {
+                type: "integer",
+                minimum: 0,
+                maximum: 11
+              },
+              mode: {
+                enum: [
+                  "major",
+                  "minor"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
     master: {
       type: "object",
       required: [
@@ -2570,6 +2616,7 @@ function scopes(p) {
   m.set(p.chordTrack.id, { kind: "chord", content: canonical(p.chordTrack) });
   if (p.markerTrack && p.markerTrack.events?.length)
     m.set(p.markerTrack.id, { kind: "marker", content: canonical(p.markerTrack) });
+  if (p.keyTrack && p.keyTrack.events?.length) m.set(p.keyTrack.id, { kind: "key", content: canonical(p.keyTrack) });
   if (p.master) m.set(p.master.id, { kind: "master", content: canonical(p.master) });
   for (const t of p.tracks) m.set(t.id, { kind: "track", content: canonical(t) });
   return m;

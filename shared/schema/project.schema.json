@@ -215,6 +215,52 @@
         }
       }
     },
+    "keyTrack": {
+      "type": "object",
+      "required": [
+        "id",
+        "events"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/uuid"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "bar",
+              "tonic",
+              "mode"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "$ref": "#/definitions/uuid"
+              },
+              "bar": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "tonic": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 11
+              },
+              "mode": {
+                "enum": [
+                  "major",
+                  "minor"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
     "master": {
       "type": "object",
       "required": [

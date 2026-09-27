@@ -2,6 +2,7 @@
 
 #include "ui/AppContext.h"
 #include "ui/ChordLane.h"
+#include "ui/KeyLane.h"
 #include "ui/MarkerLane.h"
 #include "ui/Ruler.h"
 #include "ui/TempoMeterLanes.h"
@@ -102,6 +103,7 @@ private:
     Ruler ruler;
     TempoLane tempoLane;
     MeterLane meterLane;
+    KeyLane keyLane;
     ChordLane chordLane;
     MarkerLane markerLane;
     juce::ToggleButton chordPlaybackToggle;

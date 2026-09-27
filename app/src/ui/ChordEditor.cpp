@@ -17,12 +17,14 @@ namespace
     constexpr int buttonH = 28;
 }
 
-ChordEditor::ChordEditor (const juce::String& initialText, std::function<void (Result)> ok, std::function<void()> del)
-    : onOk (std::move (ok)), onDelete (std::move (del))
+ChordEditor::ChordEditor (const juce::String& initialText, std::optional<collab::chord::Key> k,
+                          std::function<void (Result)> ok, std::function<void()> del)
+    : key (k), onOk (std::move (ok)), onDelete (std::move (del))
 {
     textEditor.setFont (juce::FontOptions (20.0f));
     textEditor.setJustification (juce::Justification::centredLeft);
-    textEditor.setTextToShowWhenEmpty ("例: G7(9,13)、Am7/G、X"_ju, Theme::textDim);
+    textEditor.setTextToShowWhenEmpty (key ? "例: 6m7、4、57、b7、1/3（ディグリー）や G7(9,13)、Am7/G、X"_ju
+                                           : "例: G7(9,13)、Am7/G、X"_ju, Theme::textDim);
     textEditor.onTextChange = [this] { textChanged(); };
     textEditor.onReturnKey = [this] { okButton.triggerClick(); };
     textEditor.onEscapeKey = [this] { close(); };
@@ -42,6 +44,34 @@ ChordEditor::ChordEditor (const juce::String& initialText, std::function<void (R
             setFromStructure();
         };
         addAndMakeVisible (b);
+    }
+
+    // ディグリーのボタン（キーが決まっているとき）: 音階の三和音
+    if (key)
+    {
+        for (int d = 1; d <= 7; ++d)
+        {
+            const auto text = collab::chord::degreeToChordText (std::to_string (d), *key);
+
+            if (! text)
+                continue;
+
+            const auto parsed = collab::chord::parse (*text);
+            const auto label = parsed.chord ? toJuce (collab::chord::degreeName (*parsed.chord, *key)) : juce::String (d);
+            auto* b = degreeButtons.add (new juce::TextButton (label));
+            b->setTooltip (toJuce (*text));
+            b->setColour (juce::TextButton::buttonColourId, juce::Colour (0xff3a3f2e));
+            b->onClick = [this, chord = parsed.chord]
+            {
+                if (! chord)
+                    return;
+
+                current = *chord;
+                currentNoChord = false;
+                setFromStructure();
+            };
+            addAndMakeVisible (b);
+        }
     }
 
     for (auto& q : qualities)
@@ -146,13 +176,14 @@ ChordEditor::ChordEditor (const juce::String& initialText, std::function<void (R
 
     textEditor.setText (initialText.isEmpty() ? juce::String ("C") : initialText, juce::sendNotification);
     textChanged();
-    setSize (560, 330);
+    setSize (560, key ? 362 : 330);
 }
 
-void ChordEditor::show (const juce::String& initialText, std::function<void (Result)> onOk, std::function<void()> onDelete)
+void ChordEditor::show (const juce::String& initialText, std::optional<collab::chord::Key> key,
+                        std::function<void (Result)> onOk, std::function<void()> onDelete)
 {
     juce::DialogWindow::LaunchOptions o;
-    o.content.setOwned (new ChordEditor (initialText, std::move (onOk), std::move (onDelete)));
+    o.content.setOwned (new ChordEditor (initialText, key, std::move (onOk), std::move (onDelete)));
     o.dialogTitle = "コードの編集"_ju;
     o.dialogBackgroundColour = Theme::panel;
     o.escapeKeyTriggersCloseButton = true;
@@ -175,7 +206,14 @@ void ChordEditor::textChanged()
     if (updating)
         return;
 
-    auto r = collab::chord::parse (toStd (textEditor.getText()));
+    // キーが決まっていれば、ディグリー（6m7 など）をそのキーのコードに変える
+    auto input = toStd (textEditor.getText());
+    std::optional<std::string> fromDegree;
+
+    if (key)
+        fromDegree = collab::chord::degreeToChordText (input, *key);
+
+    auto r = collab::chord::parse (fromDegree ? *fromDegree : input);
     valid = r.ok();
 
     if (r.noChord)
@@ -188,7 +226,7 @@ void ChordEditor::textChanged()
     {
         currentNoChord = false;
         current = *r.chord;
-        preview.setText ("→ "_ju + toJuce (collab::chord::format (current)), juce::dontSendNotification);
+        preview.setText (previewText(), juce::dontSendNotification);
         preview.setColour (juce::Label::textColourId, Theme::text);
     }
     else
@@ -201,6 +239,16 @@ void ChordEditor::textChanged()
     refreshButtons();
 }
 
+juce::String ChordEditor::previewText() const
+{
+    auto s = "→ "_ju + toJuce (collab::chord::format (current));
+
+    if (key)
+        s += "　（キー "_ju + toJuce (collab::chord::keyName (*key)) + " の "_ju + toJuce (collab::chord::degreeName (current, *key)) + "）"_ju;
+
+    return s;
+}
+
 void ChordEditor::setFromStructure()
 {
     const juce::ScopedValueSetter<bool> svs (updating, true);
@@ -208,8 +256,7 @@ void ChordEditor::setFromStructure()
     valid = true;
     okButton.setEnabled (true);
     preview.setColour (juce::Label::textColourId, Theme::text);
-    preview.setText (currentNoChord ? "→ X（ノーコード: この区間は発音しません）"_ju
-                                    : "→ "_ju + toJuce (collab::chord::format (current)),
+    preview.setText (currentNoChord ? "→ X（ノーコード: この区間は発音しません）"_ju : previewText(),
                      juce::dontSendNotification);
     refreshButtons();
 }
@@ -255,6 +302,9 @@ void ChordEditor::paint (juce::Graphics& g)
         g.drawText (text, 10, c.getY(), 80, buttonH, juce::Justification::centredLeft);
     };
 
+    if (! degreeButtons.isEmpty())
+        label (*degreeButtons[0], "ディグリー"_ju);
+
     label (*rootButtons[0], "ルート"_ju);
     label (*qualityButtons[0], "タイプ"_ju);
     label (*tensionButtons[0], "テンション"_ju);
@@ -278,6 +328,12 @@ void ChordEditor::resized()
 
         area.removeFromTop (2);
     };
+
+    if (! degreeButtons.isEmpty())
+    {
+        layoutRow (degreeButtons, 0, 7);
+        area.removeFromTop (4);
+    }
 
     layoutRow (rootButtons, 0, 8);
     layoutRow (rootButtons, 8, 4);

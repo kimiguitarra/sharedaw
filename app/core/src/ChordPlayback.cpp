@@ -71,4 +71,24 @@ std::vector<GeneratedNote> renderChordTrack (const Project& p, const TempoMap& m
     return notes;
 }
 
+std::optional<chord::Key> keyAt (const Project& p, const TempoMap& map, Tick tick)
+{
+    const KeyEvent* found = nullptr;
+
+    for (auto& e : p.keyTrack.events)
+        if (map.barToTick (e.bar) <= tick && (found == nullptr || e.bar > found->bar))
+            found = &e;
+
+    // 最初のキーより前は、最初のキーとみなす（曲の頭にキーを置き忘れても表示できるように）
+    if (found == nullptr)
+        for (auto& e : p.keyTrack.events)
+            if (found == nullptr || e.bar < found->bar)
+                found = &e;
+
+    if (found == nullptr)
+        return std::nullopt;
+
+    return chord::Key { found->tonic, found->minor };
+}
+
 } // namespace collab

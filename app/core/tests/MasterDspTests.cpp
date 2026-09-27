@@ -3,7 +3,9 @@
 #include <cmath>
 #include <vector>
 
+#include "collab/ChordPlayback.h"
 #include "collab/MasterDsp.h"
+#include "collab/TempoMap.h"
 #include "collab/ProjectDiff.h"
 #include "collab/ProjectJson.h"
 #include "TestUtils.h"
@@ -125,4 +127,30 @@ TEST_CASE ("Master limiter settings round-trip through JSON and diff as their ow
     REQUIRE (d.changes.size() == 1);
     CHECK (d.changes[0].scopeKind == ScopeKind::master);
     CHECK (d.touches (p.master.id));
+}
+
+TEST_CASE ("Key track round-trips through JSON, diffs as its own scope and answers keyAt")
+{
+    auto p = parseProject (fixture ("full.project.json"));
+    CHECK (p.keyTrack.id == keyTrackIdFor (p.projectId));
+    CHECK (nlohmann::json::parse (serialiseProject (p)).count ("keyTrack") == 0);   // 空は省略
+    CHECK_FALSE (keyAt (p, TempoMap (p), 0));
+
+    auto q = p;
+    q.keyTrack.events.push_back ({ "11111111-1111-4111-8111-11111111aaaa", 1, 7, false });   // G
+    q.keyTrack.events.push_back ({ "11111111-1111-4111-8111-11111111bbbb", 9, 4, true });    // Em（9 小節目から）
+    const auto text = serialiseProject (q);
+    CHECK (validateProjectJson (nlohmann::json::parse (text)).empty());
+    auto r = parseProject (text);
+    CHECK (r.keyTrack == q.keyTrack);
+
+    const TempoMap map (r);
+    CHECK (keyAt (r, map, 0) == chord::Key { 7, false });
+    CHECK (keyAt (r, map, map.barToTick (9)) == chord::Key { 4, true });
+    CHECK (keyAt (r, map, map.barToTick (9) - 1) == chord::Key { 7, false });
+
+    auto d = diffProjects (p, q);
+    REQUIRE (d.changes.size() == 2);
+    CHECK (d.changes[0].scopeKind == ScopeKind::key);
+    CHECK (d.changes[0].summary.find ("G") != std::string::npos);
 }

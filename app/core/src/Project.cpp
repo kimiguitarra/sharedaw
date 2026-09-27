@@ -66,6 +66,9 @@ void Project::sortCanonical()
     std::stable_sort (markerTrack.events.begin(), markerTrack.events.end(),
                       [] (auto& a, auto& b) { return std::tie (a.tick, a.id) < std::tie (b.tick, b.id); });
 
+    std::stable_sort (keyTrack.events.begin(), keyTrack.events.end(),
+                      [] (auto& a, auto& b) { return std::tie (a.bar, a.id) < std::tie (b.bar, b.id); });
+
     // トラックの並び順はユーザーが決める順序なので並べ替えない
     for (auto& t : tracks)
     {
@@ -94,6 +97,7 @@ Project Project::createEmpty (const std::string& name)
     p.chordTrack.playback = { true, -6.0, { "builtin.piano", "1.0.0" } };
     p.markerTrack.id = markerTrackIdFor (p.projectId);
     p.master.id = masterBusIdFor (p.projectId);
+    p.keyTrack.id = keyTrackIdFor (p.projectId);
     return p;
 }
 
@@ -107,6 +111,11 @@ namespace
         h[16] = "89ab"[std::stoi (h.substr (16, 1), nullptr, 16) & 3];
         return h.substr (0, 8) + "-" + h.substr (8, 4) + "-" + h.substr (12, 4) + "-" + h.substr (16, 4) + "-" + h.substr (20, 12);
     }
+}
+
+std::string keyTrackIdFor (const std::string& projectId)
+{
+    return derivedUuid ("keyTrack:" + projectId);
 }
 
 std::string masterBusIdFor (const std::string& projectId)

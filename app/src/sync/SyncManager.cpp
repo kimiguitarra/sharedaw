@@ -205,6 +205,7 @@ juce::String SyncManager::scopeName (const std::string& scopeId) const
     if (scopeId == p.chordTrack.id)  return "コード"_ju;
     if (scopeId == p.markerTrack.id) return "マーカー"_ju;
     if (scopeId == p.master.id)      return "マスター"_ju;
+    if (scopeId == p.keyTrack.id)    return "キー"_ju;
 
     if (auto* t = p.findTrack (scopeId))
         return toJuce (t->name);
@@ -240,6 +241,7 @@ bool SyncManager::canEdit (const std::string& scopeId) const
     // マーカーとマスターは、サーバーでは中身があるときだけスコープとして数える（空・既定値は JSON にない扱い）
     const bool inBase = scopeId == base->tempoTrack.id || scopeId == base->meterTrack.id || scopeId == base->chordTrack.id
                           || (scopeId == base->markerTrack.id && ! base->markerTrack.events.empty())
+                          || (scopeId == base->keyTrack.id && ! base->keyTrack.events.empty())
                           || (scopeId == base->master.id && ! base->master.isDefault())
                           || base->findTrack (scopeId) != nullptr;
 

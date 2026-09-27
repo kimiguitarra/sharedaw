@@ -12,8 +12,8 @@ namespace
 {
     constexpr int rulerHeight = 26;
     constexpr int laneHeight = 24;
-    constexpr int chordLaneHeight = 30;
-    constexpr int topHeight = rulerHeight + laneHeight * 3 + chordLaneHeight;   // ルーラー、マーカー、テンポ、拍子、コード
+    constexpr int chordLaneHeight = 40;
+    constexpr int topHeight = rulerHeight + laneHeight * 4 + chordLaneHeight;   // ルーラー、マーカー、テンポ、拍子、キー、コード
     constexpr int scrollBarSize = 12;
     constexpr float edgeGrab = 7.0f;
 }
@@ -842,6 +842,7 @@ TimelineView::TimelineView (AppContext& c)
       ruler (c.document, c.state, c.state.timeline),
       tempoLane (c.document, c.state),
       meterLane (c.document, c.state),
+      keyLane (c),
       chordLane (c),
       markerLane (c),
       lanes (c),
@@ -850,6 +851,7 @@ TimelineView::TimelineView (AppContext& c)
     addAndMakeVisible (ruler);
     addAndMakeVisible (tempoLane);
     addAndMakeVisible (meterLane);
+    addAndMakeVisible (keyLane);
     addAndMakeVisible (chordLane);
     addAndMakeVisible (markerLane);
     addAndMakeVisible (lanes);
@@ -922,8 +924,10 @@ void TimelineView::paint (juce::Graphics& g)
     g.drawText ("テンポ"_ju, 10, rulerHeight + laneHeight, w, laneHeight, juce::Justification::centredLeft);
     g.setColour (Theme::meter);
     g.drawText ("拍子"_ju, 10, rulerHeight + laneHeight * 2, w, laneHeight, juce::Justification::centredLeft);
+    g.setColour (juce::Colour (0xff9ccc65));
+    g.drawText ("キー"_ju, 10, rulerHeight + laneHeight * 3, w, laneHeight, juce::Justification::centredLeft);
     g.setColour (juce::Colour (0xffffb74d));
-    g.drawText ("コード"_ju, 10, rulerHeight + laneHeight * 3, w, chordLaneHeight, juce::Justification::centredLeft);
+    g.drawText ("コード"_ju, 10, rulerHeight + laneHeight * 4, w, chordLaneHeight, juce::Justification::centredLeft);
 
     g.setColour (Theme::background);
     g.drawVerticalLine (headerWidth - 1, 0.0f, (float) getHeight());
@@ -944,11 +948,12 @@ void TimelineView::resized()
     markerLane.setBounds (area.removeFromTop (laneHeight));
     tempoLane.setBounds (area.removeFromTop (laneHeight));
     meterLane.setBounds (area.removeFromTop (laneHeight));
+    keyLane.setBounds (area.removeFromTop (laneHeight));
     chordLane.setBounds (area.removeFromTop (chordLaneHeight));
     lanes.setBounds (area);
 
     {
-        auto chordRow = left.withTop (chordLane.getY()).withHeight (chordLaneHeight).reduced (4, 4);
+        auto chordRow = left.withTop (chordLane.getY()).withHeight (chordLaneHeight).reduced (4, 7);
         chordRow.removeFromLeft (56);
         chordPlaybackToggle.setBounds (chordRow.removeFromLeft (70));
         chordVolume.setBounds (chordRow);
@@ -1074,6 +1079,7 @@ bool TimelineView::deleteLaneSelection()
 {
     if (tempoLane.hasKeyboardFocus (false))  return tempoLane.deleteSelected();
     if (meterLane.hasKeyboardFocus (false))  return meterLane.deleteSelected();
+    if (keyLane.hasKeyboardFocus (false))    return keyLane.deleteSelected();
     if (chordLane.hasKeyboardFocus (false))  return chordLane.deleteSelected();
     if (markerLane.hasKeyboardFocus (false)) return markerLane.deleteSelected();
     return false;

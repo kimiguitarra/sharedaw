@@ -142,6 +142,23 @@ describe("projects and revisions", () => {
     expect((await push(bob, pid, changed, 1)).status).toBe(201);
   });
 
+  it("treats the key track as its own scope with a lock", async () => {
+    const keyId = "33333333-3333-4333-8333-333333333333";
+    const withKey = clone(minimalFixture) as any;
+    withKey.keyTrack = { id: keyId, events: [{ id: "33333333-3333-4333-8333-3333333333aa", bar: 1, tonic: 7, mode: "major" }] };
+    expect((await push(alice, pid, withKey, 0)).status).toBe(201);
+
+    const changed = clone(withKey);
+    changed.keyTrack.events[0].mode = "minor";
+    const denied = await push(bob, pid, changed, 1);
+    expect(denied.status).toBe(403);
+    expect(denied.data).toMatchObject({ error: "lock_required", trackIds: [keyId] });
+
+    const bad = clone(withKey);
+    bad.keyTrack.events[0].tonic = 12;
+    expect((await push(alice, pid, bad, 1)).data.error).toBe("invalid_project");
+  });
+
   it("treats the master limiter as its own scope with a lock", async () => {
     const masterId = "22222222-2222-4222-8222-222222222222";
     const withMaster = clone(minimalFixture) as any;
