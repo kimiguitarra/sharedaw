@@ -99,6 +99,10 @@ describe("projects and revisions", () => {
     expect(r.status).toBe(201);
     expect(r.data.number).toBe(1);
 
+    const listed = await bob("GET", "/projects");
+    expect(listed.data[0]).toMatchObject({ id: pid, headRevision: 1, updatedBy: "Alice" });
+    expect(typeof listed.data[0].updatedAt).toBe("string");
+
     const revs = await bob("GET", `/projects/${pid}/revisions`);
     expect(revs.data[0]).toMatchObject({ number: 1, parentNumber: 0, authorName: "Alice", message: "test" });
 

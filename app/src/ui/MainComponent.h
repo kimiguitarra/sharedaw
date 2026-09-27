@@ -121,7 +121,13 @@ private:
     std::unique_ptr<juce::DocumentWindow> diffWindow;
     void showServerSettings();
     void registerProject();
-    void openFromServer();
+    void downloadProject (const std::string& projectId);
+
+public:
+    /** 「楽曲を選ぶ」画面（起動時にも出す）。 */
+    void showProjectPicker();
+
+private:
     void pull();
     void push();
     void showHistory();

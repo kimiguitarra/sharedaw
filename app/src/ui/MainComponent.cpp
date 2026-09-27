@@ -5,6 +5,7 @@
 #include "MarkerLane.h"
 #include "MidiInputPanel.h"
 #include "MasterPanel.h"
+#include "ProjectPicker.h"
 #include "MixerView.h"
 #include "SyncUI.h"
 #include "Theme.h"
@@ -330,6 +331,7 @@ void MainComponent::openProjectFolder (const juce::File& folder)
         state.changed();
         bridge.returnToStart();
         settings.setValue ("lastProjectDir", folder.getFullPathName());
+        ProjectPicker::remember (settings, folder);
         setStatus ("開きました: "_ju + folder.getFullPathName());
     }
     catch (const std::exception& e)
@@ -375,6 +377,7 @@ void MainComponent::saveProject (std::function<void (bool)> onDone)
         else
         {
             settings.setValue ("lastProjectDir", document.getProjectDir().getFullPathName());
+            ProjectPicker::remember (settings, document.getProjectDir());
             setStatus ("保存しました: "_ju + document.getProjectFile().getFullPathName());
         }
 
@@ -1308,7 +1311,10 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdAudioSettings: info.setInfo ("オーディオ設定…"_ju, {}, "Options", 0); break;
         case cmdSyncSettings:  info.setInfo ("サーバー設定…"_ju, {}, "Sync", 0); break;
         case cmdSyncRegister:  info.setInfo ("このプロジェクトをサーバーに登録…"_ju, {}, "Sync", 0); info.setActive (! sync.isLinked()); break;
-        case cmdSyncOpen:      info.setInfo ("サーバーから開く…"_ju, {}, "Sync", 0); break;
+        case cmdSyncOpen:
+            info.setInfo ("楽曲を選ぶ（サーバー / この PC）…"_ju, {}, "File", 0);
+            info.addDefaultKeypress ('o', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+            break;
         case cmdSyncPull:      info.setInfo ("取り込み（pull）…"_ju, {}, "Sync", 0); info.setActive (sync.isLinked()); break;
         case cmdSyncPush:      info.setInfo ("アップロード（push）…"_ju, {}, "Sync", 0); info.setActive (sync.isLinked()); break;
         case cmdSyncHistory:   info.setInfo ("リビジョン履歴…"_ju, {}, "Sync", 0); info.setActive (sync.isLinked()); break;
@@ -1460,7 +1466,7 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdAudioSettings: showAudioSettings(); break;
         case cmdSyncSettings:  showServerSettings(); break;
         case cmdSyncRegister:  registerProject(); break;
-        case cmdSyncOpen:      openFromServer(); break;
+        case cmdSyncOpen:      showProjectPicker(); break;
         case cmdSyncPull:      pull(); break;
         case cmdSyncPush:      push(); break;
         case cmdSyncHistory:   showHistory(); break;
@@ -1507,6 +1513,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
     {
         case 0:
             m.addCommandItem (cm, cmdNew);
+            m.addCommandItem (cm, cmdSyncOpen);
             m.addCommandItem (cm, cmdOpen);
             m.addCommandItem (cm, cmdSave);
             m.addSeparator();

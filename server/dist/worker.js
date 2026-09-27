@@ -2695,10 +2695,24 @@ route("GET", "/users", async (ctx) => {
 });
 route("GET", "/projects", async (ctx) => {
   const rows = await ctx.env.DB.prepare(
-    `SELECT p.id, p.name, p.head_revision, p.created_by, p.created_at FROM projects p
-     JOIN project_members m ON m.project_id = p.id WHERE m.user_id = ? ORDER BY p.created_at DESC`
+    `SELECT p.id, p.name, p.head_revision, p.created_by, p.created_at, r.created_at AS updated_at, u.display_name AS updated_by
+     FROM projects p
+     JOIN project_members m ON m.project_id = p.id
+     LEFT JOIN revisions r ON r.project_id = p.id AND r.number = p.head_revision
+     LEFT JOIN users u ON u.id = r.author_id
+     WHERE m.user_id = ? ORDER BY COALESCE(r.created_at, p.created_at) DESC`
   ).bind(ctx.user.id).all();
-  return json(rows.results.map((p) => ({ id: p.id, name: p.name, headRevision: p.head_revision, createdBy: p.created_by, createdAt: p.created_at })));
+  return json(
+    rows.results.map((p) => ({
+      id: p.id,
+      name: p.name,
+      headRevision: p.head_revision,
+      createdBy: p.created_by,
+      createdAt: p.created_at,
+      updatedAt: p.updated_at ?? p.created_at,
+      updatedBy: p.updated_by ?? null
+    }))
+  );
 });
 route("POST", "/projects", async (ctx) => {
   const body = await readJson(ctx.request);

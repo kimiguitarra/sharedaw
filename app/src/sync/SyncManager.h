@@ -117,6 +117,23 @@ public:
 
     juce::Result fetchRevisions (nlohmann::json& list);
 
+    /** ローカルのプロジェクトのフォルダの状態（開かずに読む。「楽曲を選ぶ」画面用）。 */
+    struct LocalInfo
+    {
+        juce::File folder;
+        bool valid = false;               // project.json が読めた
+        std::string projectId;
+        juce::String name;
+        bool linked = false;              // .collab/meta.json がある（サーバーに登録済み）
+        juce::String serverUrl;
+        int baseRevision = 0;
+        int changedScopes = 0;            // ベースから変わっているスコープ（トラック・テンポなど）の数 = 未 push の変更
+        juce::StringArray changedNames;   // その名前（最大 5 件）
+        juce::Time savedAt;
+    };
+
+    static LocalInfo inspectFolder (const juce::File& projectFolder);
+
     /** スコープの表示名（トラック名、「テンポ」など）。 */
     juce::String scopeName (const std::string& scopeId) const;
 

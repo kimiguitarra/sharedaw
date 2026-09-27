@@ -677,12 +677,10 @@ private:
         return fail ("unknown command " + command);
     }
 
+    /** 起動時: どの曲をやるか選ぶ画面を出す（サーバーとこの PC の状況が見える）。 */
     void openLastProject()
     {
-        auto last = juce::File (settings->getValue ("lastProjectDir"));
-
-        if (last != juce::File() && last.getChildFile ("project.json").existsAsFile())
-            mainComponent->openProjectFolder (last);
+        mainComponent->showProjectPicker();
     }
 
     /** 初回起動時、デバイスが対応していれば 48kHz にする（プロジェクトは 48kHz 固定、§8.1）。 */

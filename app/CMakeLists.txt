@@ -76,6 +76,7 @@ target_sources(ShareDAW PRIVATE
     src/ui/TrackHeader.cpp
     src/ui/TempoMeterLanes.cpp
     src/ui/PianoRoll.cpp
+    src/ui/ProjectPicker.cpp
     src/ui/InstrumentPanel.cpp
     src/ui/Dialogs.cpp)
 

@@ -3,6 +3,7 @@
 #include "MainComponent.h"
 
 #include "Dialogs.h"
+#include "ProjectPicker.h"
 #include "SyncUI.h"
 #include "Theme.h"
 #include "sync/CredentialStore.h"
@@ -113,61 +114,66 @@ void MainComponent::registerProject()
         doRegister();
 }
 
-void MainComponent::openFromServer()
+void MainComponent::showProjectPicker()
+{
+    ProjectPicker::Callbacks cb;
+
+    cb.openLocal = [this] (const juce::File& folder, bool pullAfter)
+    {
+        confirmDiscardChanges ([this, folder, pullAfter]
+        {
+            openProjectFolder (folder);
+
+            // サーバーに新しい版があれば、そのまま取り込みの画面を出す
+            if (pullAfter && sync.isLinked())
+                juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<MainComponent> (this)]
+                {
+                    if (safe != nullptr)
+                        safe->pull();
+                });
+        });
+    };
+
+    cb.download = [this] (const std::string& projectId)
+    {
+        confirmDiscardChanges ([this, projectId] { downloadProject (projectId); });
+    };
+
+    cb.newProject = [this] { newProject(); };
+    cb.openOther = [this] { openProject(); };
+    cb.serverSettings = [this] { showServerSettings(); };
+
+    juce::DialogWindow::LaunchOptions o;
+    o.content.setOwned (new ProjectPicker (sync, settings, document.hasLocation() ? document.getProjectDir()
+                                                                                  : juce::File (settings.getValue ("lastProjectDir")),
+                                           std::move (cb)));
+    o.dialogTitle = "楽曲を選ぶ"_ju;
+    o.dialogBackgroundColour = Theme::panel;
+    o.escapeKeyTriggersCloseButton = true;
+    o.useNativeTitleBar = true;
+    o.resizable = true;
+    o.launchAsync();
+}
+
+void MainComponent::downloadProject (const std::string& projectId)
 {
     if (! ensureSyncReady (false))
         return;
 
-    nlohmann::json list;
-    auto r = SyncUI::runWithProgress ("プロジェクト一覧を取得しています"_ju, [&] { return sync.fetchProjects (list); });
+    // ダウンロード先（ドキュメント/ShareDAW など）の中に曲のフォルダを作る
+    auto dir = ProjectPicker::projectsFolder (settings);
 
-    if (r.failed())
-        return Dialogs::showError ("取得できませんでした"_ju, r.getErrorMessage());
+    if (! dir.isDirectory() && ! dir.createDirectory())
+        return Dialogs::showError ("開けませんでした"_ju, "ダウンロード先のフォルダを作れません: "_ju + dir.getFullPathName());
 
-    if (list.empty())
-        return Dialogs::showInfo ("サーバーから開く"_ju, "参加しているプロジェクトがありません。"_ju);
+    juce::File created;
+    auto res = SyncUI::runWithProgress ("ダウンロードしています"_ju, [&] { return sync.runOpenFromServer (projectId, dir, created); });
 
-    juce::PopupMenu menu;
-    int id = 1;
+    if (res.failed())
+        return Dialogs::showError ("開けませんでした"_ju, res.getErrorMessage());
 
-    for (auto& p : list)
-    {
-        const auto pid = p.value ("id", std::string());
-        menu.addItem (id++, toJuce (p.value ("name", std::string())) + "  (rev " + juce::String (p.value ("headRevision", 0)) + ")");
-        juce::ignoreUnused (pid);
-    }
-
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&transport), [this, list] (int chosen)
-    {
-        if (chosen <= 0)
-            return;
-
-        const auto projectId = list[(size_t) chosen - 1].value ("id", std::string());
-
-        confirmDiscardChanges ([this, projectId]
-        {
-            chooser = std::make_unique<juce::FileChooser> ("保存先のフォルダを選択（中にプロジェクトのフォルダを作ります）"_ju,
-                                                           juce::File::getSpecialLocation (juce::File::userDocumentsDirectory));
-            chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
-                                  [this, projectId] (const juce::FileChooser& fc)
-            {
-                auto dir = fc.getResult();
-
-                if (dir == juce::File())
-                    return;
-
-                juce::File created;
-                auto res = SyncUI::runWithProgress ("ダウンロードしています"_ju,
-                                                    [&] { return sync.runOpenFromServer (projectId, dir, created); });
-
-                if (res.failed())
-                    return Dialogs::showError ("開けませんでした"_ju, res.getErrorMessage());
-
-                openProjectFolder (created);
-                SyncUI::runWithProgress ("ロックを確認しています"_ju, [this] { return sync.fetchLocks(); });
-            });
-        });
-    });
+    openProjectFolder (created);
+    SyncUI::runWithProgress ("ロックを確認しています"_ju, [this] { return sync.fetchLocks(); });
 }
 
 void MainComponent::pull()

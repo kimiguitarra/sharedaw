@@ -118,6 +118,68 @@ ApiResponse SyncManager::fetchMe()
 }
 
 //==============================================================================
+SyncManager::LocalInfo SyncManager::inspectFolder (const juce::File& folder)
+{
+    LocalInfo info;
+    info.folder = folder;
+    const auto projectFile = folder.getChildFile ("project.json");
+
+    if (! projectFile.existsAsFile())
+        return info;
+
+    try
+    {
+        const auto project = collab::parseProject (projectFile.loadFileAsString().toStdString());
+        info.valid = true;
+        info.projectId = project.projectId;
+        info.name = toJuce (project.name);
+        info.savedAt = projectFile.getLastModificationTime();
+
+        const auto dir = collabDir (folder);
+        auto metaFile = dir.getChildFile ("meta.json");
+
+        if (! metaFile.existsAsFile())
+            return info;
+
+        auto j = nlohmann::json::parse (metaFile.loadFileAsString().toStdString());
+        info.serverUrl = toJuce (j.value ("serverUrl", std::string()));
+        info.baseRevision = j.value ("baseRevision", 0);
+        info.linked = j.value ("projectId", std::string()) == project.projectId && info.serverUrl.isNotEmpty();
+
+        if (auto baseFile = dir.getChildFile ("base.json"); info.linked && baseFile.existsAsFile())
+        {
+            const auto baseProject = collab::parseProject (baseFile.loadFileAsString().toStdString());
+            const auto diff = collab::diffProjects (baseProject, project);
+            info.changedScopes = (int) diff.changedScopeIds.size();
+
+            for (auto& id : diff.changedScopeIds)
+            {
+                if (info.changedNames.size() >= 5)
+                    break;
+
+                juce::String n;
+
+                if (id == project.tempoTrack.id)        n = "テンポ"_ju;
+                else if (id == project.meterTrack.id)   n = "拍子"_ju;
+                else if (id == project.chordTrack.id)   n = "コード"_ju;
+                else if (id == project.markerTrack.id)  n = "マーカー"_ju;
+                else if (id == project.keyTrack.id)     n = "キー"_ju;
+                else if (id == project.master.id)       n = "マスター"_ju;
+                else if (auto* t = project.findTrack (id)) n = toJuce (t->name);
+                else if (auto* bt = baseProject.findTrack (id)) n = toJuce (bt->name) + "（削除）"_ju;
+
+                info.changedNames.add (n);
+            }
+        }
+    }
+    catch (const std::exception&)
+    {
+        info.valid = false;
+    }
+
+    return info;
+}
+
 void SyncManager::reloadForDocument()
 {
     linked = false;
@@ -692,8 +754,9 @@ juce::Result SyncManager::runOpenFromServer (const std::string& projectId, const
 
     auto folder = parentDir.getChildFile (juce::File::createLegalFileName (toJuce (project.name)));
 
-    if (folder.getChildFile ("project.json").exists())
-        return juce::Result::fail ("同じ名前のフォルダに既にプロジェクトがあります: "_ju + folder.getFullPathName());
+    // 同じ名前のフォルダがあれば「曲名 (2)」のように別の名前にする
+    if (folder.exists())
+        folder = folder.getNonexistentSibling (true);
 
     ProjectDocument::createFolderStructure (folder);
 
