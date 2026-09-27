@@ -59,20 +59,20 @@ void Ruler::paint (juce::Graphics& g)
     g.drawHorizontalLine (getHeight() - 1, 0.0f, (float) getWidth());
 }
 
-void Ruler::seekTo (float x)
+void Ruler::seekTo (float x, const juce::ModifierKeys& mods)
 {
     if (onSeek)
-        onSeek (juce::jmax (0.0, axis.xToTick (x)));
+        onSeek (juce::jmax (0.0, axis.xToTick (x)), mods);
 }
 
 void Ruler::mouseDown (const juce::MouseEvent& e)
 {
-    seekTo (e.position.x);
+    seekTo (e.position.x, e.mods);
 }
 
 void Ruler::mouseDrag (const juce::MouseEvent& e)
 {
-    seekTo (e.position.x);
+    seekTo (e.position.x, e.mods);
 }
 
 void Ruler::mouseUp (const juce::MouseEvent&)

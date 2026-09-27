@@ -123,6 +123,34 @@ namespace
                  { "gainDb", c.gainDb }, { "fadeInSamples", c.fadeInSamples }, { "fadeOutSamples", c.fadeOutSamples } };
     }
 
+    ojson toJson (const ChannelStrip& s)
+    {
+        ojson eq;
+        eq["enabled"] = s.eq.enabled;
+        eq["lowCutHz"] = s.eq.lowCutHz;
+        eq["lowGainDb"] = s.eq.lowGainDb;
+        eq["lowFreqHz"] = s.eq.lowFreqHz;
+        eq["midGainDb"] = s.eq.midGainDb;
+        eq["midFreqHz"] = s.eq.midFreqHz;
+        eq["midQ"] = s.eq.midQ;
+        eq["highGainDb"] = s.eq.highGainDb;
+        eq["highFreqHz"] = s.eq.highFreqHz;
+
+        ojson comp;
+        comp["enabled"] = s.comp.enabled;
+        comp["type"] = compTypeName (s.comp.type);
+        comp["thresholdDb"] = s.comp.thresholdDb;
+        comp["ratio"] = s.comp.ratio;
+        comp["attackMs"] = s.comp.attackMs;
+        comp["releaseMs"] = s.comp.releaseMs;
+        comp["makeupDb"] = s.comp.makeupDb;
+
+        ojson o;
+        o["eq"] = eq;
+        o["comp"] = comp;
+        return o;
+    }
+
     ojson toJson (const Track& t)
     {
         ojson o;
@@ -147,6 +175,9 @@ namespace
 
             o["effects"] = fx;
         }
+
+        if (! t.strip.isDefault())
+            o["strip"] = toJson (t.strip);
 
         if (t.render)
             o["render"] = toJson (*t.render);
@@ -176,6 +207,40 @@ namespace
     {
         auto it = j.find (key);
         return it != j.end() && ! it->is_null() ? it->get<T>() : fallback;
+    }
+
+    ChannelStrip stripFromJson (const json& j)
+    {
+        ChannelStrip s;
+        const ChannelStrip d;
+
+        if (auto it = j.find ("eq"); it != j.end())
+        {
+            auto& e = *it;
+            s.eq.enabled = getOr<bool> (e, "enabled", d.eq.enabled);
+            s.eq.lowCutHz = getOr<double> (e, "lowCutHz", d.eq.lowCutHz);
+            s.eq.lowGainDb = getOr<double> (e, "lowGainDb", d.eq.lowGainDb);
+            s.eq.lowFreqHz = getOr<double> (e, "lowFreqHz", d.eq.lowFreqHz);
+            s.eq.midGainDb = getOr<double> (e, "midGainDb", d.eq.midGainDb);
+            s.eq.midFreqHz = getOr<double> (e, "midFreqHz", d.eq.midFreqHz);
+            s.eq.midQ = getOr<double> (e, "midQ", d.eq.midQ);
+            s.eq.highGainDb = getOr<double> (e, "highGainDb", d.eq.highGainDb);
+            s.eq.highFreqHz = getOr<double> (e, "highFreqHz", d.eq.highFreqHz);
+        }
+
+        if (auto it = j.find ("comp"); it != j.end())
+        {
+            auto& c = *it;
+            s.comp.enabled = getOr<bool> (c, "enabled", d.comp.enabled);
+            s.comp.type = getOr<std::string> (c, "type", "fet") == "opto" ? CompType::opto : CompType::fet;
+            s.comp.thresholdDb = getOr<double> (c, "thresholdDb", d.comp.thresholdDb);
+            s.comp.ratio = getOr<double> (c, "ratio", d.comp.ratio);
+            s.comp.attackMs = getOr<double> (c, "attackMs", d.comp.attackMs);
+            s.comp.releaseMs = getOr<double> (c, "releaseMs", d.comp.releaseMs);
+            s.comp.makeupDb = getOr<double> (c, "makeupDb", d.comp.makeupDb);
+        }
+
+        return s;
     }
 
     InstrumentRef instrumentRefFromJson (const json& j)
@@ -400,6 +465,9 @@ Project projectFromJson (const json& j)
                 for (auto& ej : *it)
                     t.effects.push_back ({ get<std::string> (ej, "id"), pluginFromJson (ej.at ("plugin")),
                                            getOr<std::string> (ej, "stateRef", {}), getOr<bool> (ej, "bypass", false) });
+
+            if (auto it = tj.find ("strip"); it != tj.end())
+                t.strip = stripFromJson (*it);
 
             if (auto it = tj.find ("render"); it != tj.end())
                 t.render = Render { get<std::string> (*it, "audioHash"), get<std::string> (*it, "renderedAt"),

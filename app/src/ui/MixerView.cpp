@@ -128,6 +128,21 @@ public:
 
         solo.onClick = [this] { editTrack ("ソロ"_ju, [] (collab::Track& t) { t.solo = ! t.solo; }); };
 
+        // EQ・コンプ（クリックで画面を開く。点灯はオン）
+        eq.setButtonText ("EQ");
+        comp.setButtonText ("COMP");
+        eq.setTooltip ("EQ（クリックで開く）"_ju);
+        comp.setTooltip ("コンプ（クリックで開く）"_ju);
+
+        for (auto* b : { &eq, &comp })
+        {
+            b->setClickingTogglesState (false);
+            b->setColour (juce::TextButton::buttonOnColourId, Theme::accent.darker (0.2f));
+            b->onClick = [this] { if (ctx.openChannelStrip) ctx.openChannelStrip (trackId); };
+            b->setVisible (! isChord());
+            addChildComponent (b);
+        }
+
         update();
     }
 
@@ -155,6 +170,9 @@ public:
             pan.setValue (t->pan, juce::dontSendNotification);
             mute.setToggleState (t->mute, juce::dontSendNotification);
             solo.setToggleState (t->solo, juce::dontSendNotification);
+            eq.setToggleState (t->strip.eq.enabled, juce::dontSendNotification);
+            comp.setToggleState (t->strip.comp.enabled, juce::dontSendNotification);
+            comp.setButtonText (t->strip.comp.enabled ? (t->strip.comp.type == collab::CompType::opto ? "OPTO" : "FET") : "COMP");
         }
 
         value.setText (formatDb (fader.getValue()), juce::dontSendNotification);
@@ -181,6 +199,15 @@ public:
         name.setBounds (area.removeFromTop (20));
         detail.setBounds (area.removeFromTop (16));
         area.removeFromTop (6);
+
+        if (eq.isVisible())
+        {
+            auto row = area.removeFromTop (22);
+            eq.setBounds (row.removeFromLeft (row.getWidth() / 2 - 2));
+            row.removeFromLeft (4);
+            comp.setBounds (row);
+            area.removeFromTop (4);
+        }
 
         if (pan.isVisible())
             pan.setBounds (area.removeFromTop (22));
@@ -222,7 +249,7 @@ private:
     std::string trackId;
     juce::Label name, detail, value;
     juce::Slider pan, fader;
-    juce::TextButton mute, solo;
+    juce::TextButton mute, solo, eq, comp;
     LevelMeter meter;
     juce::Colour colour = Theme::accent;
     juce::String mergeId;

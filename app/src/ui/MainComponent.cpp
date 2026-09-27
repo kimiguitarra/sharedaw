@@ -1,6 +1,7 @@
 #include "MainComponent.h"
 
 #include "Dialogs.h"
+#include "ChannelStripEditor.h"
 #include "MixerView.h"
 #include "SyncUI.h"
 #include "Theme.h"
@@ -22,7 +23,7 @@ namespace
         cmdAddAudioTrack, cmdImportAudio, cmdSplit, cmdPlugins,
         cmdRecord, cmdCountIn0, cmdCountIn1, cmdCountIn2,
         cmdToolSelect, cmdToolPencil, cmdModeCubase, cmdModeStudioOne, cmdMixer, cmdLoopToSelection,
-        cmdStop, cmdZoomIn, cmdZoomOut
+        cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll
     };
 
     constexpr float fontScales[] = { 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
@@ -80,6 +81,7 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     state.mode = settings.getValue ("operationMode") == "studioOne" ? OperationMode::studioOne : OperationMode::cubase;
     commandManager.getKeyMappings()->resetToDefaultMappings();
     ctx.addTrackMenu = [this] { return addTrackMenu(); };
+    ctx.openChannelStrip = [this] (const std::string& id) { openChannelStrip (id); };
     bridge.onRecordingFinished = [this] (std::vector<EngineBridge::RecordedTake> takes) { importTakes (std::move (takes)); };
     engine.getDeviceManager().deviceManager.addChangeListener (this);
     applyLatencyOffset();
@@ -98,6 +100,7 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
 
 MainComponent::~MainComponent()
 {
+    stripWindow = nullptr;
     mixerWindow = nullptr;
     bridge.onPluginRemoved = nullptr;
     bridge.onRecordingFinished = nullptr;
@@ -197,8 +200,11 @@ void MainComponent::timerCallback()
     timeline.setPlayheadTick (tick);
     pianoRoll.setPlayheadTick (tick);
 
-    if (playing)
+    if (playing && state.autoScroll)
+    {
         timeline.followPlayhead (tick);
+        pianoRoll.followPlayhead (tick);
+    }
 }
 
 void MainComponent::updateTitle()
@@ -730,6 +736,45 @@ void MainComponent::toggleMixer()
     commandManager.commandStatusChanged();
 }
 
+void MainComponent::openChannelStrip (const std::string& trackId)
+{
+    if (document.getProject().findTrack (trackId) == nullptr)
+        return;
+
+    // 1 つのウィンドウを使い回し、開くトラックを切り替える
+    if (stripWindow == nullptr)
+    {
+        struct Window  : public juce::DocumentWindow
+        {
+            Window() : DocumentWindow ("EQ / コンプ"_ju, Theme::panel, DocumentWindow::closeButton) {}
+            void closeButtonPressed() override      { setVisible (false); }
+        };
+
+        auto window = std::make_unique<Window>();
+        window->setUsingNativeTitleBar (true);
+        auto* editor = new ChannelStripEditor (ctx, trackId);
+        auto* w = window.get();
+        editor->onTitleChanged = [w, editor] { w->setName (editor->getTitle()); };
+        window->setContentOwned (editor, true);
+        window->setResizable (false, false);
+        window->addKeyListener (commandManager.getKeyMappings());
+
+        if (auto* top = getTopLevelComponent())
+            window->setTopLeftPosition (top->getX() + 120, top->getY() + 120);
+
+        stripWindow = std::move (window);
+    }
+
+    if (auto* editor = dynamic_cast<ChannelStripEditor*> (stripWindow->getContentComponent()))
+    {
+        editor->setTrack (trackId);
+        stripWindow->setName (editor->getTitle());
+    }
+
+    stripWindow->setVisible (true);
+    stripWindow->toFront (true);
+}
+
 void MainComponent::zoom (double factor)
 {
     // ピアノロールにフォーカスがあればピアノロール、それ以外はタイムライン。再生位置を中心に拡大・縮小する
@@ -794,7 +839,7 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
                          cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory, cmdSyncRefreshLocks,
                          cmdAddAudioTrack, cmdImportAudio, cmdSplit, cmdPlugins,
                          cmdToolSelect, cmdToolPencil, cmdModeCubase, cmdModeStudioOne, cmdMixer, cmdLoopToSelection,
-                         cmdStop, cmdZoomIn, cmdZoomOut });
+                         cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll });
 }
 
 void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommandInfo& info)
@@ -845,6 +890,16 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdZoomOut:
             info.setInfo ("縮小（横）"_ju, {}, "View", 0);
             info.defaultKeypresses.add (state.behaviour().zoomOutKey);
+            break;
+        case cmdSnap:
+            info.setInfo ("スナップ（クオンタイズ値に合わせる）"_ju, {}, "Edit", 0);
+            info.defaultKeypresses.add (state.behaviour().snapKey);
+            info.setTicked (state.snapEnabled());
+            break;
+        case cmdAutoScroll:
+            info.setInfo ("自動スクロール"_ju, {}, "View", 0);
+            info.defaultKeypresses.add (state.behaviour().autoScrollKey);
+            info.setTicked (state.autoScroll);
             break;
         case cmdRecord:
             info.setInfo ("録音"_ju, {}, "Transport", 0);
@@ -950,6 +1005,15 @@ bool MainComponent::perform (const InvocationInfo& info)
             break;
         case cmdZoomIn:     zoom (1.25); break;
         case cmdZoomOut:    zoom (0.8); break;
+        case cmdSnap:
+            state.setSnapEnabled (! state.snapEnabled());
+            setStatus (state.snapEnabled() ? "スナップ: オン（クオンタイズ値に合わせる）"_ju : "スナップ: オフ（フリー）"_ju);
+            break;
+        case cmdAutoScroll:
+            state.autoScroll = ! state.autoScroll;
+            state.changed();
+            setStatus (state.autoScroll ? "自動スクロール: オン"_ju : "自動スクロール: オフ"_ju);
+            break;
         case cmdRecord:     toggleRecord(); break;
         case cmdCountIn0:
         case cmdCountIn1:
@@ -1044,6 +1108,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addSeparator();
             m.addCommandItem (cm, cmdToolSelect);
             m.addCommandItem (cm, cmdToolPencil);
+            m.addCommandItem (cm, cmdSnap);
             break;
         case 2:
             m.addCommandItem (cm, cmdPlay);
@@ -1104,6 +1169,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addSeparator();
             m.addCommandItem (cm, cmdZoomIn);
             m.addCommandItem (cm, cmdZoomOut);
+            m.addCommandItem (cm, cmdAutoScroll);
             m.addSeparator();
 
             juce::PopupMenu modes;

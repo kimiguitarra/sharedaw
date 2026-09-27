@@ -144,6 +144,51 @@ struct Effect
     bool operator== (const Effect&) const = default;
 };
 
+/**
+    各トラックに標準で付いている EQ とコンプ（チャンネルストリップ）。
+    挿す位置は音源・エフェクトの後、音量・パンの前。バウンスには含めない（受け取った側でも同じ設定がかかるため）。
+*/
+struct ChannelEq
+{
+    bool enabled = false;
+    double lowCutHz = 0.0;          // ローカット（0 = オフ）
+    double lowGainDb = 0.0;         // ローシェルフ
+    double lowFreqHz = 100.0;
+    double midGainDb = 0.0;         // ピーキング
+    double midFreqHz = 1000.0;
+    double midQ = 1.0;
+    double highGainDb = 0.0;        // ハイシェルフ
+    double highFreqHz = 8000.0;
+
+    bool operator== (const ChannelEq&) const = default;
+};
+
+enum class CompType { fet, opto };
+
+struct ChannelComp
+{
+    bool enabled = false;
+    CompType type = CompType::fet;  // FET（速い・色付け）／オプティカル（ゆっくり・自然）
+    double thresholdDb = -18.0;
+    double ratio = 4.0;
+    double attackMs = 1.0;          // FET のみ（オプティカルは音に応じて自動）
+    double releaseMs = 150.0;       // FET のみ
+    double makeupDb = 0.0;
+
+    bool operator== (const ChannelComp&) const = default;
+};
+
+struct ChannelStrip
+{
+    ChannelEq eq;
+    ChannelComp comp;
+
+    bool isDefault() const          { return *this == ChannelStrip {}; }
+    bool operator== (const ChannelStrip&) const = default;
+};
+
+std::string compTypeName (CompType);
+
 struct Render
 {
     std::string audioHash;
@@ -210,6 +255,7 @@ struct Track
 
     std::optional<Instrument> instrument;   // midi トラックのみ
     std::vector<Effect> effects;
+    ChannelStrip strip;
     std::optional<Render> render;
 
     std::vector<MidiClip> midiClips;        // type == midi

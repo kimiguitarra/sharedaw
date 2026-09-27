@@ -3,6 +3,7 @@
 #include <sstream>
 
 #include "SfizzPlugin.h"
+#include "audio/ChannelStripPlugin.h"
 #include "audio/CountInPlugin.h"
 #include "collab/Recording.h"
 #include "collab/ChordPlayback.h"
@@ -221,6 +222,8 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
     if (track.isSolo (false) != t.solo)
         track.setSolo (t.solo);
 
+    syncStrip (t, b);
+
     // 外部プラグインを使うトラックは、この環境でプラグインを鳴らせなければバウンスした音で再生する（§3.7）
     juce::String liveProblem;
     const bool external = collab::usesExternalPlugin (t);
@@ -433,8 +436,9 @@ void EngineBridge::syncEffects (const collab::Track& t, Binding& b)
         removeEffects (b);
         b.effectsKey = key;
 
-        auto* vol = b.track->getVolumePlugin();
-        int index = vol != nullptr ? b.track->pluginList.indexOf (vol) : -1;
+        // チャンネルストリップ（なければ音量・パン）の直前に並べる
+        te::Plugin* before = b.strip != nullptr ? static_cast<te::Plugin*> (b.strip) : b.track->getVolumePlugin();
+        int index = before != nullptr ? b.track->pluginList.indexOf (before) : -1;
 
         for (auto& e : t.effects)
         {
@@ -451,6 +455,27 @@ void EngineBridge::syncEffects (const collab::Track& t, Binding& b)
         for (auto& be : b.effects)
             if (be.id == e.id && be.plugin->isEnabled() == e.bypass)
                 be.plugin->setEnabled (! e.bypass);
+}
+
+void EngineBridge::syncStrip (const collab::Track& t, Binding& b)
+{
+    if (b.strip == nullptr)
+    {
+        auto plugin = edit->getPluginCache().createNewPlugin (ChannelStripPlugin::xmlTypeName, {});
+        auto* vol = b.track->getVolumePlugin();
+        const int index = vol != nullptr ? b.track->pluginList.indexOf (vol) : -1;
+        b.track->pluginList.insertPlugin (plugin, index, nullptr);
+        b.strip = dynamic_cast<ChannelStripPlugin*> (plugin.get());
+    }
+
+    if (b.strip != nullptr)
+        b.strip->setStrip (t.strip);
+}
+
+float EngineBridge::getTrackGainReductionDb (const std::string& trackId) const
+{
+    auto it = bindings.find (trackId);
+    return it != bindings.end() && it->second.strip != nullptr ? it->second.strip->getGainReductionDb() : 0.0f;
 }
 
 void EngineBridge::syncInstrument (const collab::Track& t, Binding& b)
@@ -641,6 +666,13 @@ juce::Result EngineBridge::renderTrack (const std::string& trackId, const juce::
 
     track.setMute (false);
 
+    // EQ・コンプもバウンスに含めない（同上）
+    auto* strip = it->second.strip;
+    const bool stripWasEnabled = strip != nullptr && strip->isEnabled();
+
+    if (strip != nullptr)
+        strip->setEnabled (false);
+
     const auto& project = document.getProject();
     const double end = document.getTempoMap().tickToSeconds ((double) collab::chordTrackEndTick (project, document.getTempoMap())) + tailSeconds;
 
@@ -670,6 +702,10 @@ juce::Result EngineBridge::renderTrack (const std::string& trackId, const juce::
     }
 
     track.setMute (oldMute);
+
+    if (strip != nullptr)
+        strip->setEnabled (stripWasEnabled);
+
     return ok ? juce::Result::ok() : juce::Result::fail ("書き出しに失敗しました"_ju);
 }
 

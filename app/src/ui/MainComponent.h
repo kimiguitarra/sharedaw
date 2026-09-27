@@ -86,6 +86,8 @@ private:
     void zoom (double factor);
     void toggleMixer();
     std::unique_ptr<juce::DocumentWindow> mixerWindow;
+    void openChannelStrip (const std::string& trackId);
+    std::unique_ptr<juce::DocumentWindow> stripWindow;
 
     // 録音（§3.5）
     void toggleRecord();

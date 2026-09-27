@@ -13,6 +13,9 @@ TEST_CASE ("grid step sizes")
     CHECK (Grid { 8, true }.stepTicks() == 320);
     CHECK (Grid { 16, true }.stepTicks() == 160);
     CHECK (Grid::presets().size() == 11);
+    CHECK (Grid::presets()[2].stepTicks() == 1280);          // 1/3 = 2分3連
+    CHECK (Grid { 2, true }.label().rfind ("1/3", 0) == 0);
+    CHECK (Grid { 4, true }.label().rfind ("1/6", 0) == 0);
 }
 
 TEST_CASE ("snap is relative to bar start")

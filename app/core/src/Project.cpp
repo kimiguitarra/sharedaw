@@ -91,6 +91,11 @@ Project Project::createEmpty (const std::string& name)
     return p;
 }
 
+std::string compTypeName (CompType t)
+{
+    return t == CompType::opto ? "opto" : "fet";
+}
+
 std::string trackTypeName (TrackType t)
 {
     return t == TrackType::midi ? "midi" : "audio";

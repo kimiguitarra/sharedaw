@@ -7,6 +7,7 @@
 #include "ProjectDocument.h"
 
 class SfizzPlugin;
+class ChannelStripPlugin;
 class CountInPlugin;
 
 /**
@@ -77,6 +78,9 @@ public:
     /** 前回呼んでからのトラックのピーク（dB、左右の大きいほう）。ミキサーのメーター用。trackId が空ならコードトラック。 */
     float getTrackPeakDb (const std::string& trackId);
 
+    /** トラックのコンプのゲインリダクション（dB、0 以上）。 */
+    float getTrackGainReductionDb (const std::string& trackId) const;
+
     //==============================================================================
     // 録音（§3.5）。入力の割り当て・録音待機・モニタリングはこの環境だけの設定なので JSON には入れない。
     struct TrackInput
@@ -133,6 +137,7 @@ private:
         te::AudioTrack::Ptr track;
         std::unique_ptr<Meter> meter;
         SfizzPlugin* synth = nullptr;
+        ChannelStripPlugin* strip = nullptr;
         juce::String sfzText;
         std::string clipsKey;
         juce::String problem;
@@ -183,6 +188,7 @@ private:
     void syncTrack (const collab::Track&, Binding&, bool tempoChanged);
     void syncInstrument (const collab::Track&, Binding&);
     void syncEffects (const collab::Track&, Binding&);
+    void syncStrip (const collab::Track&, Binding&);
     void removeInstrument (Binding&);
     void removeEffects (Binding&);
     bool canPlayLive (const collab::Track&, juce::String& why) const;

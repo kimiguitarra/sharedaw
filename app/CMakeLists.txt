@@ -38,6 +38,7 @@ target_sources(ShareDAW PRIVATE
     src/Main.cpp
     src/AppPaths.cpp
     src/audio/AudioFiles.cpp
+    src/audio/ChannelStripPlugin.cpp
     src/audio/CountInPlugin.cpp
     src/audio/Takes.cpp
     src/EngineBridge.cpp
@@ -51,6 +52,7 @@ target_sources(ShareDAW PRIVATE
     src/sync/SyncClient.cpp
     src/sync/SyncManager.cpp
     src/ui/AppContext.cpp
+    src/ui/ChannelStripEditor.cpp
     src/ui/ChordEditor.cpp
     src/ui/ChordLane.cpp
     src/ui/Ruler.cpp

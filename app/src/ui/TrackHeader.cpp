@@ -433,6 +433,7 @@ void TrackHeader::showMenu()
         fx.addSeparator();
         fx.addSubMenu ("追加"_ju, add);
         m.addSeparator();
+        m.addItem ("EQ / コンプ…"_ju, [this] { if (ctx.openChannelStrip) ctx.openChannelStrip (trackId); });
         m.addSubMenu ("エフェクト"_ju, fx);
 
         if (t->type == collab::TrackType::midi || ! t->effects.empty())

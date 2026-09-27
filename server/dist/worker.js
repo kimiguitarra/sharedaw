@@ -2134,6 +2134,9 @@ var project_schema_default = {
                 $ref: "#/definitions/effect"
               }
             },
+            strip: {
+              $ref: "#/definitions/channelStrip"
+            },
             render: {
               $ref: "#/definitions/render"
             },
@@ -2192,6 +2195,9 @@ var project_schema_default = {
                 $ref: "#/definitions/effect"
               }
             },
+            strip: {
+              $ref: "#/definitions/channelStrip"
+            },
             render: {
               $ref: "#/definitions/render"
             },
@@ -2204,6 +2210,101 @@ var project_schema_default = {
           }
         }
       ]
+    },
+    channelStrip: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        eq: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            enabled: {
+              type: "boolean"
+            },
+            lowCutHz: {
+              type: "number",
+              minimum: 0,
+              maximum: 1e3
+            },
+            lowGainDb: {
+              type: "number",
+              minimum: -24,
+              maximum: 24
+            },
+            lowFreqHz: {
+              type: "number",
+              minimum: 20,
+              maximum: 1e3
+            },
+            midGainDb: {
+              type: "number",
+              minimum: -24,
+              maximum: 24
+            },
+            midFreqHz: {
+              type: "number",
+              minimum: 100,
+              maximum: 16e3
+            },
+            midQ: {
+              type: "number",
+              minimum: 0.1,
+              maximum: 10
+            },
+            highGainDb: {
+              type: "number",
+              minimum: -24,
+              maximum: 24
+            },
+            highFreqHz: {
+              type: "number",
+              minimum: 1e3,
+              maximum: 2e4
+            }
+          }
+        },
+        comp: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            enabled: {
+              type: "boolean"
+            },
+            type: {
+              enum: [
+                "fet",
+                "opto"
+              ]
+            },
+            thresholdDb: {
+              type: "number",
+              minimum: -60,
+              maximum: 0
+            },
+            ratio: {
+              type: "number",
+              minimum: 1,
+              maximum: 100
+            },
+            attackMs: {
+              type: "number",
+              minimum: 0.01,
+              maximum: 500
+            },
+            releaseMs: {
+              type: "number",
+              minimum: 1,
+              maximum: 5e3
+            },
+            makeupDb: {
+              type: "number",
+              minimum: -24,
+              maximum: 24
+            }
+          }
+        }
+      }
     }
   }
 };

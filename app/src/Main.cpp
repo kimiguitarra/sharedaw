@@ -9,6 +9,7 @@
 #include "SessionGuard.h"
 #include "Translations.h"
 #include "SfizzPlugin.h"
+#include "audio/ChannelStripPlugin.h"
 #include "audio/CountInPlugin.h"
 #include "sync/SyncManager.h"
 #include "collab/ProjectDiff.h"
@@ -125,6 +126,7 @@ public:
                                                std::make_unique<CollabEngineBehaviour>());
         engine->getPluginManager().createBuiltInType<SfizzPlugin>();
         engine->getPluginManager().createBuiltInType<CountInPlugin>();
+        engine->getPluginManager().createBuiltInType<ChannelStripPlugin>();
         engine->getPluginManager().setUsesSeparateProcessForScanning (true);
         preferProjectSampleRate();
 

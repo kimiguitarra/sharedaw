@@ -2,6 +2,7 @@
 
 #include "Common.h"
 #include "collab/Grid.h"
+#include "collab/TempoMap.h"
 
 /** 横軸（tick ⇔ ピクセル）。タイムラインとピアノロールでそれぞれ持つ。 */
 struct TimeAxis
@@ -47,6 +48,8 @@ struct EditBehaviour
     juce::KeyPress loopToSelectionKey;             // 選択範囲をループ範囲にする
     juce::KeyPress stopKey, toStartKey, recordKey, loopKey;   // テンキーのトランスポート
     juce::KeyPress zoomInKey, zoomOutKey;          // 横方向の拡大・縮小
+    juce::KeyPress autoScrollKey;                  // 再生位置への自動スクロールの切り替え
+    juce::KeyPress snapKey;                        // スナップ（クオンタイズ値に合わせる／フリー）の切り替え
     bool pencilClickOnNoteDeletes = true;          // 鉛筆で既存のノートをクリックすると消す（Cubase のキーエディター）
 
     static EditBehaviour forMode (OperationMode mode)
@@ -62,6 +65,8 @@ struct EditBehaviour
         b.loopKey = juce::KeyPress (juce::KeyPress::numberPadDivide);
         b.zoomInKey = juce::KeyPress ('h');
         b.zoomOutKey = juce::KeyPress ('g');
+        b.autoScrollKey = juce::KeyPress ('f');
+        b.snapKey = juce::KeyPress ('j');
 
         switch (mode)
         {
@@ -85,8 +90,41 @@ struct EditorState  : public juce::ChangeBroadcaster
     TimeAxis timeline;
     TimeAxis pianoRoll { 120.0, 0.0 };
 
-    collab::Grid grid { 16, false, true };      // ピアノロールのグリッド
+    collab::Grid grid { 16, false, true };      // クオンタイズ値（ピアノロールのグリッド、再生位置の移動）
     collab::Grid timelineGrid { 4, false, true };
+
+    /** スナップ（J）。オフのときはクオンタイズ値に合わせずフリーに動かす。 */
+    bool snapEnabled() const noexcept      { return grid.enabled; }
+    void setSnapEnabled (bool on)          { grid.enabled = on; timelineGrid.enabled = on; changed(); }
+
+    /** クオンタイズ値を変える（スナップのオン・オフはそのまま）。 */
+    void setQuantise (const collab::Grid& g)
+    {
+        const bool on = grid.enabled;
+        grid = g;
+        grid.enabled = on;
+        changed();
+    }
+
+    int quantisePresetIndex() const
+    {
+        const auto presets = collab::Grid::presets();
+
+        for (int i = 0; i < (int) presets.size(); ++i)
+            if (presets[(size_t) i].stepTicks() == grid.stepTicks())
+                return i;
+
+        return -1;
+    }
+
+    /** 再生位置の移動先をクオンタイズ値に合わせる（Alt で一時的にフリー）。 */
+    double snapCursor (double tick, const collab::TempoMap& map, const juce::ModifierKeys& mods) const
+    {
+        tick = juce::jmax (0.0, tick);
+        return mods.isAltDown() ? tick : (double) grid.snap ((collab::Tick) std::llround (tick), map);
+    }
+
+    bool autoScroll = true;                     // 再生中に再生位置を追ってスクロールする（F）
 
     std::string selectedTrackId;
     std::string selectedClipId;

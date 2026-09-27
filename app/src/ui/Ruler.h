@@ -14,7 +14,7 @@ public:
     Ruler (ProjectDocument&, EditorState&, TimeAxis&);
     ~Ruler() override;
 
-    std::function<void (double tick)> onSeek;
+    std::function<void (double tick, const juce::ModifierKeys&)> onSeek;
 
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
@@ -28,7 +28,7 @@ private:
     ProjectDocument& document;
     EditorState& state;
     TimeAxis& axis;
-    void seekTo (float x);
+    void seekTo (float x, const juce::ModifierKeys&);
     void changeListenerCallback (juce::ChangeBroadcaster*) override    { repaint(); }
 };
 

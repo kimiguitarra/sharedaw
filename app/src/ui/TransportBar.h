@@ -30,6 +30,8 @@ private:
     AppContext& ctx;
     ToolButton selectTool { false }, pencilTool { true };
     juce::TextButton toStartButton, playButton, stopButton, recordButton, loopButton, metronomeButton, settingsButton;
+    juce::ComboBox quantiseBox;
+    juce::TextButton snapButton, autoScrollButton;
     juce::Slider metronomeVolume { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     juce::Label barBeatLabel, timeLabel, tempoLabel;
     bool wasPlaying = false;

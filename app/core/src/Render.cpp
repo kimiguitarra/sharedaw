@@ -29,6 +29,7 @@ std::string trackSourceFingerprint (const Track& source, const std::function<std
     t.mute = false;
     t.solo = false;
     t.render.reset();
+    t.strip = {};   // EQ・コンプはバウンスに含めない
 
     Project p;
     p.projectId = "00000000-0000-4000-8000-000000000000";

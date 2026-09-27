@@ -83,6 +83,7 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     void setPlayheadTick (double tick);
+    void followPlayhead (double tick);
 
     /** 選択中のノートを削除する（削除したら true）。 */
     bool deleteSelectedNotes();

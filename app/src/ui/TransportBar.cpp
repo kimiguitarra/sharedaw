@@ -70,6 +70,38 @@ TransportBar::TransportBar (AppContext& c) : ctx (c)
 
     addAndMakeVisible (metronomeVolume);
 
+    // クオンタイズ値（Cubase のプロジェクトウィンドウのツールバーと同じく全体で 1 つ）
+    int id = 1;
+    for (auto& g : collab::Grid::presets())
+        quantiseBox.addItem (toJuce (g.label()), id++);
+
+    quantiseBox.setTooltip ("クオンタイズ値。スナップ・クオンタイズ・再生位置の移動の単位"_ju);
+    quantiseBox.onChange = [this]
+    {
+        const auto presets = collab::Grid::presets();
+        const int i = quantiseBox.getSelectedId() - 1;
+
+        if (i >= 0 && i < (int) presets.size() && i != ctx.state.quantisePresetIndex())
+            ctx.state.setQuantise (presets[(size_t) i]);
+    };
+    addAndMakeVisible (quantiseBox);
+
+    snapButton.setButtonText ("スナップ"_ju);
+    snapButton.setTooltip ("スナップ（J）: オンでクオンタイズ値に合わせる、オフでフリー"_ju);
+    snapButton.setClickingTogglesState (false);
+    snapButton.onClick = [this] { ctx.state.setSnapEnabled (! ctx.state.snapEnabled()); };
+    addAndMakeVisible (snapButton);
+
+    autoScrollButton.setButtonText ("自動スクロール"_ju);
+    autoScrollButton.setTooltip ("自動スクロール（F）: 再生中に再生位置を追って表示を送る"_ju);
+    autoScrollButton.setClickingTogglesState (false);
+    autoScrollButton.onClick = [this]
+    {
+        ctx.state.autoScroll = ! ctx.state.autoScroll;
+        ctx.state.changed();
+    };
+    addAndMakeVisible (autoScrollButton);
+
     for (auto* l : { &barBeatLabel, &timeLabel, &tempoLabel })
     {
         l->setJustificationType (juce::Justification::centred);
@@ -99,6 +131,9 @@ void TransportBar::changeListenerCallback (juce::ChangeBroadcaster*)
     pencilTool.setToggleState (ctx.state.tool == EditTool::pencil, juce::dontSendNotification);
     loopButton.setToggleState (ctx.state.loopEnabled, juce::dontSendNotification);
     metronomeButton.setToggleState (ctx.state.metronomeEnabled, juce::dontSendNotification);
+    snapButton.setToggleState (ctx.state.snapEnabled(), juce::dontSendNotification);
+    autoScrollButton.setToggleState (ctx.state.autoScroll, juce::dontSendNotification);
+    quantiseBox.setSelectedId (ctx.state.quantisePresetIndex() + 1, juce::dontSendNotification);
 }
 
 void TransportBar::updatePosition (double tick, double seconds, bool playing)
@@ -155,20 +190,27 @@ void TransportBar::resized()
     pencilTool.setBounds (area.removeFromLeft (34));
 
     area.removeFromLeft (12);
-    barBeatLabel.setBounds (area.removeFromLeft (150));
+    barBeatLabel.setBounds (area.removeFromLeft (130));
     area.removeFromLeft (6);
-    timeLabel.setBounds (area.removeFromLeft (120));
+    timeLabel.setBounds (area.removeFromLeft (110));
     area.removeFromLeft (6);
-    tempoLabel.setBounds (area.removeFromLeft (150));
+    tempoLabel.setBounds (area.removeFromLeft (120));
     area.removeFromLeft (16);
 
     loopButton.setBounds (area.removeFromLeft (70));
     area.removeFromLeft (4);
     metronomeButton.setBounds (area.removeFromLeft (110));
     area.removeFromLeft (4);
-    metronomeVolume.setBounds (area.removeFromLeft (90));
+    metronomeVolume.setBounds (area.removeFromLeft (70));
+    area.removeFromLeft (12);
+    quantiseBox.setBounds (area.removeFromLeft (128));
+    area.removeFromLeft (4);
+    snapButton.setBounds (area.removeFromLeft (72));
+    area.removeFromLeft (4);
+    autoScrollButton.setBounds (area.removeFromLeft (104));
+    area.removeFromLeft (8);
 
-    settingsButton.setBounds (area.removeFromRight (130));
+    settingsButton.setBounds (area.removeFromRight (juce::jmin (110, area.getWidth())));
 }
 
 void TransportBar::ToolButton::paintButton (juce::Graphics& g, bool highlighted, bool down)

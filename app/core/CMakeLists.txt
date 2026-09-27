@@ -12,6 +12,7 @@ add_custom_command(
 
 add_library(collab_core STATIC
     src/BuiltinInstruments.cpp
+    src/ChannelStripDsp.cpp
     src/ChordPlayback.cpp
     src/ClipEditing.cpp
     src/GmDrumMap.cpp

@@ -206,6 +206,12 @@ namespace
         if (a->effects != b->effects)
             add (Change::Category::instrument, "エフェクトを変更");
 
+        if (a->strip.eq != b->strip.eq)
+            add (Change::Category::track, a->strip.eq.enabled != b->strip.eq.enabled ? (b->strip.eq.enabled ? "EQ をオン" : "EQ をオフ") : "EQ を変更");
+
+        if (a->strip.comp != b->strip.comp)
+            add (Change::Category::track, a->strip.comp.enabled != b->strip.comp.enabled ? (b->strip.comp.enabled ? "コンプをオン" : "コンプをオフ") : "コンプを変更");
+
         if (a->render != b->render)
             add (Change::Category::render, b->render ? "バウンスを更新" : "バウンスを削除");
 

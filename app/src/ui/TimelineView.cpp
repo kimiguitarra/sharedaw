@@ -713,7 +713,10 @@ TimelineView::TimelineView (AppContext& c)
     addAndMakeVisible (vScroll);
     addAndMakeVisible (playhead);
 
-    ruler.onSeek = [this] (double tick) { ctx.engine.setPositionTick (tick); };
+    ruler.onSeek = [this] (double tick, const juce::ModifierKeys& mods)
+    {
+        ctx.engine.setPositionTick (ctx.state.snapCursor (tick, ctx.document.getTempoMap(), mods));
+    };
     ruler.onWheel = [this] (auto& e, auto& w) { handleWheel (e, w); };
     lanes.onWheel = [this] (auto& e, auto& w) { handleWheel (e, w); };
     lanes.onOpenClip = [this] { if (onOpenClip) onOpenClip(); };

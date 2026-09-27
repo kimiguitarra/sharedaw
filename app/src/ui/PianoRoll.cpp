@@ -531,7 +531,7 @@ PianoRollView::PianoRollView (AppContext& c)
     for (auto& g : collab::Grid::presets())
         gridBox.addItem (toJuce (g.label()), id++);
 
-    gridBox.setTooltip ("グリッド（スナップ・クオンタイズの単位）"_ju);
+    gridBox.setTooltip ("クオンタイズ値（スナップ・クオンタイズ・再生位置の単位）"_ju);
     gridBox.onChange = [this]
     {
         auto presets = collab::Grid::presets();
@@ -539,22 +539,15 @@ PianoRollView::PianoRollView (AppContext& c)
 
         if (i >= 0 && i < (int) presets.size())
         {
-            const bool enabled = ctx.state.grid.enabled;
-            ctx.state.grid = presets[(size_t) i];
-            ctx.state.grid.enabled = enabled;
-            lastNoteLength = ctx.state.grid.stepTicks();
-            ctx.state.changed();
+            lastNoteLength = presets[(size_t) i].stepTicks();
+            ctx.state.setQuantise (presets[(size_t) i]);
         }
     };
     addAndMakeVisible (gridBox);
 
     snapToggle.setToggleState (true, juce::dontSendNotification);
-    snapToggle.setTooltip ("グリッドにスナップ（Alt を押しながらドラッグで一時的に解除）"_ju);
-    snapToggle.onClick = [this]
-    {
-        ctx.state.grid.enabled = snapToggle.getToggleState();
-        ctx.state.changed();
-    };
+    snapToggle.setTooltip ("クオンタイズ値にスナップ（J で切り替え。Alt を押しながらドラッグで一時的に解除）"_ju);
+    snapToggle.onClick = [this] { ctx.state.setSnapEnabled (snapToggle.getToggleState()); };
     addAndMakeVisible (snapToggle);
 
     quantiseButton.setTooltip ("選択中のノート（選択がなければクリップ内のすべて）の開始位置をグリッドに合わせる"_ju);
@@ -576,7 +569,10 @@ PianoRollView::PianoRollView (AppContext& c)
     addAndMakeVisible (vScroll);
     addAndMakeVisible (playhead);
 
-    ruler.onSeek = [this] (double tick) { ctx.engine.setPositionTick (tick); };
+    ruler.onSeek = [this] (double tick, const juce::ModifierKeys& mods)
+    {
+        ctx.engine.setPositionTick (ctx.state.snapCursor (tick, ctx.document.getTempoMap(), mods));
+    };
     ruler.onWheel = [this] (auto& e, auto& w) { handleWheel (e, w, &ruler); };
 
     hScroll.addListener (this);
@@ -588,10 +584,7 @@ PianoRollView::PianoRollView (AppContext& c)
 
     ctx.document.addChangeListener (this);
     ctx.state.addChangeListener (this);
-
-    for (int i = 0; i < (int) collab::Grid::presets().size(); ++i)
-        if (collab::Grid::presets()[(size_t) i].stepTicks() == ctx.state.grid.stepTicks())
-            gridBox.setSelectedId (i + 1, juce::dontSendNotification);
+    gridBox.setSelectedId (ctx.state.quantisePresetIndex() + 1, juce::dontSendNotification);
 
     clipChanged();
 }
@@ -651,6 +644,18 @@ void PianoRollView::resized()
 void PianoRollView::setPlayheadTick (double tick)
 {
     playhead.setTick (tick);
+}
+
+void PianoRollView::followPlayhead (double tick)
+{
+    auto& a = axis();
+    const double visible = grid.getWidth() / a.pixelsPerTick();
+
+    if (getClip() != nullptr && grid.getWidth() > 0 && (tick < a.scrollTick || tick > a.scrollTick + visible * 0.95))
+    {
+        a.scrollTick = juce::jmax (0.0, tick - visible * 0.05);
+        ctx.state.changed();
+    }
 }
 
 void PianoRollView::previewNote (int pitch, int velocity)
@@ -845,7 +850,8 @@ void PianoRollView::changeListenerCallback (juce::ChangeBroadcaster*)
                             juce::dontSendNotification);
     }
 
-    snapToggle.setToggleState (ctx.state.grid.enabled, juce::dontSendNotification);
+    snapToggle.setToggleState (ctx.state.snapEnabled(), juce::dontSendNotification);
+    gridBox.setSelectedId (ctx.state.quantisePresetIndex() + 1, juce::dontSendNotification);
     updateScrollBars();
     playhead.refresh();
     repaint();
