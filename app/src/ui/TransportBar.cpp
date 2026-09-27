@@ -103,6 +103,9 @@ TransportBar::TransportBar (AppContext& c) : ctx (c)
     };
     addAndMakeVisible (autoScrollButton);
 
+    midiLight.setTooltip ("MIDI 入力（キーボードを弾くと動きます。機器の設定はオーディオ設定）"_ju);
+    addAndMakeVisible (midiLight);
+
     for (auto* l : { &barBeatLabel, &timeLabel, static_cast<juce::Label*> (&bpmLabel), static_cast<juce::Label*> (&meterLabel) })
     {
         l->setJustificationType (juce::Justification::centred);
@@ -225,6 +228,7 @@ void TransportBar::updatePosition (double tick, double seconds, bool playing)
         meterLabel.setText (juce::String (sig.numerator) + "/" + juce::String (sig.denominator), juce::dontSendNotification);
 
     recordButton.setToggleState (ctx.engine.isRecording(), juce::dontSendNotification);
+    midiLight.setLevel (ctx.engine.getMidiActivity());
 
     if (playing != wasPlaying)
     {
@@ -268,18 +272,20 @@ void TransportBar::resized()
 
     loopButton.setBounds (area.removeFromLeft (70));
     area.removeFromLeft (4);
-    metronomeButton.setBounds (area.removeFromLeft (110));
+    metronomeButton.setBounds (area.removeFromLeft (100));
     area.removeFromLeft (4);
     metronomeVolume.setBounds (area.removeFromLeft (70));
     area.removeFromLeft (12);
-    quantiseBox.setBounds (area.removeFromLeft (128));
+    quantiseBox.setBounds (area.removeFromLeft (112));
     area.removeFromLeft (4);
     snapButton.setBounds (area.removeFromLeft (72));
     area.removeFromLeft (4);
-    autoScrollButton.setBounds (area.removeFromLeft (104));
+    autoScrollButton.setBounds (area.removeFromLeft (98));
     area.removeFromLeft (8);
 
     settingsButton.setBounds (area.removeFromRight (juce::jmin (110, area.getWidth())));
+    area.removeFromRight (6);
+    midiLight.setBounds (area.removeFromRight (juce::jmin (40, area.getWidth())));
 }
 
 void TransportBar::ToolButton::paintButton (juce::Graphics& g, bool highlighted, bool down)

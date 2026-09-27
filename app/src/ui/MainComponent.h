@@ -108,6 +108,7 @@ private:
     void updateTitle();
     void importAudio();
     void importMidi();
+    void importMidiRecording (std::vector<EngineBridge::RecordedMidi>);
     void showPluginManager();
     PluginWindows pluginWindows;
 

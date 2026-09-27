@@ -3,6 +3,7 @@
 #include "Dialogs.h"
 #include "ChannelStripEditor.h"
 #include "MarkerLane.h"
+#include "MidiInputPanel.h"
 #include "MixerView.h"
 #include "SyncUI.h"
 #include "Theme.h"
@@ -87,6 +88,7 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     ctx.addTrackMenu = [this] { return addTrackMenu(); };
     ctx.openChannelStrip = [this] (const std::string& id) { openChannelStrip (id); };
     bridge.onRecordingFinished = [this] (std::vector<EngineBridge::RecordedTake> takes) { importTakes (std::move (takes)); };
+    bridge.onMidiRecorded = [this] (std::vector<EngineBridge::RecordedMidi> recs) { importMidiRecording (std::move (recs)); };
     engine.getDeviceManager().deviceManager.addChangeListener (this);
     applyLatencyOffset();
 
@@ -117,6 +119,7 @@ MainComponent::~MainComponent()
     mixerWindow = nullptr;
     bridge.onPluginRemoved = nullptr;
     bridge.onRecordingFinished = nullptr;
+    bridge.onMidiRecorded = nullptr;
     engine.getDeviceManager().deviceManager.removeChangeListener (this);
     pluginWindows.closeAll();
     sync.onLockRequired = nullptr;
@@ -202,6 +205,12 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
         bridge.setMetronome (state.metronomeEnabled, state.metronomeVolumeDb);
     }
 
+    // MIDI キーボードは選択中の MIDI トラックで鳴らす
+    {
+        auto* t = ctx.selectedTrack();
+        bridge.setMidiTarget (t != nullptr && t->type == collab::TrackType::midi ? t->id : std::string());
+    }
+
     if (! juce::exactlyEqual (state.masterVolumeDb, bridge.getMasterVolumeDb()))
     {
         bridge.setMasterVolumeDb (state.masterVolumeDb);
@@ -211,6 +220,7 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
 
 void MainComponent::timerCallback()
 {
+    bridge.pollMidiActivity();
     const bool playing = bridge.isPlaying();
     const double tick = bridge.getPositionTick();
     state.playheadTick = tick;
@@ -475,7 +485,8 @@ void MainComponent::showAudioSettings()
 {
     auto& dm = engine.getDeviceManager().deviceManager;
 
-    auto selector = std::make_unique<juce::AudioDeviceSelectorComponent> (dm, 0, 2, 0, 2, true, false, true, false);
+    // MIDI 入力は Tracktion が管理するので、JUCE の一覧ではなく下の「MIDI キーボード」欄で切り替える
+    auto selector = std::make_unique<juce::AudioDeviceSelectorComponent> (dm, 0, 2, 0, 2, false, false, true, false);
     auto note = std::make_unique<juce::Label>();
     note->setText ("プロジェクトのサンプルレートは 48kHz 固定です。可能ならデバイスも 48000 Hz に設定してください。"_ju
                    "（Windows で ASIO を使うには ASIO SDK 付きでビルドする必要があります）"_ju,
@@ -556,7 +567,7 @@ void MainComponent::showAudioSettings()
 
     struct Holder : juce::Component
     {
-        std::unique_ptr<juce::Component> a, b, c;
+        std::unique_ptr<juce::Component> a, b, c, d;
     };
 
     auto holder = std::make_unique<Holder>();
@@ -566,7 +577,12 @@ void MainComponent::showAudioSettings()
     holder->addAndMakeVisible (*holder->a);
     holder->addAndMakeVisible (*holder->b);
     holder->addAndMakeVisible (*holder->c);
-    holder->setSize (560, 546);
+
+    const int midiHeight = 60 + juce::jmax (1, (int) bridge.getMidiInputs().size()) * 26 + 26;
+    holder->d = std::make_unique<MidiInputPanel> (bridge);
+    holder->d->setBounds (0, 546, 560, midiHeight);
+    holder->addAndMakeVisible (*holder->d);
+    holder->setSize (560, 546 + midiHeight);
 
     juce::DialogWindow::LaunchOptions o;
     o.content.setOwned (holder.release());
@@ -587,18 +603,27 @@ void MainComponent::toggleRecord()
         return;
     }
 
-    if (! document.hasLocation())
-        return Dialogs::showInfo ("録音"_ju, "録音した音はプロジェクトのフォルダに保存するので、先にプロジェクトを保存してください。"_ju);
-
     std::vector<std::string> armed;
 
     for (auto& t : document.getProject().tracks)
         if (auto in = bridge.getTrackInput (t.id); in.armed && in.device.isNotEmpty())
             armed.push_back (t.id);
 
-    if (armed.empty())
-        return Dialogs::showInfo ("録音"_ju, "録音するオーディオトラックの録音待機ボタン（●）をオンにしてください。"_ju
-                                             "トラックがなければ「トラック → オーディオトラックを追加」で作れます。"_ju);
+    // MIDI キーボードがつながっていれば、選択中の MIDI トラックにも録音する
+    const auto midiInputs = bridge.getMidiInputs();
+    const bool midiAvailable = std::any_of (midiInputs.begin(), midiInputs.end(), [] (auto& m) { return m.enabled; });
+    auto* selected = ctx.selectedTrack();
+    const bool midiTarget = midiAvailable && selected != nullptr && selected->type == collab::TrackType::midi;
+
+    if (armed.empty() && ! midiTarget)
+        return Dialogs::showInfo ("録音"_ju, "オーディオ: 録音するオーディオトラックの録音待機ボタン（●）をオンにしてください。\n"_ju
+                                             "MIDI: MIDI キーボードをつないで（オーディオ設定で有効に）、録音する MIDI トラックを選んでください。"_ju);
+
+    if (! armed.empty() && ! document.hasLocation())
+        return Dialogs::showInfo ("録音"_ju, "録音した音はプロジェクトのフォルダに保存するので、先にプロジェクトを保存してください。"_ju);
+
+    if (midiTarget)
+        armed.push_back (selected->id);
 
     // 同期中はロックを持っているトラックにだけ録音できる（§4.2）
     std::vector<std::string> notEditable;
@@ -615,6 +640,53 @@ void MainComponent::toggleRecord()
 
     setStatus ("録音中（停止で確定）"_ju);
     commandManager.commandStatusChanged();
+}
+
+void MainComponent::importMidiRecording (std::vector<EngineBridge::RecordedMidi> recs)
+{
+    // 録音した範囲（小節単位）を 1 つの MIDI クリップにする
+    const auto& map = document.getTempoMap();
+    std::string lastTrack, lastClip;
+
+    for (auto& rec : recs)
+    {
+        collab::Tick first = rec.punchInTick, last = rec.punchInTick + 1;
+
+        for (auto& n : rec.notes)
+        {
+            first = std::min (first, n.tick);
+            last = std::max (last, n.tick + n.lengthTick);
+        }
+
+        collab::MidiClip clip;
+        clip.id = collab::generateUuid();
+        clip.startTick = map.barToTick (map.tickToBar (first));
+        clip.lengthTick = std::max<collab::Tick> (collab::kPpq, map.barToTick (map.tickToBar (last - 1) + 1) - clip.startTick);
+
+        for (auto n : rec.notes)
+        {
+            n.tick -= clip.startTick;
+            clip.notes.push_back (n);
+        }
+
+        const auto trackId = rec.trackId;
+        document.perform ("MIDI の録音"_ju, [trackId, clip] (collab::Project& p)
+        {
+            if (auto* t = p.findTrack (trackId))
+                t->midiClips.push_back (clip);
+        });
+
+        lastTrack = trackId;
+        lastClip = clip.id;
+        setStatus ("MIDI を録音しました（ノート "_ju + juce::String ((int) clip.notes.size()) + " 個）"_ju);
+    }
+
+    if (! lastClip.empty())
+    {
+        state.selectedTrackId = lastTrack;
+        state.selectedClipId = lastClip;
+        state.changed();
+    }
 }
 
 void MainComponent::importTakes (std::vector<EngineBridge::RecordedTake> takes)

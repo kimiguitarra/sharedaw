@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ui/AppContext.h"
+#include "ui/MidiInputPanel.h"
 
 /** トランスポート（§3.11）: 先頭へ、再生、停止、録音、ループ、メトロノーム、位置表示。 */
 class TransportBar  : public juce::Component,
@@ -31,6 +32,7 @@ private:
     ToolButton selectTool { false }, pencilTool { true };
     juce::TextButton toStartButton, playButton, stopButton, recordButton, loopButton, metronomeButton, settingsButton;
     juce::ComboBox quantiseBox;
+    MidiActivityLight midiLight;
     juce::TextButton snapButton, autoScrollButton;
     juce::Slider metronomeVolume { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     /** クリックで入力、ホイールで増減できる値（テンポ・拍子）。 */

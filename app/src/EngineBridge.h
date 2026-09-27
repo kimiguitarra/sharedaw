@@ -122,6 +122,35 @@ public:
     /** 録音が終わったとき（メッセージスレッド）。受け取った側で audio/ に取り込み、元のファイルを消す。 */
     std::function<void (std::vector<RecordedTake>)> onRecordingFinished;
 
+    //==============================================================================
+    // MIDI キーボード（MIDI 入力）
+    struct MidiInputStatus
+    {
+        juce::String name;
+        bool enabled = false;
+        float activity = 0.0f;   // 0〜1（弾いた強さ。少しずつ下がる）
+    };
+
+    std::vector<MidiInputStatus> getMidiInputs() const;
+    void setMidiInputEnabled (const juce::String& name, bool enabled);
+
+    /** 入力の強さを更新する（UI のタイマーから 30Hz 程度で呼ぶ）。 */
+    void pollMidiActivity();
+    float getMidiActivity() const;
+
+    /** MIDI キーボードで鳴らす・録音するトラック（選択中の MIDI トラック。空なら鳴らさない）。 */
+    void setMidiTarget (const std::string& trackId);
+
+    struct RecordedMidi
+    {
+        std::string trackId;
+        std::vector<collab::Note> notes;   // tick はプロジェクトの先頭から
+        collab::Tick punchInTick = 0;
+    };
+
+    /** MIDI の録音が終わったとき（メッセージスレッド）。 */
+    std::function<void (std::vector<RecordedMidi>)> onMidiRecorded;
+
     /** プラグインを削除する直前に呼ばれる（エディタのウィンドウを閉じるため）。 */
     std::function<void (te::Plugin*)> onPluginRemoved;
 
@@ -182,6 +211,20 @@ private:
     float metronomeVolumeDb = -6.0f;
 
     std::map<std::string, TrackInput> trackInputs;
+
+    struct MidiIn
+    {
+        std::shared_ptr<te::MidiInputDevice> device;
+        std::unique_ptr<te::LevelMeasurer::Client> client;
+        float activity = 0.0f;
+
+        ~MidiIn()   { if (device != nullptr && client != nullptr) device->levelMeasurer.removeClient (*client); }
+    };
+
+    std::vector<std::unique_ptr<MidiIn>> midiInputs;
+    std::string midiTargetId;
+    std::vector<RecordedMidi> pendingMidi;
+    void refreshMidiInputs();
     CountInPlugin* countIn = nullptr;
     std::vector<RecordedTake> pendingTakes;
     int manualLatencySamples = 0;

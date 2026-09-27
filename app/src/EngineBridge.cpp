@@ -10,6 +10,7 @@
 #include "collab/Render.h"
 #include "audio/AudioFiles.h"
 #include "collab/Time.h"
+#include "collab/Uuid.h"
 #include "plugins/PluginHost.h"
 
 namespace
@@ -106,6 +107,7 @@ EngineBridge::~EngineBridge()
     chordMeter.reset();
     metronomeMeter.reset();
     masterMeter.reset();
+    midiInputs.clear();
     document.removeChangeListener (this);
     engine.getDeviceManager().removeChangeListener (this);
     edit->getTransport().removeListener (this);
@@ -134,6 +136,90 @@ void EngineBridge::configureInputs()
             w->setEnabled (true);
 
     setManualLatencySamples (manualLatencySamples);
+    refreshMidiInputs();
+    applyInputs();
+}
+
+//==============================================================================
+void EngineBridge::refreshMidiInputs()
+{
+    // 実際の機器だけ（Tracktion の仮想デバイス「All MIDI Ins」などは除く）
+    auto devices = engine.getDeviceManager().getMidiInDevices();
+    devices.erase (std::remove_if (devices.begin(), devices.end(),
+                                   [] (auto& d) { return d == nullptr || d->getDeviceType() != te::InputDevice::physicalMidiDevice; }),
+                   devices.end());
+
+    // 一覧が変わっていなければそのまま（メーターの値を保つ）
+    bool same = devices.size() == midiInputs.size();
+
+    for (size_t i = 0; same && i < devices.size(); ++i)
+        same = devices[i] == midiInputs[i]->device;
+
+    if (same)
+        return;
+
+    midiInputs.clear();
+
+    for (auto& d : devices)
+    {
+        if (d == nullptr)
+            continue;
+
+        auto in = std::make_unique<MidiIn>();
+        in->device = d;
+        in->client = std::make_unique<te::LevelMeasurer::Client>();
+        d->levelMeasurer.addClient (*in->client);
+        midiInputs.push_back (std::move (in));
+    }
+}
+
+std::vector<EngineBridge::MidiInputStatus> EngineBridge::getMidiInputs() const
+{
+    std::vector<MidiInputStatus> result;
+
+    for (auto& in : midiInputs)
+        result.push_back ({ in->device->getName(), in->device->isEnabled(), in->activity });
+
+    return result;
+}
+
+void EngineBridge::setMidiInputEnabled (const juce::String& name, bool enabled)
+{
+    // 有効・無効は Tracktion の設定に保存され、次回の起動でも引き継がれる
+    for (auto& in : midiInputs)
+        if (in->device->getName() == name && in->device->isEnabled() != enabled)
+            in->device->setEnabled (enabled);
+
+    applyInputs();
+}
+
+void EngineBridge::pollMidiActivity()
+{
+    for (auto& in : midiInputs)
+    {
+        const float db = in->client->getAndClearMidiLevel().dB;
+        const float level = db > -99.0f ? juce::Decibels::decibelsToGain (db) : 0.0f;
+        in->activity = juce::jmax (level, in->activity * 0.85f);
+    }
+}
+
+float EngineBridge::getMidiActivity() const
+{
+    float a = 0.0f;
+
+    for (auto& in : midiInputs)
+        if (in->device->isEnabled())
+            a = juce::jmax (a, in->activity);
+
+    return a;
+}
+
+void EngineBridge::setMidiTarget (const std::string& trackId)
+{
+    if (trackId == midiTargetId)
+        return;
+
+    midiTargetId = trackId;
     applyInputs();
 }
 
@@ -1073,6 +1159,31 @@ void EngineBridge::applyInputs()
 
     for (auto* in : edit->getAllInputDevices())
     {
+        // MIDI キーボード: 選択中の MIDI トラックの音源で鳴らし、録音もそのトラックへ
+        if (in->getInputDevice().getDeviceType() == te::InputDevice::physicalMidiDevice)
+        {
+            te::AudioTrack* target = nullptr;
+
+            if (auto b = bindings.find (midiTargetId); b != bindings.end() && b->second.track != nullptr && ! b->second.renderMode)
+                target = b->second.track.get();
+
+            for (auto id : in->getTargets())
+                if (target == nullptr || id != target->itemID)
+                    [[maybe_unused]] auto r = in->removeTarget (id, nullptr);
+
+            in->getInputDevice().setMonitorMode (te::InputDevice::MonitorMode::on);
+
+            if (target != nullptr)
+            {
+                if (! in->getTargets().contains (target->itemID))
+                    [[maybe_unused]] auto r = in->setTarget (target->itemID, true, nullptr);
+
+                in->setRecordingEnabled (target->itemID, true);
+            }
+
+            continue;
+        }
+
         if (in->getInputDevice().getDeviceType() != te::InputDevice::waveDevice)
             continue;
 
@@ -1131,8 +1242,14 @@ juce::Result EngineBridge::startRecording (int countInBars)
     for (auto& [id, ti] : trackInputs)
         anyArmed = anyArmed || (ti.armed && ti.device.isNotEmpty() && bindings.count (id) > 0);
 
+    // MIDI キーボードは選択中の MIDI トラックに録音する
+    const bool midiReady = bindings.count (midiTargetId) > 0
+                            && std::any_of (midiInputs.begin(), midiInputs.end(), [] (auto& in) { return in->device->isEnabled(); });
+    anyArmed = anyArmed || midiReady;
+
     if (! anyArmed)
-        return juce::Result::fail ("録音するトラックがありません。オーディオトラックの録音待機（●）をオンにしてください。"_ju);
+        return juce::Result::fail ("録音するトラックがありません。オーディオトラックの録音待機（●）をオンにするか、"_ju
+                                   "MIDI キーボードをつないで MIDI トラックを選んでください。"_ju);
 
     // 録音はいったん一時フォルダに書き、終わったら 48kHz / 32bit float に変換して audio/ に取り込む
     auto dir = engine.getTemporaryFileManager().getTempDirectory().getChildFile ("recordings");
@@ -1227,6 +1344,37 @@ void EngineBridge::recordingFinished (te::InputDeviceInstance&, te::EditItemID t
 
     for (auto& clip : recordedClips)
     {
+        // MIDI: Edit は 60BPM（1 拍 = 1 秒）なので、拍 = 秒としてプロジェクトの tick に直す
+        if (auto* midi = dynamic_cast<te::MidiClip*> (clip); midi != nullptr && ! trackId.empty())
+        {
+            const auto& map = document.getTempoMap();
+            const double clipStart = midi->getPosition().getStart().inSeconds();
+            const double offset = midi->getPosition().getOffset().inSeconds();
+            RecordedMidi rec;
+            rec.trackId = trackId;
+            rec.punchInTick = (collab::Tick) std::llround (map.secondsToTick (juce::jmax (0.0, punchInSeconds)));
+
+            for (auto* n : midi->getSequence().getNotes())
+            {
+                const double start = clipStart + n->getStartBeat().inBeats() - offset;
+                const double end = start + n->getLengthBeats().inBeats();
+
+                if (start < punchInSeconds - 0.05)   // カウントイン中の音は捨てる
+                    continue;
+
+                collab::Note note;
+                note.id = collab::generateUuid();
+                note.tick = (collab::Tick) std::llround (map.secondsToTick (juce::jmax (0.0, start)));
+                note.lengthTick = std::max<collab::Tick> (10, (collab::Tick) std::llround (map.secondsToTick (end)) - note.tick);
+                note.pitch = n->getNoteNumber();
+                note.velocity = juce::jlimit (1, 127, n->getVelocity());
+                rec.notes.push_back (note);
+            }
+
+            if (! rec.notes.empty())
+                pendingMidi.push_back (std::move (rec));
+        }
+
         if (auto* wave = dynamic_cast<te::WaveAudioClip*> (clip))
         {
             const auto pos = wave->getPosition();
@@ -1249,7 +1397,19 @@ void EngineBridge::recordingFinished (te::InputDeviceInstance&, te::EditItemID t
     // 入力ごとに呼ばれるので、まとめてから知らせる
     juce::MessageManager::callAsync ([this, alive = std::weak_ptr<bool> (aliveFlag)]
     {
-        if (alive.expired() || pendingTakes.empty())
+        if (alive.expired())
+            return;
+
+        if (! pendingMidi.empty())
+        {
+            auto midi = std::move (pendingMidi);
+            pendingMidi.clear();
+
+            if (onMidiRecorded)
+                onMidiRecorded (std::move (midi));
+        }
+
+        if (pendingTakes.empty())
             return;
 
         auto takes = std::move (pendingTakes);
