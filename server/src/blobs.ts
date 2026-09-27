@@ -16,7 +16,7 @@ export interface TransferUrl {
 
 const presignExpirySeconds = 3600;
 
-function presignEnabled(env: Env): boolean {
+export function presignEnabled(env: Env): boolean {
   return !!(env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY && env.R2_ACCOUNT_ID && env.R2_BUCKET_NAME);
 }
 

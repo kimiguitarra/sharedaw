@@ -2666,12 +2666,47 @@ route("POST", "/app/releases", async (ctx) => {
   await ctx.env.BLOBS.put(`app-releases/${body.platform}/${info.build}.json`, JSON.stringify(info));
   return json(info, 201);
 });
+async function healthCheck(env) {
+  const lines = [];
+  let ok = true;
+  const check = /* @__PURE__ */ __name(async (label, fn) => {
+    try {
+      const note = await fn();
+      lines.push(`OK  ${label}${note ? `\uFF08${note}\uFF09` : ""}`);
+    } catch (e) {
+      ok = false;
+      lines.push(`NG  ${label}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, "check");
+  await check("D1 \u30D0\u30A4\u30F3\u30C7\u30A3\u30F3\u30B0 DB", async () => {
+    if (!env.DB) throw new Error("\u30D0\u30A4\u30F3\u30C7\u30A3\u30F3\u30B0 DB \u304C\u3042\u308A\u307E\u305B\u3093\uFF08Worker \u306E\u300C\u30D0\u30A4\u30F3\u30C7\u30A3\u30F3\u30B0\u300D\u3067 D1 \u3092\u5909\u6570\u540D DB \u3067\u8FFD\u52A0\uFF09");
+  });
+  await check("D1 \u306E\u30C6\u30FC\u30D6\u30EB", async () => {
+    if (!env.DB) throw new Error("DB \u304C\u306A\u3044\u305F\u3081\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093");
+    for (const table of ["users", "projects", "revisions", "locks", "blobs"])
+      await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first().catch(() => {
+        throw new Error(`\u30C6\u30FC\u30D6\u30EB ${table} \u304C\u3042\u308A\u307E\u305B\u3093\uFF08migrations/0001_init.sql \u3092 D1 \u306E\u30B3\u30F3\u30BD\u30FC\u30EB\u3067\u5B9F\u884C\uFF09`);
+      });
+  });
+  await check("R2 \u30D0\u30A4\u30F3\u30C7\u30A3\u30F3\u30B0 BLOBS", async () => {
+    if (!env.BLOBS) throw new Error("\u30D0\u30A4\u30F3\u30C7\u30A3\u30F3\u30B0 BLOBS \u304C\u3042\u308A\u307E\u305B\u3093\uFF08Worker \u306E\u300C\u30D0\u30A4\u30F3\u30C7\u30A3\u30F3\u30B0\u300D\u3067 R2 \u3092\u5909\u6570\u540D BLOBS \u3067\u8FFD\u52A0\uFF09");
+    await env.BLOBS.head("health-check");
+  });
+  lines.push(`--  \u7F72\u540D\u4ED8\u304D URL\uFF08R2 \u306E API \u30AD\u30FC\uFF09: ${presignEnabled(env) ? "\u8A2D\u5B9A\u3042\u308A" : "\u306A\u3057\uFF08Worker \u7D4C\u7531\u3067\u8EE2\u9001\u30021 \u30D5\u30A1\u30A4\u30EB 100MB \u307E\u3067\uFF09"}`);
+  lines.push(`--  ADMIN_PASSWORD: ${env.ADMIN_PASSWORD ? "\u8A2D\u5B9A\u3042\u308A" : "\u306A\u3057"}`);
+  lines.push(`--  RELEASE_KEY: ${env.RELEASE_KEY ? "\u8A2D\u5B9A\u3042\u308A" : "\u306A\u3057"}`);
+  const text = `ShareDAW sync server: ${ok ? "OK" : "\u8A2D\u5B9A\u306B\u554F\u984C\u304C\u3042\u308A\u307E\u3059"}
+
+${lines.join("\n")}
+`;
+  return new Response(text, { status: ok ? 200 : 500, headers: { "content-type": "text/plain; charset=utf-8" } });
+}
+__name(healthCheck, "healthCheck");
 var index_default = {
   async fetch(request, env) {
     const url = new URL(request.url);
     try {
-      if (url.pathname === "/" && request.method === "GET")
-        return new Response("ShareDAW sync server: OK\n", { headers: { "content-type": "text/plain; charset=utf-8" } });
+      if (url.pathname === "/" && request.method === "GET") return await healthCheck(env);
       if (url.pathname === "/admin") return await handleAdmin(request, env);
       for (const r of routes) {
         if (r.method !== request.method) continue;

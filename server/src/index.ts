@@ -1,7 +1,7 @@
 // ShareDAW 同期サーバー（仕様書 §6）。Cloudflare Workers + D1 + R2。
 
 import { handleAdmin } from "./admin";
-import { directDownload, directUpload, registeredHashes, transferUrl, verifyAndRegister } from "./blobs";
+import { directDownload, directUpload, presignEnabled, registeredHashes, transferUrl, verifyAndRegister } from "./blobs";
 import { ProjectJson, changedScopes, referencedBlobs, validateProject } from "./project";
 import {
   Env,
@@ -465,14 +465,51 @@ route("POST", "/app/releases", async (ctx) => {
 });
 
 //==============================================================================
+// 動作確認（ブラウザでサーバー URL を開いたとき）。設定の抜けを表示する（値そのものは出さない）
+
+async function healthCheck(env: Env): Promise<Response> {
+  const lines: string[] = [];
+  let ok = true;
+  const check = async (label: string, fn: () => Promise<string | void>) => {
+    try {
+      const note = await fn();
+      lines.push(`OK  ${label}${note ? `（${note}）` : ""}`);
+    } catch (e) {
+      ok = false;
+      lines.push(`NG  ${label}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  await check("D1 バインディング DB", async () => {
+    if (!env.DB) throw new Error("バインディング DB がありません（Worker の「バインディング」で D1 を変数名 DB で追加）");
+  });
+  await check("D1 のテーブル", async () => {
+    if (!env.DB) throw new Error("DB がないため確認できません");
+    for (const table of ["users", "projects", "revisions", "locks", "blobs"])
+      await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first().catch(() => {
+        throw new Error(`テーブル ${table} がありません（migrations/0001_init.sql を D1 のコンソールで実行）`);
+      });
+  });
+  await check("R2 バインディング BLOBS", async () => {
+    if (!env.BLOBS) throw new Error("バインディング BLOBS がありません（Worker の「バインディング」で R2 を変数名 BLOBS で追加）");
+    await env.BLOBS.head("health-check");
+  });
+  lines.push(`--  署名付き URL（R2 の API キー）: ${presignEnabled(env) ? "設定あり" : "なし（Worker 経由で転送。1 ファイル 100MB まで）"}`);
+  lines.push(`--  ADMIN_PASSWORD: ${env.ADMIN_PASSWORD ? "設定あり" : "なし"}`);
+  lines.push(`--  RELEASE_KEY: ${env.RELEASE_KEY ? "設定あり" : "なし"}`);
+
+  const text = `ShareDAW sync server: ${ok ? "OK" : "設定に問題があります"}\n\n${lines.join("\n")}\n`;
+  return new Response(text, { status: ok ? 200 : 500, headers: { "content-type": "text/plain; charset=utf-8" } });
+}
+
+//==============================================================================
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
     try {
       // 動作確認用（ブラウザでサーバー URL を開いたとき）と、ユーザー作成の管理ページ
-      if (url.pathname === "/" && request.method === "GET")
-        return new Response("ShareDAW sync server: OK\n", { headers: { "content-type": "text/plain; charset=utf-8" } });
+      if (url.pathname === "/" && request.method === "GET") return await healthCheck(env);
 
       if (url.pathname === "/admin") return await handleAdmin(request, env);
 
