@@ -78,6 +78,14 @@ public:
     /** 前回呼んでからのトラックのピーク（dB、左右の大きいほう）。ミキサーのメーター用。trackId が空ならコードトラック。 */
     float getTrackPeakDb (const std::string& trackId);
 
+    /** メトロノーム・マスターのピーク（dB）。マスターはマスター音量をかけた後の値。 */
+    float getMetronomePeakDb();
+    float getMasterPeakDb();
+
+    /** マスター音量（この PC だけの設定。書き出しにもかかる）。 */
+    void setMasterVolumeDb (float db);
+    float getMasterVolumeDb() const noexcept               { return masterVolumeDb; }
+
     /** トラックのコンプのゲインリダクション（dB、0 以上）。 */
     float getTrackGainReductionDb (const std::string& trackId) const;
 
@@ -128,6 +136,7 @@ private:
         te::LevelMeasurer::Client client;
 
         void attach (te::AudioTrack&);
+        void attach (te::LevelMeasurer&);
         void detach();
         ~Meter()    { detach(); }
     };
@@ -161,7 +170,8 @@ private:
     std::string tempoKey;
 
     te::AudioTrack::Ptr chordTrack;
-    std::unique_ptr<Meter> chordMeter;
+    std::unique_ptr<Meter> chordMeter, metronomeMeter, masterMeter;
+    float masterVolumeDb = 0.0f;
     SfizzPlugin* chordSynth = nullptr;
     juce::String chordSfzText;
     std::string chordKey;

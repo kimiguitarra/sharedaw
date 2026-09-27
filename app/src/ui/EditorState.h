@@ -140,6 +140,7 @@ struct EditorState  : public juce::ChangeBroadcaster
     collab::Tick loopStart = 0;
     collab::Tick loopEnd = collab::kPpq * 16;
 
+    float masterVolumeDb = 0.0f;   // マスター音量（この PC だけの設定）
     bool metronomeEnabled = false;
     float metronomeVolumeDb = -6.0f;
     int countInBars = 1;           // 録音のカウントイン（0〜2 小節）

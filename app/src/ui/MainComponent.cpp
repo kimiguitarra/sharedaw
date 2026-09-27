@@ -81,6 +81,8 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
 
     state.countInBars = juce::jlimit (0, 2, settings.getIntValue ("countInBars", 1));
     state.mode = settings.getValue ("operationMode") == "studioOne" ? OperationMode::studioOne : OperationMode::cubase;
+    state.masterVolumeDb = (float) settings.getDoubleValue ("masterVolumeDb", 0.0);
+    bridge.setMasterVolumeDb (state.masterVolumeDb);
     commandManager.getKeyMappings()->resetToDefaultMappings();
     ctx.addTrackMenu = [this] { return addTrackMenu(); };
     ctx.openChannelStrip = [this] (const std::string& id) { openChannelStrip (id); };
@@ -198,6 +200,12 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
         lastMetronome = state.metronomeEnabled;
         lastMetronomeDb = state.metronomeVolumeDb;
         bridge.setMetronome (state.metronomeEnabled, state.metronomeVolumeDb);
+    }
+
+    if (! juce::exactlyEqual (state.masterVolumeDb, bridge.getMasterVolumeDb()))
+    {
+        bridge.setMasterVolumeDb (state.masterVolumeDb);
+        settings.setValue ("masterVolumeDb", state.masterVolumeDb);
     }
 }
 

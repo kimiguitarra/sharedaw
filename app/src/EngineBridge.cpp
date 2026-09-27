@@ -79,6 +79,18 @@ EngineBridge::EngineBridge (te::Engine& e, ProjectDocument& doc, const Instrumen
         countIn = dynamic_cast<CountInPlugin*> (plugin.get());
     }
 
+    // マスターのメーター（マスターの最後。マスター音量の前なので、表示するときに音量を足す）
+    if (auto plugin = edit->getPluginCache().createNewPlugin (te::LevelMeterPlugin::xmlTypeName, {}))
+    {
+        edit->getMasterPluginList().insertPlugin (plugin, -1, nullptr);
+
+        if (auto* meterPlugin = dynamic_cast<te::LevelMeterPlugin*> (plugin.get()))
+        {
+            masterMeter = std::make_unique<Meter>();
+            masterMeter->attach (meterPlugin->measurer);
+        }
+    }
+
     edit->getTransport().ensureContextAllocated();
     edit->getTransport().addListener (this);
 
@@ -92,6 +104,8 @@ EngineBridge::~EngineBridge()
         b.meter.reset();
 
     chordMeter.reset();
+    metronomeMeter.reset();
+    masterMeter.reset();
     document.removeChangeListener (this);
     engine.getDeviceManager().removeChangeListener (this);
     edit->getTransport().removeListener (this);
@@ -859,6 +873,8 @@ void EngineBridge::syncMetronome (bool tempoChanged)
 
         metronomeTrack->setName ("Metronome");
         metronomeTrack->setSoloIsolate (true);   // 他のトラックのソロで消えないように
+        metronomeMeter = std::make_unique<Meter>();
+        metronomeMeter->attach (*metronomeTrack);
 
         if (auto synth = addSynth (*metronomeTrack))
         {
@@ -1250,10 +1266,14 @@ void EngineBridge::Meter::attach (te::AudioTrack& track)
     detach();
 
     if (auto* plugin = track.getLevelMeterPlugin())
-    {
-        measurer = &plugin->measurer;
-        measurer->addClient (client);
-    }
+        attach (plugin->measurer);
+}
+
+void EngineBridge::Meter::attach (te::LevelMeasurer& m)
+{
+    detach();
+    measurer = &m;
+    measurer->addClient (client);
 }
 
 void EngineBridge::Meter::detach()
@@ -1277,6 +1297,29 @@ float EngineBridge::getTrackPeakDb (const std::string& trackId)
         return -100.0f;
 
     return juce::jmax (meter->client.getAndClearAudioLevel (0).dB, meter->client.getAndClearAudioLevel (1).dB);
+}
+
+static float peakOf (te::LevelMeasurer::Client& c)
+{
+    return juce::jmax (c.getAndClearAudioLevel (0).dB, c.getAndClearAudioLevel (1).dB);
+}
+
+float EngineBridge::getMetronomePeakDb()
+{
+    return metronomeMeter != nullptr && metronomeMeter->measurer != nullptr ? peakOf (metronomeMeter->client) : -100.0f;
+}
+
+float EngineBridge::getMasterPeakDb()
+{
+    return masterMeter != nullptr && masterMeter->measurer != nullptr ? peakOf (masterMeter->client) + masterVolumeDb : -100.0f;
+}
+
+void EngineBridge::setMasterVolumeDb (float db)
+{
+    masterVolumeDb = db;
+
+    if (auto vol = edit->getMasterVolumePlugin())
+        vol->setVolumeDb (db);
 }
 
 void EngineBridge::previewNote (const std::string& trackId, int pitch, int velocity)

@@ -6,6 +6,7 @@ namespace
 {
     constexpr int stripWidth = 96;
     constexpr float meterFloorDb = -60.0f;
+    const std::string metronomeId = "#metronome", masterId = "#master";   // トラック以外のストリップ
 }
 
 //==============================================================================
@@ -48,7 +49,7 @@ private:
 };
 
 //==============================================================================
-/** 1 トラック分（trackId が空ならコードトラック）。 */
+/** 1 トラック分（trackId が空ならコードトラック、#metronome / #master はメトロノームとマスター）。 */
 class MixerView::Strip  : public juce::Component
 {
 public:
@@ -69,14 +70,14 @@ public:
         pan.setDoubleClickReturnValue (true, 0.0);
         pan.setPopupDisplayEnabled (true, true, nullptr);
         pan.setTooltip ("パン（ダブルクリックで中央）"_ju);
-        pan.setVisible (! isChord());
+        pan.setVisible (isTrack());
         addChildComponent (pan);
 
         fader.setSliderStyle (juce::Slider::LinearVertical);
         fader.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
         fader.setRange (-60.0, 6.0, 0.1);
         fader.setSkewFactorFromMidPoint (-12.0);
-        fader.setDoubleClickReturnValue (true, isChord() ? -6.0 : 0.0);
+        fader.setDoubleClickReturnValue (true, isChord() || isMetronome() ? -6.0 : 0.0);
         fader.setTooltip ("音量（ダブルクリックで既定値）"_ju);
         addAndMakeVisible (fader);
 
@@ -85,14 +86,15 @@ public:
         addAndMakeVisible (value);
         addAndMakeVisible (meter);
 
-        mute.setButtonText (isChord() ? "発音"_ju : juce::String ("M"));
-        mute.setTooltip (isChord() ? "コードトラックを鳴らす"_ju : "ミュート"_ju);
-        mute.setColour (juce::TextButton::buttonOnColourId, isChord() ? Theme::accent.darker (0.3f) : juce::Colour (0xffe57373));
+        mute.setButtonText (isChord() ? "発音"_ju : isMetronome() ? "オン"_ju : juce::String ("M"));
+        mute.setTooltip (isChord() ? "コードトラックを鳴らす"_ju : isMetronome() ? "メトロノームを鳴らす（C）"_ju : "ミュート"_ju);
+        mute.setColour (juce::TextButton::buttonOnColourId, isChord() || isMetronome() ? Theme::accent.darker (0.3f) : juce::Colour (0xffe57373));
         solo.setButtonText ("S");
         solo.setTooltip ("ソロ"_ju);
         solo.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffffd54f).darker (0.2f));
-        addAndMakeVisible (mute);
-        solo.setVisible (! isChord());
+        mute.setVisible (! isMaster());
+        addChildComponent (mute);
+        solo.setVisible (isTrack());
         addChildComponent (solo);
 
         for (auto* s : { &fader, &pan })
@@ -106,7 +108,17 @@ public:
             const double v = fader.getValue();
             value.setText (formatDb (v), juce::dontSendNotification);
 
-            if (isChord())
+            if (isMetronome())
+            {
+                ctx.state.metronomeVolumeDb = (float) v;
+                ctx.state.changed();
+            }
+            else if (isMaster())
+            {
+                ctx.state.masterVolumeDb = (float) v;
+                ctx.state.changed();
+            }
+            else if (isChord())
                 ctx.document.perform ("コードトラックの音量"_ju, [v] (collab::Project& p) { p.chordTrack.playback.volumeDb = v; }, mergeId);
             else
                 editTrack ("音量"_ju, [v] (collab::Track& t) { t.volumeDb = v; });
@@ -120,7 +132,12 @@ public:
 
         mute.onClick = [this]
         {
-            if (isChord())
+            if (isMetronome())
+            {
+                ctx.state.metronomeEnabled = ! ctx.state.metronomeEnabled;
+                ctx.state.changed();
+            }
+            else if (isChord())
                 ctx.document.perform ("コードトラックの発音"_ju, [] (collab::Project& p) { p.chordTrack.playback.enabled = ! p.chordTrack.playback.enabled; });
             else
                 editTrack ("ミュート"_ju, [] (collab::Track& t) { t.mute = ! t.mute; });
@@ -139,7 +156,7 @@ public:
             b->setClickingTogglesState (false);
             b->setColour (juce::TextButton::buttonOnColourId, Theme::accent.darker (0.2f));
             b->onClick = [this] { if (ctx.openChannelStrip) ctx.openChannelStrip (trackId); };
-            b->setVisible (! isChord());
+            b->setVisible (isTrack());
             addChildComponent (b);
         }
 
@@ -148,12 +165,30 @@ public:
 
     const std::string& getTrackId() const noexcept     { return trackId; }
     bool isChord() const noexcept                      { return trackId.empty(); }
+    bool isMetronome() const noexcept                  { return trackId == metronomeId; }
+    bool isMaster() const noexcept                     { return trackId == masterId; }
+    bool isTrack() const noexcept                      { return ! isChord() && ! isMetronome() && ! isMaster(); }
 
     void update()
     {
         const auto& project = ctx.document.getProject();
 
-        if (isChord())
+        if (isMetronome())
+        {
+            name.setText ("メトロノーム"_ju, juce::dontSendNotification);
+            detail.setText ("この PC だけの設定"_ju, juce::dontSendNotification);
+            colour = Theme::textDim;
+            fader.setValue (ctx.state.metronomeVolumeDb, juce::dontSendNotification);
+            mute.setToggleState (ctx.state.metronomeEnabled, juce::dontSendNotification);
+        }
+        else if (isMaster())
+        {
+            name.setText ("マスター"_ju, juce::dontSendNotification);
+            detail.setText ("この PC だけの設定"_ju, juce::dontSendNotification);
+            colour = Theme::text;
+            fader.setValue (ctx.state.masterVolumeDb, juce::dontSendNotification);
+        }
+        else if (isChord())
         {
             name.setText ("コード"_ju, juce::dontSendNotification);
             detail.setText ("コードトラック（ピアノ）"_ju, juce::dontSendNotification);
@@ -179,11 +214,16 @@ public:
         repaint();
     }
 
-    void updateMeter()      { meter.push (ctx.engine.getTrackPeakDb (trackId)); }
+    void updateMeter()
+    {
+        meter.push (isMetronome() ? ctx.engine.getMetronomePeakDb()
+                    : isMaster()  ? ctx.engine.getMasterPeakDb()
+                                  : ctx.engine.getTrackPeakDb (trackId));
+    }
 
     void paint (juce::Graphics& g) override
     {
-        const bool selected = ! isChord() && ctx.state.selectedTrackId == trackId;
+        const bool selected = isTrack() && ctx.state.selectedTrackId == trackId;
         g.setColour (selected ? Theme::panelLight : Theme::panel);
         g.fillRect (getLocalBounds().reduced (1, 0));
         g.setColour (colour);
@@ -215,7 +255,10 @@ public:
         area.removeFromTop (6);
         auto buttons = area.removeFromBottom (24);
 
-        if (solo.isVisible())
+        if (isMaster())
+        {
+        }
+        else if (solo.isVisible())
         {
             mute.setBounds (buttons.removeFromLeft (buttons.getWidth() / 2 - 2));
             buttons.removeFromLeft (4);
@@ -237,7 +280,7 @@ public:
 
     void mouseDown (const juce::MouseEvent&) override
     {
-        if (! isChord())
+        if (isTrack())
         {
             ctx.state.selectedTrackId = trackId;
             ctx.state.changed();
@@ -323,6 +366,9 @@ void MixerView::rebuild()
 
     for (auto& t : ctx.document.getProject().tracks)
         ids.push_back (t.id);
+
+    ids.push_back (metronomeId);   // 右端にメトロノームとマスター
+    ids.push_back (masterId);
 
     bool same = (int) ids.size() == strips.size();
 
