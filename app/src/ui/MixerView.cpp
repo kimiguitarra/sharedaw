@@ -365,6 +365,63 @@ public:
 };
 
 //==============================================================================
+/** マスターのリミッターとラウドネス（クリックでマスターの画面、見出しの丸でリミッターのオン・オフ）。 */
+class MasterSection  : public MixSection
+{
+public:
+    MasterSection (AppContext& c) : MixSection (c, {}, "LIMITER / LUFS") {}
+
+    EngineBridge::MasterStatus status;
+
+    std::optional<bool> powerState() const override     { return ctx.document.getProject().master.limiter.enabled; }
+
+    void togglePower() override
+    {
+        ctx.document.perform ("マスターのリミッターのオン・オフ"_ju, [] (collab::Project& p)
+        {
+            if (p.master.id.empty())
+                p.master.id = collab::masterBusIdFor (p.projectId);
+
+            p.master.limiter.enabled = ! p.master.limiter.enabled;
+        });
+    }
+
+    void paintBody (juce::Graphics& g, juce::Rectangle<int> r) override
+    {
+        const auto& l = ctx.document.getProject().master.limiter;
+        const char* modeName = l.mode == collab::LimiterMode::tube ? "TUBE" : l.mode == collab::LimiterMode::modern ? "MODERN" : "ANALOG";
+        drawRow (g, r.removeFromTop (rowHeight), "Vintage " + juce::String (modeName), l.enabled, true);
+        drawRow (g, r.removeFromTop (rowHeight), "Thr " + juce::String (l.thresholdDb, 1) + " / Ceil " + juce::String (l.ceilingDb, 1), l.enabled, false);
+
+        auto bar = r.removeFromTop (8).reduced (3, 1).toFloat();
+        g.setColour (juce::Colour (0xff15171b));
+        g.fillRect (bar);
+        g.setColour (juce::Colour (0xffffb74d));
+        g.fillRect (bar.withLeft (bar.getRight() - bar.getWidth() * juce::jlimit (0.0f, 1.0f, status.gainReductionDb / 12.0f)));
+
+        r.removeFromTop (4);
+        const double integrated = status.integratedLufs;
+        const double diff = integrated + 14.0;
+        g.setColour (integrated <= -99.0 ? Theme::textDim
+                     : std::abs (diff) <= 1.0 ? juce::Colour (0xff66bb6a)
+                     : diff > 0.0 ? juce::Colour (0xffef5350) : juce::Colour (0xffffb74d));
+        g.setFont (juce::FontOptions (18.0f, juce::Font::bold));
+        g.drawText (integrated <= -99.0 ? juce::String ("--.-") : juce::String (integrated, 1), r.removeFromTop (22), juce::Justification::centred);
+        g.setColour (Theme::textDim);
+        g.setFont (juce::FontOptions (10.0f));
+        g.drawText ("LUFS（目標 -14）"_ju, r.removeFromTop (13), juce::Justification::centred);
+        g.drawText ("S " + (status.shortTermLufs <= -99.0 ? juce::String ("--.-") : juce::String (status.shortTermLufs, 1)),
+                    r.removeFromTop (14), juce::Justification::centred);
+    }
+
+    void bodyMouseDown (const juce::MouseEvent&, juce::Point<int>) override
+    {
+        if (ctx.openMaster)
+            ctx.openMaster();
+    }
+};
+
+//==============================================================================
 /** センド（バスへ送る量）。バーを左右にドラッグで量、ダブルクリックで 0 dB、右クリックでプリ/ポスト・外す、空き枠で追加。 */
 class SendSection  : public MixSection
 {
@@ -483,7 +540,7 @@ class MixerView::Strip  : public juce::Component
 public:
     Strip (AppContext& c, std::string id)
         : ctx (c), trackId (std::move (id)),
-          inserts (c, trackId), eq (c, trackId), comp (c, trackId), sends (c, trackId)
+          inserts (c, trackId), eq (c, trackId), comp (c, trackId), sends (c, trackId), masterSection (c)
     {
         routingTitle.setText ("ROUTING", juce::dontSendNotification);
         routingTitle.setFont (juce::FontOptions (9.5f, juce::Font::bold));
@@ -499,6 +556,8 @@ public:
         for (auto* s : std::initializer_list<MixSection*> { &inserts, &eq, &comp, &sends })
             addChildComponent (s);
 
+        addChildComponent (masterSection);
+        masterSection.setVisible (isMaster());
         inserts.setVisible (isTrack());
         eq.setVisible (isTrack());
         comp.setVisible (isTrack());
@@ -645,7 +704,7 @@ public:
             solo.setToggleState (t->solo, juce::dontSendNotification);
         }
 
-        for (auto* s : std::initializer_list<MixSection*> { &inserts, &eq, &comp, &sends })
+        for (auto* s : std::initializer_list<MixSection*> { &inserts, &eq, &comp, &sends, &masterSection })
             s->update();
 
         value.setText (formatDb (fader.getValue()), juce::dontSendNotification);
@@ -657,6 +716,12 @@ public:
         meter.push (isMetronome() ? ctx.engine.getMetronomePeakDb()
                     : isMaster()  ? ctx.engine.getMasterPeakDb()
                                   : ctx.engine.getTrackPeakDb (trackId));
+
+        if (isMaster())
+        {
+            masterSection.status = ctx.engine.pollMaster();
+            masterSection.repaint();
+        }
 
         if (isTrack())
         {
@@ -724,6 +789,7 @@ public:
         output.setBounds (area.removeFromTop (20).reduced (1, 1));
         area.removeFromTop (3);
 
+        const auto insertsTop = area.getY();
         inserts.setBounds (area.removeFromTop (headerHeight + rowHeight * insertRows + 2));
         area.removeFromTop (3);
         eq.setBounds (area.removeFromTop (headerHeight + 36));
@@ -731,6 +797,7 @@ public:
         comp.setBounds (area.removeFromTop (headerHeight + rowHeight + 8));
         area.removeFromTop (3);
         sends.setBounds (area.removeFromTop (headerHeight + rowHeight * sendRows + 2));
+        masterSection.setBounds (inserts.getX(), insertsTop, inserts.getWidth(), headerHeight + rowHeight * 2 + 8 + 4 + 22 + 13 + 14 + 6);
         area.removeFromTop (5);
 
         pan.setBounds (area.removeFromTop (18));
@@ -801,6 +868,7 @@ private:
     EqSection eq;
     CompSection comp;
     SendSection sends;
+    MasterSection masterSection;
     juce::Label value;
     PanBar pan;
     juce::Slider fader;

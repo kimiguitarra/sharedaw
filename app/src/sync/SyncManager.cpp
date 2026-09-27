@@ -204,6 +204,7 @@ juce::String SyncManager::scopeName (const std::string& scopeId) const
     if (scopeId == p.meterTrack.id)  return "拍子"_ju;
     if (scopeId == p.chordTrack.id)  return "コード"_ju;
     if (scopeId == p.markerTrack.id) return "マーカー"_ju;
+    if (scopeId == p.master.id)      return "マスター"_ju;
 
     if (auto* t = p.findTrack (scopeId))
         return toJuce (t->name);
@@ -236,7 +237,10 @@ bool SyncManager::canEdit (const std::string& scopeId) const
         return true;
 
     // 新規作成したスコープ（ベースにない）は、作成者がロックを持っている扱い（§4.2）
+    // マーカーとマスターは、サーバーでは中身があるときだけスコープとして数える（空・既定値は JSON にない扱い）
     const bool inBase = scopeId == base->tempoTrack.id || scopeId == base->meterTrack.id || scopeId == base->chordTrack.id
+                          || (scopeId == base->markerTrack.id && ! base->markerTrack.events.empty())
+                          || (scopeId == base->master.id && ! base->master.isDefault())
                           || base->findTrack (scopeId) != nullptr;
 
     return ! inBase || isLockedByMe (scopeId);

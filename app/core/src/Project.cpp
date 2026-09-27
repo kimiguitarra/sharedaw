@@ -93,16 +93,40 @@ Project Project::createEmpty (const std::string& name)
     p.chordTrack.id = generateUuid();
     p.chordTrack.playback = { true, -6.0, { "builtin.piano", "1.0.0" } };
     p.markerTrack.id = markerTrackIdFor (p.projectId);
+    p.master.id = masterBusIdFor (p.projectId);
     return p;
+}
+
+namespace
+{
+    // SHA-256 から UUID v4 の形式を作る（決定的）
+    std::string derivedUuid (const std::string& seed)
+    {
+        auto h = Sha256::hashHex (seed);
+        h[12] = '4';
+        h[16] = "89ab"[std::stoi (h.substr (16, 1), nullptr, 16) & 3];
+        return h.substr (0, 8) + "-" + h.substr (8, 4) + "-" + h.substr (12, 4) + "-" + h.substr (16, 4) + "-" + h.substr (20, 12);
+    }
+}
+
+std::string masterBusIdFor (const std::string& projectId)
+{
+    return derivedUuid ("master:" + projectId);
+}
+
+std::string limiterModeName (LimiterMode m)
+{
+    return m == LimiterMode::tube ? "tube" : m == LimiterMode::modern ? "modern" : "analog";
+}
+
+LimiterMode limiterModeFromName (const std::string& s)
+{
+    return s == "tube" ? LimiterMode::tube : s == "modern" ? LimiterMode::modern : LimiterMode::analog;
 }
 
 std::string markerTrackIdFor (const std::string& projectId)
 {
-    // SHA-256 から UUID v4 の形式を作る（決定的）
-    auto h = Sha256::hashHex ("markerTrack:" + projectId);
-    h[12] = '4';
-    h[16] = "89ab"[std::stoi (h.substr (16, 1), nullptr, 16) & 3];
-    return h.substr (0, 8) + "-" + h.substr (8, 4) + "-" + h.substr (12, 4) + "-" + h.substr (16, 4) + "-" + h.substr (20, 12);
+    return derivedUuid ("markerTrack:" + projectId);
 }
 
 std::string compTypeName (CompType t)

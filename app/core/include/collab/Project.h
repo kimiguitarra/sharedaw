@@ -125,6 +125,39 @@ struct MarkerTrack
 /** マーカートラックの ID（プロジェクト ID から決まる。古いプロジェクトでも全員で同じ ID になるように）。 */
 std::string markerTrackIdFor (const std::string& projectId);
 
+/**
+    マスターのリミッター（ヴィンテージ系リミッターの操作感）。
+    THRESHOLD を下げるほど入力が持ち上がり、CEILING を超えないように抑える。CHARACTER は速さ（0 = ゆっくり・なめらか、10 = 速い）。
+*/
+enum class LimiterMode { analog, tube, modern };
+
+struct MasterLimiter
+{
+    bool enabled = false;
+    double thresholdDb = 0.0;       // 0〜-20 dB
+    double ceilingDb = -1.0;        // 出力の上限（-3〜0 dB）
+    double character = 5.0;         // 0〜10
+    LimiterMode mode = LimiterMode::analog;
+
+    bool operator== (const MasterLimiter&) const = default;
+};
+
+/** マスター（全員で共通の設定。スコープとしてロック・差分の単位になる）。 */
+struct MasterBus
+{
+    std::string id;
+    MasterLimiter limiter;
+
+    bool isDefault() const noexcept     { return limiter == MasterLimiter(); }
+    bool operator== (const MasterBus&) const = default;
+};
+
+/** マスターの ID（マーカートラックと同じくプロジェクト ID から決まる）。 */
+std::string masterBusIdFor (const std::string& projectId);
+
+std::string limiterModeName (LimiterMode);
+LimiterMode limiterModeFromName (const std::string&);
+
 //==============================================================================
 struct ExternalPlugin
 {
@@ -317,6 +350,7 @@ struct Project
     MeterTrack meterTrack;
     ChordTrack chordTrack;
     MarkerTrack markerTrack;
+    MasterBus master;
     std::vector<Track> tracks;
 
     const Track* findTrack (const std::string& trackId) const;

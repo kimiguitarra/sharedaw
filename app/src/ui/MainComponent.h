@@ -57,7 +57,7 @@ private:
 
     EditorState state;
     AudioFileCache audioCache;
-    AppContext ctx { document, state, bridge, library, sync, audioCache, {}, {}, {}, {}, {}, {} };
+    AppContext ctx { document, state, bridge, library, sync, audioCache, {}, {}, {}, {}, {}, {}, {} };
 
     juce::ApplicationCommandManager commandManager;
     ToolBar toolbar { ctx };
@@ -98,6 +98,9 @@ private:
     std::unique_ptr<juce::DocumentWindow> mixerWindow;
     void openChannelStrip (const std::string& trackId);
     std::unique_ptr<juce::DocumentWindow> stripWindow;
+    void openMaster();
+    void exportMixdown();
+    std::unique_ptr<juce::DocumentWindow> masterWindow;
 
     // 録音（§3.5）
     void toggleRecord();

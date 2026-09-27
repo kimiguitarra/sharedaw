@@ -12,6 +12,7 @@ export interface ProjectJson {
   meterTrack: { id: string };
   chordTrack: { id: string };
   markerTrack?: { id: string };
+  master?: { id: string };
   tracks: Array<{
     id: string;
     type: "midi" | "audio" | "bus";
@@ -43,7 +44,7 @@ export function canonical(value: unknown): string {
   return JSON.stringify(value);
 }
 
-export type ScopeKind = "tempo" | "meter" | "chord" | "marker" | "track";
+export type ScopeKind = "tempo" | "meter" | "chord" | "marker" | "master" | "track";
 
 /** スコープ ID → 内容（比較用の正規化文字列）。 */
 export function scopes(p: ProjectJson): Map<string, { kind: ScopeKind; content: string }> {
@@ -55,6 +56,9 @@ export function scopes(p: ProjectJson): Map<string, { kind: ScopeKind; content: 
   // マーカートラック（古いプロジェクトにはない。空のものは「ない」と同じに扱う）
   if (p.markerTrack && (p.markerTrack as { events?: unknown[] }).events?.length)
     m.set(p.markerTrack.id, { kind: "marker", content: canonical(p.markerTrack) });
+
+  // マスター（既定値のときは JSON に出ないので、あるときだけ）
+  if (p.master) m.set(p.master.id, { kind: "master", content: canonical(p.master) });
 
   for (const t of p.tracks) m.set(t.id, { kind: "track", content: canonical(t) });
 

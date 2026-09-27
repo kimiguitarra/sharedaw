@@ -141,6 +141,26 @@ describe("projects and revisions", () => {
     expect((await bob("POST", `/projects/${pid}/locks`, { trackId: minimalFixture.tempoTrack.id })).status).toBe(200);
     expect((await push(bob, pid, changed, 1)).status).toBe(201);
   });
+
+  it("treats the master limiter as its own scope with a lock", async () => {
+    const masterId = "22222222-2222-4222-8222-222222222222";
+    const withMaster = clone(minimalFixture) as any;
+    withMaster.master = { id: masterId, limiter: { enabled: true, thresholdDb: -6, ceilingDb: -1, character: 5, mode: "tube" } };
+    expect((await push(alice, pid, withMaster, 0)).status).toBe(201);
+
+    const changed = clone(withMaster);
+    changed.master.limiter.thresholdDb = -8;
+    const denied = await push(bob, pid, changed, 1);
+    expect(denied.status).toBe(403);
+    expect(denied.data).toMatchObject({ error: "lock_required", trackIds: [masterId] });
+
+    expect((await bob("POST", `/projects/${pid}/locks`, { trackId: masterId })).status).toBe(200);
+    expect((await push(bob, pid, changed, 1)).status).toBe(201);
+
+    const bad = clone(changed);
+    bad.master.limiter.mode = "brickwall";
+    expect((await push(bob, pid, bad, 2)).data.error).toBe("invalid_project");
+  });
 });
 
 describe("tracks, blobs and locks", () => {

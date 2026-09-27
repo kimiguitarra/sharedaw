@@ -1,5 +1,7 @@
 #pragma once
 
+#include "collab/MasterDsp.h"
+
 #include <map>
 
 #include "Common.h"
@@ -49,7 +51,7 @@ public:
     juce::String getInstrumentProblem (const std::string& trackId) const;
 
     /** 先頭から endTick + tailSeconds までをオフラインで WAV に書き出す（メトロノームは含めない）。 */
-    bool renderToFile (const juce::File& output, collab::Tick endTick, double tailSeconds = 2.0);
+    bool renderToFile (const juce::File& output, collab::Tick endTick, double tailSeconds = 2.0, int bitDepth = 32);
 
     /** トラック1本をバウンスする（§3.7: 48kHz / 32bit float、先頭から末尾 + 余白）。 */
     juce::Result renderTrack (const std::string& trackId, const juce::File& output, double tailSeconds = 2.0);
@@ -92,6 +94,17 @@ public:
     /** スペクトラム表示（EQ 画面）。有効にしたトラックの EQ・コンプ後の音を読み出す。 */
     void setSpectrumTrack (const std::string& trackId);
     bool getSpectrumSamples (float* dest, int numSamples, double& sampleRate) const;
+
+    /** マスターのリミッターとラウドネス（LUFS）。 */
+    struct MasterStatus
+    {
+        float gainReductionDb = 0.0f, inputPeakDb = -100.0f, outputPeakDb = -100.0f;
+        double momentaryLufs = -100.0, shortTermLufs = -100.0, integratedLufs = -100.0, seconds = 0.0;
+    };
+
+    /** 定期的に呼ぶ（ラウドネスの集計を進める）。再生を始めたときにインテグレーテッドをリセットする。 */
+    MasterStatus pollMaster();
+    void resetLoudness()                                    { loudnessStats.reset(); }
 
     /** トラックのコンプのゲインリダクション（dB、0 以上）。 */
     float getTrackGainReductionDb (const std::string& trackId) const;
@@ -216,6 +229,17 @@ private:
     SfizzPlugin* chordSynth = nullptr;
     juce::String chordSfzText;
     std::string chordKey;
+
+    // 曲の音がまとまるミックスバス（マスターのリミッターとラウドネス計測。メトロノームは通さない）
+    te::AudioTrack::Ptr mixTrack;
+    class MasterLimiterPlugin* masterLimiter = nullptr;
+    collab::LoudnessStats loudnessStats;
+    std::vector<double> loudnessScratch;
+    bool loudnessWasPlaying = false;
+    MasterStatus lastMasterStatus;
+    juce::uint32 lastMasterPoll = 0;
+    void routeToMix (te::AudioTrack&);
+    void startLoudness();
 
     te::AudioTrack::Ptr metronomeTrack;
     std::string metronomeKey;

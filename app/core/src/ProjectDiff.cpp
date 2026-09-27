@@ -368,7 +368,7 @@ std::vector<Change> ProjectDiff::forScope (const std::string& scopeId) const
 
 std::vector<std::string> allScopeIds (const Project& p)
 {
-    std::vector<std::string> ids { p.tempoTrack.id, p.meterTrack.id, p.chordTrack.id, p.markerTrack.id };
+    std::vector<std::string> ids { p.tempoTrack.id, p.meterTrack.id, p.chordTrack.id, p.markerTrack.id, p.master.id };
 
     for (auto& t : p.tracks)
         ids.push_back (t.id);
@@ -382,6 +382,7 @@ bool scopeEquals (const Project& a, const Project& b, const std::string& id)
     if (id == a.meterTrack.id || id == b.meterTrack.id)  return a.meterTrack == b.meterTrack;
     if (id == a.chordTrack.id || id == b.chordTrack.id)  return a.chordTrack == b.chordTrack;
     if (id == a.markerTrack.id || id == b.markerTrack.id) return a.markerTrack == b.markerTrack;
+    if (id == a.master.id || id == b.master.id)          return a.master == b.master;
 
     auto* ta = a.findTrack (id);
     auto* tb = b.findTrack (id);
@@ -525,6 +526,24 @@ ProjectDiff diffProjects (const Project& beforeIn, const Project& afterIn)
                 add (barRange (mapA, o.tick, o.tick + 1) + " " + label (o) + "を削除", o.tick);
     }
 
+    // マスター（リミッター）
+    {
+        const auto& la = before.master.limiter;
+        const auto& lb = after.master.limiter;
+
+        if (! (la == lb))
+        {
+            std::string s;
+
+            if (la.enabled != lb.enabled)
+                s = lb.enabled ? "マスターのリミッターをオン" : "マスターのリミッターをオフ";
+            else
+                s = "マスターのリミッターを変更";
+
+            diff.changes.push_back ({ after.master.id, ScopeKind::master, "マスター", Change::Category::master, s, -1, -1 });
+        }
+    }
+
     // トラック（ヘッドの並び順、削除されたものは最後）
     for (auto& tb : after.tracks)
         diffTrack (before.findTrack (tb.id), &tb, mapA, mapB, diff);
@@ -575,6 +594,7 @@ PullResult mergeForPull (const Project& base, const Project& local, const Projec
     mergeSpecial (local.meterTrack.id, &Project::meterTrack);
     mergeSpecial (local.chordTrack.id, &Project::chordTrack);
     mergeSpecial (local.markerTrack.id, &Project::markerTrack);
+    mergeSpecial (local.master.id, &Project::master);
 
     // トラック
     for (auto& lt : local.tracks)

@@ -1825,6 +1825,49 @@ var project_schema_default = {
         }
       }
     },
+    master: {
+      type: "object",
+      required: [
+        "id"
+      ],
+      additionalProperties: false,
+      properties: {
+        id: {
+          $ref: "#/definitions/uuid"
+        },
+        limiter: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            enabled: {
+              type: "boolean"
+            },
+            thresholdDb: {
+              type: "number",
+              minimum: -30,
+              maximum: 0
+            },
+            ceilingDb: {
+              type: "number",
+              minimum: -6,
+              maximum: 0
+            },
+            character: {
+              type: "number",
+              minimum: 0,
+              maximum: 10
+            },
+            mode: {
+              enum: [
+                "analog",
+                "tube",
+                "modern"
+              ]
+            }
+          }
+        }
+      }
+    },
     markerTrack: {
       type: "object",
       required: [
@@ -2527,6 +2570,7 @@ function scopes(p) {
   m.set(p.chordTrack.id, { kind: "chord", content: canonical(p.chordTrack) });
   if (p.markerTrack && p.markerTrack.events?.length)
     m.set(p.markerTrack.id, { kind: "marker", content: canonical(p.markerTrack) });
+  if (p.master) m.set(p.master.id, { kind: "master", content: canonical(p.master) });
   for (const t of p.tracks) m.set(t.id, { kind: "track", content: canonical(t) });
   return m;
 }

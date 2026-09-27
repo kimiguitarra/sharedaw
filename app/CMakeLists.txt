@@ -40,6 +40,7 @@ target_sources(ShareDAW PRIVATE
     src/audio/AudioFiles.cpp
     src/update/Updater.cpp
     src/audio/ChannelStripPlugin.cpp
+    src/audio/MasterLimiterPlugin.cpp
     src/audio/MidiImport.cpp
     src/audio/CountInPlugin.cpp
     src/audio/Takes.cpp
@@ -66,6 +67,7 @@ target_sources(ShareDAW PRIVATE
     src/ui/MainComponentUpdate.cpp
     src/ui/MarkerLane.cpp
     src/ui/MidiInputPanel.cpp
+    src/ui/MasterPanel.cpp
     src/ui/MixerView.cpp
     src/ui/SyncUI.cpp
     src/ui/TransportBar.cpp

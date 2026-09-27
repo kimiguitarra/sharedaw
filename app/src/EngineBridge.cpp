@@ -4,6 +4,7 @@
 
 #include "SfizzPlugin.h"
 #include "audio/ChannelStripPlugin.h"
+#include "audio/MasterLimiterPlugin.h"
 #include "audio/CountInPlugin.h"
 #include "collab/Recording.h"
 #include "collab/ChordPlayback.h"
@@ -72,6 +73,21 @@ EngineBridge::EngineBridge (te::Engine& e, ProjectDocument& doc, const Instrumen
     // 入力デバイスの一覧は非同期に作られるので、変わるたびに設定する
     engine.getDeviceManager().addChangeListener (this);
     configureInputs();
+
+    // ミックスバス: トラック・コード・バスの出力はここへ集まり、リミッターを通ってからマスターへ出る
+    mixTrack = createTrack();
+
+    if (mixTrack != nullptr)
+    {
+        mixTrack->setName ("Mix Bus");
+        mixTrack->setSoloIsolate (true);   // ソロで消えないように
+
+        if (auto plugin = edit->getPluginCache().createNewPlugin (MasterLimiterPlugin::xmlTypeName, {}))
+        {
+            mixTrack->pluginList.insertPlugin (plugin, 0, nullptr);
+            masterLimiter = dynamic_cast<MasterLimiterPlugin*> (plugin.get());
+        }
+    }
 
     // カウントインのクリック（マスターの最後）
     if (auto plugin = edit->getPluginCache().createNewPlugin (CountInPlugin::xmlTypeName, {}))
@@ -223,6 +239,14 @@ void EngineBridge::setMidiTarget (const std::string& trackId)
     applyInputs();
 }
 
+void EngineBridge::routeToMix (te::AudioTrack& track)
+{
+    if (mixTrack != nullptr && &track != mixTrack.get())
+        track.getOutput().setOutputToTrack (mixTrack.get());
+    else
+        track.getOutput().setOutputToDefaultDevice (false);
+}
+
 te::AudioTrack::Ptr EngineBridge::createTrack()
 {
     auto tracks = te::getAudioTracks (*edit);
@@ -261,7 +285,7 @@ void EngineBridge::sync()
             for (auto& [otherId, other] : bindings)
                 if (other.track != nullptr && other.track != it->second.track
                     && other.track->getOutput().getDestinationTrack() == it->second.track.get())
-                    other.track->getOutput().setOutputToDefaultDevice (false);
+                    routeToMix (*other.track);
 
             edit->deleteTrack (it->second.track.get());
             it = bindings.erase (it);
@@ -296,6 +320,9 @@ void EngineBridge::sync()
     }
 
     syncRouting (project);
+
+    if (masterLimiter != nullptr)
+        masterLimiter->setLimiter (project.master.limiter);
     syncChordTrack (tempoChanged);
     syncMetronome (tempoChanged);
 
@@ -607,6 +634,9 @@ void EngineBridge::syncRouting (const collab::Project& project)
                                                && resolvesWithoutLoop (t))
             dest = d->second.track.get();
 
+        if (dest == nullptr)
+            dest = mixTrack.get();
+
         if (b.track->getOutput().getDestinationTrack() != dest)
         {
             if (dest != nullptr)
@@ -711,6 +741,47 @@ bool EngineBridge::getSpectrumSamples (float* dest, int numSamples, double& samp
 
     sampleRate = it->second.strip->getSampleRate();
     return it->second.strip->getLatestSamples (dest, numSamples);
+}
+
+EngineBridge::MasterStatus EngineBridge::pollMaster()
+{
+    if (masterLimiter == nullptr)
+        return {};
+
+    // ミキサーとマスターの画面の両方から呼ばれるので、短い間隔の呼び出しには前回の値を返す
+    const auto now = juce::Time::getMillisecondCounter();
+
+    if (now - lastMasterPoll < 25)
+        return lastMasterStatus;
+
+    lastMasterPoll = now;
+
+    // 再生を始めたときの測り直しは play() / record() で行う（ほかの経路で始まった場合はここで）
+    const bool playing = isPlaying();
+
+    if (playing && ! loudnessWasPlaying)
+        startLoudness();
+
+    loudnessWasPlaying = playing;
+
+    loudnessScratch.clear();
+    masterLimiter->takeLoudnessBlocks (loudnessScratch);
+
+    // 止まっている間の無音は数えない
+    if (playing)
+        for (double b : loudnessScratch)
+            loudnessStats.addBlock (b);
+
+    MasterStatus s;
+    s.gainReductionDb = masterLimiter->getGainReductionDb();
+    s.inputPeakDb = masterLimiter->takeInputPeakDb();
+    s.outputPeakDb = masterLimiter->takeOutputPeakDb();
+    s.momentaryLufs = playing ? loudnessStats.momentaryLufs() : -100.0;
+    s.shortTermLufs = playing ? loudnessStats.shortTermLufs() : -100.0;
+    s.integratedLufs = loudnessStats.integratedLufs();
+    s.seconds = loudnessStats.seconds();
+    lastMasterStatus = s;
+    return s;
 }
 
 float EngineBridge::getTrackGainReductionDb (const std::string& trackId) const
@@ -1035,6 +1106,7 @@ void EngineBridge::syncChordTrack (bool tempoChanged)
             return;
 
         chordTrack->setName ("Chord Track");
+        routeToMix (*chordTrack);
         chordSynth = addSynth (*chordTrack);
         chordMeter = std::make_unique<Meter>();
         chordMeter->attach (*chordTrack);
@@ -1176,7 +1248,23 @@ void EngineBridge::play()
     auto& transport = edit->getTransport();
 
     if (! transport.isPlaying())
+    {
+        startLoudness();
         transport.play (false);
+    }
+}
+
+void EngineBridge::startLoudness()
+{
+    // 止まっている間に貯まった分（無音）は捨てて、ここから測り直す
+    loudnessScratch.clear();
+
+    if (masterLimiter != nullptr)
+        masterLimiter->takeLoudnessBlocks (loudnessScratch);
+
+    loudnessScratch.clear();
+    loudnessStats.reset();
+    loudnessWasPlaying = true;
 }
 
 void EngineBridge::stop()
@@ -1243,7 +1331,7 @@ bool EngineBridge::isLooping() const
 }
 
 //==============================================================================
-bool EngineBridge::renderToFile (const juce::File& output, collab::Tick endTick, double tailSeconds)
+bool EngineBridge::renderToFile (const juce::File& output, collab::Tick endTick, double tailSeconds, int bitDepth)
 {
     sync();
     stop();
@@ -1264,7 +1352,7 @@ bool EngineBridge::renderToFile (const juce::File& output, collab::Tick endTick,
     te::Renderer::Parameters params (*edit);
     params.destFile = output;
     params.audioFormat = &wav;
-    params.bitDepth = 32;
+    params.bitDepth = bitDepth;
     params.sampleRateForAudio = (double) collab::kSampleRate;
     params.blockSizeForAudio = 512;
     params.time = te::TimeRange (secondsToTime (0), secondsToTime (end));
@@ -1449,6 +1537,7 @@ juce::Result EngineBridge::startRecording (int countInBars)
         }
     }
 
+    startLoudness();
     transport.record (false);
 
     // Tracktion 自身のカウントインのクリック（Edit の 60BPM で鳴る）は使わない。

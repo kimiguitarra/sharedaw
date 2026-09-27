@@ -373,6 +373,15 @@ ojson projectToJson (const Project& source)
         o["markerTrack"] = { { "id", p.markerTrack.id.empty() ? markerTrackIdFor (p.projectId) : p.markerTrack.id }, { "events", events } };
     }
 
+    // マスター（既定値のときは省略する。古いアプリ・サーバーでも読めるように）
+    if (! p.master.isDefault())
+    {
+        const auto& l = p.master.limiter;
+        o["master"] = { { "id", p.master.id.empty() ? masterBusIdFor (p.projectId) : p.master.id },
+                        { "limiter", { { "enabled", l.enabled }, { "thresholdDb", l.thresholdDb }, { "ceilingDb", l.ceilingDb },
+                                       { "character", l.character }, { "mode", limiterModeName (l.mode) } } } };
+    }
+
     ojson tracks = ojson::array();
 
     for (auto& t : p.tracks)
@@ -486,6 +495,24 @@ Project projectFromJson (const json& j)
             for (auto& e : it->at ("events"))
                 p.markerTrack.events.push_back ({ get<std::string> (e, "id"), get<Tick> (e, "tick"),
                                                   toNfc (getOr<std::string> (e, "name", {})) });
+        }
+
+        // マスター（ない場合は既定値）
+        p.master.id = masterBusIdFor (p.projectId);
+
+        if (auto it = j.find ("master"); it != j.end())
+        {
+            p.master.id = getOr<std::string> (*it, "id", p.master.id);
+
+            if (auto l = it->find ("limiter"); l != it->end())
+            {
+                auto& m = p.master.limiter;
+                m.enabled = getOr<bool> (*l, "enabled", m.enabled);
+                m.thresholdDb = getOr<double> (*l, "thresholdDb", m.thresholdDb);
+                m.ceilingDb = getOr<double> (*l, "ceilingDb", m.ceilingDb);
+                m.character = getOr<double> (*l, "character", m.character);
+                m.mode = limiterModeFromName (getOr<std::string> (*l, "mode", "analog"));
+            }
         }
 
         for (auto& tj : j.at ("tracks"))

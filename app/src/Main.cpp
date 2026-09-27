@@ -10,6 +10,7 @@
 #include "Translations.h"
 #include "SfizzPlugin.h"
 #include "audio/ChannelStripPlugin.h"
+#include "audio/MasterLimiterPlugin.h"
 #include "update/Updater.h"
 #include "audio/MidiImport.h"
 #include "audio/CountInPlugin.h"
@@ -129,6 +130,7 @@ public:
         engine->getPluginManager().createBuiltInType<SfizzPlugin>();
         engine->getPluginManager().createBuiltInType<CountInPlugin>();
         engine->getPluginManager().createBuiltInType<ChannelStripPlugin>();
+        engine->getPluginManager().createBuiltInType<MasterLimiterPlugin>();
         engine->getPluginManager().setUsesSeparateProcessForScanning (true);
         preferProjectSampleRate();
 
@@ -614,6 +616,7 @@ private:
             if (scope == "meter")  scope = p.meterTrack.id;
             if (scope == "chord")  scope = p.chordTrack.id;
             if (scope == "marker") scope = p.markerTrack.id;
+            if (scope == "master") scope = p.master.id;
 
             for (auto& t : p.tracks)
                 if (t.name == scope)

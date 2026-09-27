@@ -4,10 +4,13 @@
 #include "ChannelStripEditor.h"
 #include "MarkerLane.h"
 #include "MidiInputPanel.h"
+#include "MasterPanel.h"
 #include "MixerView.h"
 #include "SyncUI.h"
 #include "Theme.h"
+#include "collab/ChordPlayback.h"
 #include "collab/ClipEditing.h"
+#include "collab/MasterDsp.h"
 #include "collab/Uuid.h"
 #include "audio/Takes.h"
 #include "sync/SyncManager.h"
@@ -22,9 +25,9 @@ namespace
         cmdAudioSettings, cmdCredits, cmdAbout, cmdCheckUpdate,
         cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
         cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory, cmdSyncRefreshLocks,
-        cmdAddAudioTrack, cmdImportAudio, cmdImportMidi, cmdSplit, cmdPlugins,
+        cmdAddAudioTrack, cmdImportAudio, cmdImportMidi, cmdExportMixdown, cmdSplit, cmdPlugins,
         cmdRecord, cmdCountIn0, cmdCountIn1, cmdCountIn2,
-        cmdToolSelect, cmdToolPencil, cmdModeCubase, cmdModeStudioOne, cmdMixer, cmdLoopToSelection,
+        cmdToolSelect, cmdToolPencil, cmdModeCubase, cmdModeStudioOne, cmdMixer, cmdMaster, cmdLoopToSelection,
         cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
         cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9,
         cmdToolSplit, cmdCopy, cmdCut, cmdPaste, cmdNudgeLeft, cmdNudgeRight,
@@ -91,6 +94,7 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     commandManager.getKeyMappings()->resetToDefaultMappings();
     ctx.addTrackMenu = [this] { return addTrackMenu(); };
     ctx.openChannelStrip = [this] (const std::string& id) { openChannelStrip (id); };
+    ctx.openMaster = [this] { openMaster(); };
     bridge.onRecordingFinished = [this] (std::vector<EngineBridge::RecordedTake> takes) { importTakes (std::move (takes)); };
     bridge.onMidiRecorded = [this] (std::vector<EngineBridge::RecordedMidi> recs) { importMidiRecording (std::move (recs)); };
     engine.getDeviceManager().deviceManager.addChangeListener (this);
@@ -400,6 +404,71 @@ void MainComponent::importMidi()
             trackId = t->id;
 
         ctx.importMidiFiles (files, trackId, tick);
+    });
+}
+
+void MainComponent::exportMixdown()
+{
+    // 既定の保存先: プロジェクトのフォルダの横に「プロジェクト名.wav」
+    const auto name = toJuce (document.getProject().name).trim();
+    const auto dir = document.hasLocation() ? document.getProjectDir().getParentDirectory()
+                                            : juce::File::getSpecialLocation (juce::File::userMusicDirectory);
+    chooser = std::make_unique<juce::FileChooser> ("ミックスダウンを書き出す"_ju,
+                                                   dir.getChildFile (juce::File::createLegalFileName (name.isEmpty() ? juce::String ("mixdown") : name) + ".wav"),
+                                                   "*.wav");
+    chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                            | juce::FileBrowserComponent::warnAboutOverwriting,
+                          [this] (const juce::FileChooser& fc)
+    {
+        auto file = fc.getResult();
+
+        if (file == juce::File())
+            return;
+
+        file = file.withFileExtension ("wav");
+
+        // 曲の最後まで（リバーブなどの余韻に 2 秒）。マスターのリミッターは含み、この PC のマスター音量・メトロノームは含まない
+        const auto end = collab::chordTrackEndTick (document.getProject(), document.getTempoMap());
+        juce::MouseCursor::showWaitCursor();
+        const bool ok = bridge.renderToFile (file, end, 2.0, 24);
+        juce::MouseCursor::hideWaitCursor();
+
+        if (! ok)
+            return Dialogs::showError ("書き出し"_ju, "ミックスダウンを書き出せませんでした。"_ju);
+
+        // 書き出した音のラウドネスとピークを測って知らせる
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
+        juce::String summary;
+
+        if (reader != nullptr)
+        {
+            collab::LoudnessBlocks blocks;
+            blocks.prepare (reader->sampleRate);
+            collab::LoudnessStats stats;
+            std::vector<double> out;
+            juce::AudioBuffer<float> buffer (2, 48000);
+            float peak = 0.0f;
+
+            for (juce::int64 pos = 0; pos < reader->lengthInSamples; pos += buffer.getNumSamples())
+            {
+                const int n = (int) juce::jmin ((juce::int64) buffer.getNumSamples(), reader->lengthInSamples - pos);
+                reader->read (&buffer, 0, n, pos, true, true);
+                peak = juce::jmax (peak, buffer.getMagnitude (0, n));
+                out.clear();
+                const float* ch[2] = { buffer.getReadPointer (0), buffer.getReadPointer (reader->numChannels > 1 ? 1 : 0) };
+                blocks.process (ch, 2, n, out);
+
+                for (double b : out)
+                    stats.addBlock (b);
+            }
+
+            summary = "\n\nラウドネス: "_ju + juce::String (stats.integratedLufs(), 1) + " LUFS（目標 -14）\nピーク: "_ju
+                      + juce::String (juce::Decibels::gainToDecibels (peak, -100.0f), 1) + " dBFS"_ju;
+        }
+
+        Dialogs::showInfo ("書き出し"_ju, file.getFullPathName() + "\nに書き出しました（48 kHz / 24 bit WAV）。"_ju + summary);
     });
 }
 
@@ -894,6 +963,45 @@ void MainComponent::openChannelStrip (const std::string& trackId)
     stripWindow->toFront (true);
 }
 
+void MainComponent::openMaster()
+{
+    if (masterWindow == nullptr)
+    {
+        struct Window  : public juce::DocumentWindow
+        {
+            Window (MainComponent& o) : DocumentWindow ("マスター - Vintage Limiter / Loudness"_ju, Theme::panel, DocumentWindow::closeButton), owner (o) {}
+
+            void closeButtonPressed() override
+            {
+                setVisible (false);
+                owner.commandManager.commandStatusChanged();
+            }
+
+            MainComponent& owner;
+        };
+
+        auto window = std::make_unique<Window> (*this);
+        window->setUsingNativeTitleBar (true);
+        window->setContentOwned (new MasterPanel (ctx), true);
+        window->setResizable (false, false);
+        window->addKeyListener (commandManager.getKeyMappings());
+
+        if (auto* top = getTopLevelComponent())
+            window->setTopLeftPosition (top->getX() + 160, top->getY() + 140);
+
+        masterWindow = std::move (window);
+    }
+
+    // F4 で開く・閉じる
+    const bool show = ! masterWindow->isVisible() || ! masterWindow->isActiveWindow();
+    masterWindow->setVisible (show);
+
+    if (show)
+        masterWindow->toFront (true);
+
+    commandManager.commandStatusChanged();
+}
+
 void MainComponent::showShortcuts()
 {
     const juce::String text (
@@ -924,7 +1032,7 @@ void MainComponent::showShortcuts()
         "  Insert: 再生位置に追加　Shift+1〜9: マーカーへ移動　ダブルクリック: 名前\n"_ju
         "\n"_ju
         "■ そのほか\n"_ju
-        "  F3: ミキサー　Ctrl+Z / Ctrl+Shift+Z: 元に戻す / やり直し　Ctrl+S: 保存　Ctrl+I: オーディオを読み込む\n"_ju
+        "  F3: ミキサー　F4: マスター（リミッター / ラウドネス）　Ctrl+Z / Ctrl+Shift+Z: 元に戻す / やり直し　Ctrl+S: 保存　Ctrl+I: オーディオを読み込む\n"_ju
         "  BPM・拍子: トランスポートバーの数字をクリックして入力、ホイールで増減\n"_ju);
 
     auto editor = std::make_unique<juce::TextEditor>();
@@ -1009,8 +1117,8 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
                          cmdRecord, cmdCountIn0, cmdCountIn1, cmdCountIn2,
                          cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
                          cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory, cmdSyncRefreshLocks,
-                         cmdAddAudioTrack, cmdImportAudio, cmdImportMidi, cmdSplit, cmdPlugins,
-                         cmdToolSelect, cmdToolPencil, cmdModeCubase, cmdModeStudioOne, cmdMixer, cmdLoopToSelection,
+                         cmdAddAudioTrack, cmdImportAudio, cmdImportMidi, cmdExportMixdown, cmdSplit, cmdPlugins,
+                         cmdToolSelect, cmdToolPencil, cmdModeCubase, cmdModeStudioOne, cmdMixer, cmdMaster, cmdLoopToSelection,
                          cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
                          cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9,
                          cmdToolSplit, cmdCopy, cmdCut, cmdPaste, cmdNudgeLeft, cmdNudgeRight,
@@ -1169,6 +1277,11 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
             info.defaultKeypresses.add (state.behaviour().mixerKey);
             info.setTicked (mixerWindow != nullptr && mixerWindow->isVisible());
             break;
+        case cmdMaster:
+            info.setInfo ("マスター（リミッター / ラウドネス）"_ju, {}, "View", 0);
+            info.defaultKeypresses.add (juce::KeyPress (juce::KeyPress::F4Key));
+            info.setTicked (masterWindow != nullptr && masterWindow->isVisible());
+            break;
         case cmdLoopToSelection:
             info.setInfo ("ループ範囲を選択範囲に合わせる"_ju, {}, "Transport", 0);
             info.defaultKeypresses.add (state.behaviour().loopToSelectionKey);
@@ -1177,6 +1290,9 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdAddAudioTrack: info.setInfo ("オーディオトラックを追加"_ju, {}, "Track", 0); break;
         case cmdImportAudio:   info.setInfo ("オーディオを読み込む…"_ju, {}, "File", 0); info.addDefaultKeypress ('i', cmd); break;
         case cmdImportMidi:    info.setInfo ("MIDI ファイルを読み込む…"_ju, {}, "File", 0); break;
+        case cmdExportMixdown:
+            info.setInfo ("ミックスダウンを書き出す（WAV）…"_ju, {}, "File", 0);
+            break;
         case cmdSplit:         info.setInfo ("再生位置で分割"_ju, {}, "Edit", 0); info.addDefaultKeypress ('s', 0); break;
         case cmdAudioSettings: info.setInfo ("オーディオ設定…"_ju, {}, "Options", 0); break;
         case cmdSyncSettings:  info.setInfo ("サーバー設定…"_ju, {}, "Sync", 0); break;
@@ -1310,10 +1426,12 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdModeCubase:    setOperationMode (OperationMode::cubase); break;
         case cmdModeStudioOne: setOperationMode (OperationMode::studioOne); break;
         case cmdMixer:         toggleMixer(); break;
+        case cmdMaster:        openMaster(); break;
         case cmdLoopToSelection: loopToSelection(); break;
         case cmdPlugins:       showPluginManager(); break;
         case cmdImportAudio:   importAudio(); break;
         case cmdImportMidi:    importMidi(); break;
+        case cmdExportMixdown: exportMixdown(); break;
         case cmdSplit:         ctx.splitAtPlayhead(); break;
         case cmdAudioSettings: showAudioSettings(); break;
         case cmdSyncSettings:  showServerSettings(); break;
@@ -1370,6 +1488,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addSeparator();
             m.addCommandItem (cm, cmdImportAudio);
             m.addCommandItem (cm, cmdImportMidi);
+            m.addCommandItem (cm, cmdExportMixdown);
             m.addSeparator();
             m.addCommandItem (cm, cmdAudioSettings);
             m.addCommandItem (cm, cmdPlugins);
@@ -1465,6 +1584,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
                 sizes.addCommandItem (cm, c);
 
             m.addCommandItem (cm, cmdMixer);
+            m.addCommandItem (cm, cmdMaster);
             m.addSeparator();
             m.addCommandItem (cm, cmdZoomIn);
             m.addCommandItem (cm, cmdZoomOut);
