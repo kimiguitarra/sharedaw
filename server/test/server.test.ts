@@ -256,3 +256,38 @@ describe("admin page", () => {
     expect((await carol("GET", "/projects")).data.map((p: any) => p.id)).toContain(project.projectId);
   });
 });
+
+describe("app updates", () => {
+  const release = api("test-release-key");
+
+  it("lets only the release key publish, and users fetch the latest", async () => {
+    // まだ何もない
+    expect((await alice("GET", "/app/latest?platform=windows")).status).toBe(404);
+
+    // ファイルとマニフェストをアップロード（リリース用のキーでも実体は送れる）
+    const exe = await upload(release, "fake exe v2");
+    const manifest = JSON.stringify({ build: 2, files: [{ path: "ShareDAW.exe", hash: exe, size: 11 }] });
+    const manifestHash = await upload(release, manifest);
+
+    const body = { platform: "windows", build: 2, version: "0.2.0", manifestHash };
+    expect((await alice("POST", "/app/releases", body)).status).toBe(403);
+    expect((await release("POST", "/app/releases", body)).status).toBe(201);
+
+    const latest = await alice("GET", "/app/latest?platform=windows");
+    expect(latest.status).toBe(200);
+    expect(latest.data.build).toBe(2);
+    expect(latest.data.manifest.hash).toBe(manifestHash);
+    expect((await alice("GET", "/app/latest?platform=mac")).status).toBe(404);
+  });
+
+  it("rejects releases whose files are missing, and keeps the key away from projects", async () => {
+    const manifest = JSON.stringify({ build: 3, files: [{ path: "a", hash: "0".repeat(64) }] });
+    const manifestHash = await upload(release, manifest);
+    const r = await release("POST", "/app/releases", { platform: "mac", build: 3, manifestHash });
+    expect(r.status).toBe(400);
+    expect(r.data.error).toBe("missing_blobs");
+
+    expect((await release("GET", "/projects")).status).toBe(403);
+    expect((await release("GET", "/users")).status).toBe(403);
+  });
+});

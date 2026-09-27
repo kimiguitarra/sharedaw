@@ -3,7 +3,21 @@
 import { handleAdmin } from "./admin";
 import { directDownload, directUpload, registeredHashes, transferUrl, verifyAndRegister } from "./blobs";
 import { ProjectJson, changedScopes, referencedBlobs, validateProject } from "./project";
-import { Env, HttpError, User, blobKey, errorResponse, isSha256, isUuid, json, nowIso, readJson, sha256Hex } from "./util";
+import {
+  Env,
+  HttpError,
+  User,
+  blobKey,
+  errorResponse,
+  isReleasePlatform,
+  isSha256,
+  isUuid,
+  json,
+  nowIso,
+  readJson,
+  releaseKey,
+  sha256Hex,
+} from "./util";
 
 type Handler = (ctx: Context, params: Record<string, string>) => Promise<Response>;
 
@@ -33,6 +47,11 @@ async function authenticate(env: Env, request: Request): Promise<User> {
   if (!match) throw new HttpError(401, "unauthorized", "トークンがありません");
 
   const tokenHash = await sha256Hex(match[1].trim());
+
+  // アプリの更新を配信する CI（RELEASE_KEY はダッシュボードのシークレット）。ハッシュ同士で比べる
+  if (env.RELEASE_KEY && tokenHash === (await sha256Hex(env.RELEASE_KEY)))
+    return { id: "release", displayName: "release", isRelease: true };
+
   const row = await env.DB.prepare("SELECT id, display_name FROM users WHERE token_hash = ?")
     .bind(tokenHash)
     .first<{ id: string; display_name: string }>();
@@ -42,6 +61,8 @@ async function authenticate(env: Env, request: Request): Promise<User> {
 }
 
 async function requireMember(ctx: Context, projectId: string) {
+  if (ctx.user.isRelease) throw new HttpError(403, "forbidden", "リリース用のキーではプロジェクトを操作できません");
+
   const project = await ctx.env.DB.prepare(
     `SELECT p.id, p.name, p.head_revision, p.created_by, p.created_at FROM projects p
      JOIN project_members m ON m.project_id = p.id AND m.user_id = ? WHERE p.id = ?`,
@@ -380,6 +401,70 @@ route("GET", "/blobs/:hash/data", async (ctx, { hash }) => {
 });
 
 //==============================================================================
+// アプリの更新（CI がファイルごとに実体としてアップロードし、一覧（マニフェスト）を登録する）
+
+interface ReleaseInfo {
+  platform: string;
+  build: number;
+  version: string;
+  manifestHash: string;
+  notes: string;
+  createdAt: string;
+}
+
+route("GET", "/app/latest", async (ctx) => {
+  const platform = ctx.url.searchParams.get("platform");
+  if (!isReleasePlatform(platform)) throw new HttpError(400, "bad_request", "platform は windows / mac / linux のいずれかです");
+
+  const obj = await ctx.env.BLOBS.get(releaseKey(platform));
+  if (!obj) throw new HttpError(404, "no_release", "配信されている更新がありません");
+
+  const info = (await obj.json()) as ReleaseInfo;
+  const manifest = await transferUrl(ctx.env, ctx.url.origin, info.manifestHash, "GET");
+  return json({ ...info, manifest });
+});
+
+route("POST", "/app/releases", async (ctx) => {
+  if (!ctx.user.isRelease) throw new HttpError(403, "forbidden", "リリース用のキーが必要です");
+
+  const body = await readJson<{ platform?: string; build?: number; version?: string; manifestHash?: string; notes?: string }>(ctx.request);
+  if (!isReleasePlatform(body.platform)) throw new HttpError(400, "bad_request", "platform が正しくありません");
+  if (!Number.isInteger(body.build) || (body.build ?? 0) <= 0) throw new HttpError(400, "bad_request", "build（正の整数）が必要です");
+  if (!isSha256(body.manifestHash)) throw new HttpError(400, "bad_request", "manifestHash が必要です");
+
+  // マニフェストと、そこに書かれたファイルがすべてアップロード済みであること
+  const manifestObj = await ctx.env.BLOBS.get(blobKey(body.manifestHash));
+  if (!manifestObj) throw new HttpError(400, "missing_blobs", "マニフェストがアップロードされていません", { hashes: [body.manifestHash] });
+
+  let files: Array<{ path?: string; hash?: string }>;
+  try {
+    files = ((await manifestObj.json()) as { files?: Array<{ path?: string; hash?: string }> }).files ?? [];
+  } catch {
+    throw new HttpError(400, "bad_request", "マニフェストを読み込めません");
+  }
+
+  const hashes = files.map((f) => f.hash ?? "");
+  if (files.length === 0 || !hashes.every(isSha256)) throw new HttpError(400, "bad_request", "マニフェストのファイル一覧が正しくありません");
+
+  const present = await registeredHashes(ctx.env, [...new Set(hashes)]);
+  const missing = hashes.filter((h) => !present.has(h));
+  if (missing.length) throw new HttpError(400, "missing_blobs", "アップロードされていないファイルがあります", { hashes: missing });
+
+  const info: ReleaseInfo = {
+    platform: body.platform,
+    build: body.build!,
+    version: body.version ?? "",
+    manifestHash: body.manifestHash,
+    notes: body.notes ?? "",
+    createdAt: nowIso(),
+  };
+
+  await ctx.env.BLOBS.put(releaseKey(body.platform), JSON.stringify(info), { httpMetadata: { contentType: "application/json" } });
+  await ctx.env.BLOBS.put(`app-releases/${body.platform}/${info.build}.json`, JSON.stringify(info));
+  return json(info, 201);
+});
+
+//==============================================================================
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -400,6 +485,10 @@ export default {
         r.keys.forEach((k, i) => (params[k] = decodeURIComponent(m[i + 1])));
 
         const user = await authenticate(env, request);
+
+        if (user.isRelease && !url.pathname.startsWith("/blobs") && !url.pathname.startsWith("/app/"))
+          throw new HttpError(403, "forbidden", "リリース用のキーで使えるのは更新の配信だけです");
+
         return await r.handler({ env, request, url, user }, params);
       }
 

@@ -17,7 +17,7 @@ namespace
         cmdNew = 0x2000, cmdOpen, cmdSave, cmdUndo, cmdRedo, cmdDelete, cmdSelectAll, cmdDuplicate,
         cmdPlay, cmdToStart, cmdLoop, cmdMetronome, cmdQuantise,
         cmdAddDrums, cmdAddBass, cmdAddPiano,
-        cmdAudioSettings, cmdCredits, cmdAbout,
+        cmdAudioSettings, cmdCredits, cmdAbout, cmdCheckUpdate,
         cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
         cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory, cmdSyncRefreshLocks,
         cmdAddAudioTrack, cmdImportAudio, cmdSplit, cmdPlugins,
@@ -96,6 +96,15 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     updateTitle();
     startTimerHz (30);
     setSize (1400, 860);
+
+    // 前回の更新の後片付けと、更新の確認（起動が落ち着いてから）
+    juce::Timer::callAfterDelay (4000, [safe = juce::Component::SafePointer<MainComponent> (this)]
+    {
+        Updater::cleanUpPreviousUpdate();
+
+        if (safe != nullptr)
+            safe->checkForUpdates (false);
+    });
 }
 
 MainComponent::~MainComponent()
@@ -833,7 +842,7 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
 {
     commands.addArray ({ cmdNew, cmdOpen, cmdSave, cmdUndo, cmdRedo, cmdDelete, cmdSelectAll, cmdDuplicate,
                          cmdPlay, cmdToStart, cmdLoop, cmdMetronome, cmdQuantise,
-                         cmdAddDrums, cmdAddBass, cmdAddPiano, cmdAudioSettings, cmdCredits, cmdAbout,
+                         cmdAddDrums, cmdAddBass, cmdAddPiano, cmdAudioSettings, cmdCredits, cmdAbout, cmdCheckUpdate,
                          cmdRecord, cmdCountIn0, cmdCountIn1, cmdCountIn2,
                          cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
                          cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory, cmdSyncRefreshLocks,
@@ -971,6 +980,7 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdSyncRefreshLocks: info.setInfo ("ロックの状態を更新"_ju, {}, "Sync", 0); info.setActive (sync.isLinked()); break;
         case cmdCredits:    info.setInfo ("クレジット…"_ju, {}, "Help", 0); break;
         case cmdAbout:      info.setInfo ("ShareDAW について…"_ju, {}, "Help", 0); break;
+        case cmdCheckUpdate: info.setInfo ("アップデートを確認…"_ju, {}, "Help", 0); break;
         case cmdFont100: case cmdFont125: case cmdFont150: case cmdFont175: case cmdFont200:
         {
             const float scale = fontScales[id - cmdFont100];
@@ -1054,8 +1064,11 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdAbout:
             Dialogs::showInfo ("ShareDAW について"_ju,
                                "ShareDAW "_ju + juce::String (JUCE_APPLICATION_VERSION_STRING)
+                                 + (Updater::currentBuild() > 0 ? " (build "_ju + juce::String (Updater::currentBuild()) + ")"
+                                                                : "（手元でビルドした開発版）"_ju)
                                  + "\n共同制作用の軽量DAW（アイデア出し・ラフ録音用）"_ju);
             break;
+        case cmdCheckUpdate: checkForUpdates (true); break;
         case cmdFont100: case cmdFont125: case cmdFont150: case cmdFont175: case cmdFont200:
         {
             const float scale = fontScales[info.commandID - cmdFont100];
@@ -1181,6 +1194,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
         }
         case 6:
             m.addCommandItem (cm, cmdCredits);
+            m.addCommandItem (cm, cmdCheckUpdate);
             m.addCommandItem (cm, cmdAbout);
             break;
         default: break;

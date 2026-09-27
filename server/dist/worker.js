@@ -55,6 +55,9 @@ async function readJson(request) {
 }
 __name(readJson, "readJson");
 var blobKey = /* @__PURE__ */ __name((hash2) => `blobs/${hash2}`, "blobKey");
+var releasePlatforms = ["windows", "mac", "linux"];
+var isReleasePlatform = /* @__PURE__ */ __name((s) => releasePlatforms.includes(s), "isReleasePlatform");
+var releaseKey = /* @__PURE__ */ __name((platform) => `app-releases/${platform}/latest.json`, "releaseKey");
 
 // src/admin.ts
 var escapeHtml = /* @__PURE__ */ __name((s) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]), "escapeHtml");
@@ -2375,12 +2378,15 @@ async function authenticate(env, request) {
   const match = /^Bearer\s+(.+)$/i.exec(header);
   if (!match) throw new HttpError(401, "unauthorized", "\u30C8\u30FC\u30AF\u30F3\u304C\u3042\u308A\u307E\u305B\u3093");
   const tokenHash = await sha256Hex(match[1].trim());
+  if (env.RELEASE_KEY && tokenHash === await sha256Hex(env.RELEASE_KEY))
+    return { id: "release", displayName: "release", isRelease: true };
   const row = await env.DB.prepare("SELECT id, display_name FROM users WHERE token_hash = ?").bind(tokenHash).first();
   if (!row) throw new HttpError(401, "unauthorized", "\u30C8\u30FC\u30AF\u30F3\u304C\u6B63\u3057\u304F\u3042\u308A\u307E\u305B\u3093");
   return { id: row.id, displayName: row.display_name };
 }
 __name(authenticate, "authenticate");
 async function requireMember(ctx, projectId) {
+  if (ctx.user.isRelease) throw new HttpError(403, "forbidden", "\u30EA\u30EA\u30FC\u30B9\u7528\u306E\u30AD\u30FC\u3067\u306F\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u3092\u64CD\u4F5C\u3067\u304D\u307E\u305B\u3093");
   const project = await ctx.env.DB.prepare(
     `SELECT p.id, p.name, p.head_revision, p.created_by, p.created_at FROM projects p
      JOIN project_members m ON m.project_id = p.id AND m.user_id = ? WHERE p.id = ?`
@@ -2620,6 +2626,46 @@ route("GET", "/blobs/:hash/data", async (ctx, { hash: hash2 }) => {
   if (!isSha256(hash2)) throw new HttpError(400, "bad_request", "\u30CF\u30C3\u30B7\u30E5\u306E\u5F62\u5F0F\u304C\u6B63\u3057\u304F\u3042\u308A\u307E\u305B\u3093");
   return directDownload(ctx.env, hash2);
 });
+route("GET", "/app/latest", async (ctx) => {
+  const platform = ctx.url.searchParams.get("platform");
+  if (!isReleasePlatform(platform)) throw new HttpError(400, "bad_request", "platform \u306F windows / mac / linux \u306E\u3044\u305A\u308C\u304B\u3067\u3059");
+  const obj = await ctx.env.BLOBS.get(releaseKey(platform));
+  if (!obj) throw new HttpError(404, "no_release", "\u914D\u4FE1\u3055\u308C\u3066\u3044\u308B\u66F4\u65B0\u304C\u3042\u308A\u307E\u305B\u3093");
+  const info = await obj.json();
+  const manifest = await transferUrl(ctx.env, ctx.url.origin, info.manifestHash, "GET");
+  return json({ ...info, manifest });
+});
+route("POST", "/app/releases", async (ctx) => {
+  if (!ctx.user.isRelease) throw new HttpError(403, "forbidden", "\u30EA\u30EA\u30FC\u30B9\u7528\u306E\u30AD\u30FC\u304C\u5FC5\u8981\u3067\u3059");
+  const body = await readJson(ctx.request);
+  if (!isReleasePlatform(body.platform)) throw new HttpError(400, "bad_request", "platform \u304C\u6B63\u3057\u304F\u3042\u308A\u307E\u305B\u3093");
+  if (!Number.isInteger(body.build) || (body.build ?? 0) <= 0) throw new HttpError(400, "bad_request", "build\uFF08\u6B63\u306E\u6574\u6570\uFF09\u304C\u5FC5\u8981\u3067\u3059");
+  if (!isSha256(body.manifestHash)) throw new HttpError(400, "bad_request", "manifestHash \u304C\u5FC5\u8981\u3067\u3059");
+  const manifestObj = await ctx.env.BLOBS.get(blobKey(body.manifestHash));
+  if (!manifestObj) throw new HttpError(400, "missing_blobs", "\u30DE\u30CB\u30D5\u30A7\u30B9\u30C8\u304C\u30A2\u30C3\u30D7\u30ED\u30FC\u30C9\u3055\u308C\u3066\u3044\u307E\u305B\u3093", { hashes: [body.manifestHash] });
+  let files;
+  try {
+    files = (await manifestObj.json()).files ?? [];
+  } catch {
+    throw new HttpError(400, "bad_request", "\u30DE\u30CB\u30D5\u30A7\u30B9\u30C8\u3092\u8AAD\u307F\u8FBC\u3081\u307E\u305B\u3093");
+  }
+  const hashes = files.map((f) => f.hash ?? "");
+  if (files.length === 0 || !hashes.every(isSha256)) throw new HttpError(400, "bad_request", "\u30DE\u30CB\u30D5\u30A7\u30B9\u30C8\u306E\u30D5\u30A1\u30A4\u30EB\u4E00\u89A7\u304C\u6B63\u3057\u304F\u3042\u308A\u307E\u305B\u3093");
+  const present = await registeredHashes(ctx.env, [...new Set(hashes)]);
+  const missing = hashes.filter((h) => !present.has(h));
+  if (missing.length) throw new HttpError(400, "missing_blobs", "\u30A2\u30C3\u30D7\u30ED\u30FC\u30C9\u3055\u308C\u3066\u3044\u306A\u3044\u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308A\u307E\u3059", { hashes: missing });
+  const info = {
+    platform: body.platform,
+    build: body.build,
+    version: body.version ?? "",
+    manifestHash: body.manifestHash,
+    notes: body.notes ?? "",
+    createdAt: nowIso()
+  };
+  await ctx.env.BLOBS.put(releaseKey(body.platform), JSON.stringify(info), { httpMetadata: { contentType: "application/json" } });
+  await ctx.env.BLOBS.put(`app-releases/${body.platform}/${info.build}.json`, JSON.stringify(info));
+  return json(info, 201);
+});
 var index_default = {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -2634,6 +2680,8 @@ var index_default = {
         const params = {};
         r.keys.forEach((k, i) => params[k] = decodeURIComponent(m[i + 1]));
         const user = await authenticate(env, request);
+        if (user.isRelease && !url.pathname.startsWith("/blobs") && !url.pathname.startsWith("/app/"))
+          throw new HttpError(403, "forbidden", "\u30EA\u30EA\u30FC\u30B9\u7528\u306E\u30AD\u30FC\u3067\u4F7F\u3048\u308B\u306E\u306F\u66F4\u65B0\u306E\u914D\u4FE1\u3060\u3051\u3067\u3059");
         return await r.handler({ env, request, url, user }, params);
       }
       return json({ error: "not_found", message: "\u898B\u3064\u304B\u308A\u307E\u305B\u3093" }, 404);

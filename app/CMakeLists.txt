@@ -38,6 +38,7 @@ target_sources(ShareDAW PRIVATE
     src/Main.cpp
     src/AppPaths.cpp
     src/audio/AudioFiles.cpp
+    src/update/Updater.cpp
     src/audio/ChannelStripPlugin.cpp
     src/audio/CountInPlugin.cpp
     src/audio/Takes.cpp
@@ -59,6 +60,7 @@ target_sources(ShareDAW PRIVATE
     src/ui/Theme.cpp
     src/ui/MainComponent.cpp
     src/ui/MainComponentSync.cpp
+    src/ui/MainComponentUpdate.cpp
     src/ui/MixerView.cpp
     src/ui/SyncUI.cpp
     src/ui/TransportBar.cpp
@@ -83,6 +85,10 @@ target_compile_definitions(ShareDAW PRIVATE
     JUCE_WASAPI=1
     JUCE_DIRECTSOUND=0
     TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH=1)
+
+# アプリの更新（§ アップデート）: CI が実行番号を渡す。手元のビルドは 0。再コンパイルを最小にするため Updater.cpp だけに渡す
+set(SHAREDAW_BUILD_NUMBER 0 CACHE STRING "Build number used by the in-app updater")
+set_source_files_properties(src/update/Updater.cpp PROPERTIES COMPILE_DEFINITIONS "SHAREDAW_BUILD_NUMBER=${SHAREDAW_BUILD_NUMBER}")
 
 if(COLLAB_ASIO_SDK_DIR)
     target_compile_definitions(ShareDAW PRIVATE JUCE_ASIO=1)

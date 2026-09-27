@@ -23,6 +23,10 @@ on:
         description: "Linux 版をビルドしてスモークテストする"
         type: boolean
         default: false
+      publish:
+        description: "ビルドしたアプリを同期サーバーに配信する（アプリの「アップデートを確認」で取り込める）"
+        type: boolean
+        default: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -81,9 +85,9 @@ jobs:
           LINUX: ${{ inputs.linux }}
         run: |
           entries=()
-          [ "$WINDOWS" = "true" ] && entries+=('{"name":"windows","os":"windows-2022","configure":"-G \"Visual Studio 17 2022\" -A x64"}')
-          [ "$MACOS" = "true" ] && entries+=('{"name":"macos-universal","os":"macos-14","configure":"-G Xcode -DCMAKE_OSX_ARCHITECTURES=\"arm64;x86_64\""}')
-          [ "$LINUX" = "true" ] && entries+=('{"name":"linux","os":"ubuntu-24.04","configure":"-G Ninja -DCMAKE_BUILD_TYPE=Release -DCOLLAB_BUILD_TEST_PLUGINS=ON"}')
+          [ "$WINDOWS" = "true" ] && entries+=('{"name":"windows","platform":"windows","os":"windows-2022","configure":"-G \"Visual Studio 17 2022\" -A x64"}')
+          [ "$MACOS" = "true" ] && entries+=('{"name":"macos-universal","platform":"mac","os":"macos-14","configure":"-G Xcode -DCMAKE_OSX_ARCHITECTURES=\"arm64;x86_64\""}')
+          [ "$LINUX" = "true" ] && entries+=('{"name":"linux","platform":"linux","os":"ubuntu-24.04","configure":"-G Ninja -DCMAKE_BUILD_TYPE=Release -DCOLLAB_BUILD_TEST_PLUGINS=ON"}')
           json="$(IFS=,; echo "{\"include\":[${entries[*]}]}")"
           echo "$json"
           echo "matrix=$json" >> "$GITHUB_OUTPUT"
@@ -131,7 +135,8 @@ jobs:
 
       - name: Configure
         shell: bash
-        run: cmake -S . -B build ${{ matrix.configure }} $ASIO_CONFIG
+        # ビルド番号（Actions の実行番号）でアプリの更新の新旧を判断する
+        run: cmake -S . -B build ${{ matrix.configure }} $ASIO_CONFIG -DSHAREDAW_BUILD_NUMBER=${{ github.run_number }}
 
       - name: Build
         shell: bash
@@ -180,6 +185,23 @@ jobs:
           else
             cp -r build/app/ShareDAW_artefacts/Release/ShareDAW build/app/ShareDAW_artefacts/Release/assets dist/
           fi
+
+      # 同期サーバーに配信する（リポジトリのシークレット SHAREDAW_SERVER_URL / SHAREDAW_RELEASE_KEY がなければスキップ）
+      - name: Publish update
+        if: inputs.publish
+        shell: bash
+        env:
+          SHAREDAW_SERVER_URL: ${{ secrets.SHAREDAW_SERVER_URL }}
+          SHAREDAW_RELEASE_KEY: ${{ secrets.SHAREDAW_RELEASE_KEY }}
+        run: |
+          version="$(sed -n 's/^project(ShareDAW VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)"
+          export SHAREDAW_RELEASE_NOTES="$(git log -1 --format=%s)"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            root=build/app/ShareDAW_artefacts/Release/ShareDAW.app
+          else
+            root=dist
+          fi
+          node tools/publish-release.mjs ${{ matrix.platform }} "$root" ${{ github.run_number }} "$version"
 
       - uses: actions/upload-artifact@v4
         with:

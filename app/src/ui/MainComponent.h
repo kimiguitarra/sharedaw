@@ -1,5 +1,7 @@
 #pragma once
 
+#include "update/Updater.h"
+
 #include "ui/AppContext.h"
 #include "ui/PianoRoll.h"
 #include "ui/TimelineView.h"
@@ -55,7 +57,7 @@ private:
 
     EditorState state;
     AudioFileCache audioCache;
-    AppContext ctx { document, state, bridge, library, sync, audioCache, {}, {}, {}, {} };
+    AppContext ctx { document, state, bridge, library, sync, audioCache, {}, {}, {}, {}, {} };
 
     juce::ApplicationCommandManager commandManager;
     TransportBar transport { ctx };
@@ -85,6 +87,12 @@ private:
     void loopToSelection();
     void zoom (double factor);
     void toggleMixer();
+
+    // アプリの更新（MainComponentUpdate.cpp）
+    void checkForUpdates (bool interactive);
+    void offerUpdate (const Updater::Info&, bool interactive);
+    void installUpdate (const Updater::Info&);
+    std::atomic<bool> updateCheckRunning { false };
     std::unique_ptr<juce::DocumentWindow> mixerWindow;
     void openChannelStrip (const std::string& trackId);
     std::unique_ptr<juce::DocumentWindow> stripWindow;

@@ -20,6 +20,10 @@
 - `POST /blobs/:hash/complete` … 署名付き URL でアップロードした後に呼ぶ。サーバーがハッシュとサイズを検証して登録する
 - `GET /projects/:id/lock-events` … ロックの履歴（強制解除の記録）
 - `POST /projects/:id/revisions` は `releaseLocks: true` で、push したトラックのロックを解除する
+- `GET /app/latest?platform=windows|mac|linux` … アプリの最新の更新（ビルド番号とマニフェストの転送先）
+- `POST /app/releases {platform, build, version, manifestHash}` … 更新の登録。シークレット `RELEASE_KEY` を
+  Bearer トークンとして送る CI だけが使える（このキーでは実体のアップロードと更新の登録しかできない）。
+  マニフェストとそこに書かれたファイルは、先に実体としてアップロードしておく。登録内容は R2 の `app-releases/` に置く
 
 push の検証（サーバー側）:
 1. 親リビジョン = ヘッド（違えば 409 `not_head`）
@@ -40,7 +44,8 @@ Cloudflare の GitHub 連携（リポジトリのインポート）は、アプ�
 3. Workers & Pages → 作成 →「Hello World」から始めて、名前 `sharedaw-sync` の Worker を作る
 4. 「コードを編集」で中身をすべて `dist/worker.js` に置き換えてデプロイする
 5. Worker の「バインディング」で D1（変数名 `DB` → `sharedaw-sync`）と R2（変数名 `BLOBS` → `sharedaw-sync-blobs`）を追加する
-6. 「設定 → 変数とシークレット」でテキスト `R2_BUCKET_NAME` = `sharedaw-sync-blobs` と、シークレット `ADMIN_PASSWORD` を追加する
+6. 「設定 → 変数とシークレット」でテキスト `R2_BUCKET_NAME` = `sharedaw-sync-blobs` と、シークレット `ADMIN_PASSWORD` を追加する。
+   アプリの更新を配信するときは、シークレット `RELEASE_KEY` も追加する（GitHub の `SHAREDAW_RELEASE_KEY` と同じ値）
 7. `https://sharedaw-sync.<サブドメイン>.workers.dev/admin` を開き、ユーザーを作ってトークンを発行する
 
 サーバーを更新するときは、4 だけをやり直す（バインディング・変数・シークレットは残る）。

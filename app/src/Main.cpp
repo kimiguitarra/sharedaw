@@ -10,6 +10,7 @@
 #include "Translations.h"
 #include "SfizzPlugin.h"
 #include "audio/ChannelStripPlugin.h"
+#include "update/Updater.h"
 #include "audio/CountInPlugin.h"
 #include "sync/SyncManager.h"
 #include "collab/ProjectDiff.h"
@@ -249,6 +250,7 @@ public:
         settings = nullptr;
         sessionGuard.markCleanExit();
         juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
+        Updater::relaunchIfRequested();
     }
 
     void systemRequestedQuit() override

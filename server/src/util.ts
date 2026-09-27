@@ -6,11 +6,15 @@ export interface Env {
   R2_ACCESS_KEY_ID?: string;
   R2_SECRET_ACCESS_KEY?: string;
   ADMIN_PASSWORD?: string;
+  /** アプリの更新を配信する CI（GitHub Actions）用のキー。これを Bearer トークンとして送ると release ユーザーになる */
+  RELEASE_KEY?: string;
 }
 
 export interface User {
   id: string;
   displayName: string;
+  /** RELEASE_KEY で認証した CI。実体のアップロードとリリースの登録だけができる */
+  isRelease?: boolean;
 }
 
 export class HttpError extends Error {
@@ -63,3 +67,8 @@ export async function readJson<T>(request: Request): Promise<T> {
 }
 
 export const blobKey = (hash: string) => `blobs/${hash}`;
+
+export const releasePlatforms = ["windows", "mac", "linux"] as const;
+export type ReleasePlatform = (typeof releasePlatforms)[number];
+export const isReleasePlatform = (s: unknown): s is ReleasePlatform => releasePlatforms.includes(s as ReleasePlatform);
+export const releaseKey = (platform: ReleasePlatform) => `app-releases/${platform}/latest.json`;

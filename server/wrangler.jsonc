@@ -17,6 +17,7 @@
   "keep_vars": true
   // シークレット（ダッシュボードの「設定 → 変数とシークレット」または wrangler secret put）:
   //   ADMIN_PASSWORD                   管理ページ（/admin）のパスワード
+  //   RELEASE_KEY                      アプリの更新を配信する CI 用のキー（GitHub の SHAREDAW_RELEASE_KEY と同じ値）
   //   R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
   //                                    署名付き URL（R2 の S3 互換 API）で大きなオーディオを直接送る。未設定なら Worker 経由
 }
