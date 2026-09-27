@@ -215,6 +215,42 @@
         }
       }
     },
+    "markerTrack": {
+      "type": "object",
+      "required": [
+        "id",
+        "events"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/uuid"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "tick"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "$ref": "#/definitions/uuid"
+              },
+              "tick": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
     "tracks": {
       "type": "array",
       "items": {

@@ -5,6 +5,7 @@
 
 #include "collab/TempoMap.h"
 #include "collab/Uuid.h"
+#include "collab/Sha256.h"
 
 namespace collab
 {
@@ -62,6 +63,9 @@ void Project::sortCanonical()
     std::stable_sort (chordTrack.events.begin(), chordTrack.events.end(),
                       [] (auto& a, auto& b) { return std::tie (a.tick, a.id) < std::tie (b.tick, b.id); });
 
+    std::stable_sort (markerTrack.events.begin(), markerTrack.events.end(),
+                      [] (auto& a, auto& b) { return std::tie (a.tick, a.id) < std::tie (b.tick, b.id); });
+
     // トラックの並び順はユーザーが決める順序なので並べ替えない
     for (auto& t : tracks)
     {
@@ -88,7 +92,17 @@ Project Project::createEmpty (const std::string& name)
     p.meterTrack.events.push_back ({ generateUuid(), 1, 4, 4 });
     p.chordTrack.id = generateUuid();
     p.chordTrack.playback = { true, -6.0, { "builtin.piano", "1.0.0" } };
+    p.markerTrack.id = markerTrackIdFor (p.projectId);
     return p;
+}
+
+std::string markerTrackIdFor (const std::string& projectId)
+{
+    // SHA-256 から UUID v4 の形式を作る（決定的）
+    auto h = Sha256::hashHex ("markerTrack:" + projectId);
+    h[12] = '4';
+    h[16] = "89ab"[std::stoi (h.substr (16, 1), nullptr, 16) & 3];
+    return h.substr (0, 8) + "-" + h.substr (8, 4) + "-" + h.substr (12, 4) + "-" + h.substr (16, 4) + "-" + h.substr (20, 12);
 }
 
 std::string compTypeName (CompType t)

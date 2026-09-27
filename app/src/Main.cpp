@@ -613,6 +613,7 @@ private:
             if (scope == "tempo")  scope = p.tempoTrack.id;
             if (scope == "meter")  scope = p.meterTrack.id;
             if (scope == "chord")  scope = p.chordTrack.id;
+            if (scope == "marker") scope = p.markerTrack.id;
 
             for (auto& t : p.tracks)
                 if (t.name == scope)

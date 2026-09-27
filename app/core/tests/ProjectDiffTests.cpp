@@ -2,6 +2,7 @@
 
 #include "collab/ProjectDiff.h"
 #include "collab/ProjectJson.h"
+#include "collab/Uuid.h"
 #include "TestUtils.h"
 
 using namespace collab;
@@ -188,4 +189,26 @@ TEST_CASE ("pull: locked local deletion stays deleted, unlocked deletion is rest
     CHECK (r.merged.findTrack (drums) == nullptr);
     CHECK (r.merged.findTrack (lead) != nullptr);
     CHECK (r.conflictScopes == std::vector<std::string> { lead });
+}
+
+TEST_CASE ("marker track: stable id, JSON round trip, diff and merge")
+{
+    auto a = full();
+    CHECK (isValidUuid (a.markerTrack.id));
+    CHECK (a.markerTrack.id == markerTrackIdFor (a.projectId));   // 古いプロジェクトでも全員で同じ ID
+    CHECK (a.markerTrack.events.empty());
+
+    auto b = a;
+    b.markerTrack.events.push_back ({ generateUuid(), 3840, "サビ" });
+    const auto text = serialiseProject (b);
+    CHECK (parseProject (text) == b);
+
+    const auto d = diffProjects (a, b);
+    REQUIRE (d.changes.size() == 1);
+    CHECK (d.changes[0].scopeKind == ScopeKind::marker);
+    CHECK (d.changes[0].summary.find ("サビ") != std::string::npos);
+
+    // ロックを持っていればローカルのマーカーを残す
+    auto merged = mergeForPull (a, b, a, { b.markerTrack.id });
+    CHECK (merged.merged.markerTrack == b.markerTrack);
 }

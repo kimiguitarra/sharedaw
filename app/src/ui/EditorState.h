@@ -134,6 +134,7 @@ struct EditorState  : public juce::ChangeBroadcaster
     std::string selectedChordId;
     std::string selectedTempoId;
     std::string selectedMeterId;
+    std::string selectedMarkerId;
 
     bool loopEnabled = false;
     collab::Tick loopStart = 0;

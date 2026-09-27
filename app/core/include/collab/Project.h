@@ -104,6 +104,27 @@ struct ChordTrack
     bool operator== (const ChordTrack&) const = default;
 };
 
+/** マーカー（Cubase のマーカートラック）。番号は左から順に振る（保存しない）。 */
+struct Marker
+{
+    std::string id;
+    Tick tick = 0;
+    std::string name;       // 空でもよい
+
+    bool operator== (const Marker&) const = default;
+};
+
+struct MarkerTrack
+{
+    std::string id;
+    std::vector<Marker> events;
+
+    bool operator== (const MarkerTrack&) const = default;
+};
+
+/** マーカートラックの ID（プロジェクト ID から決まる。古いプロジェクトでも全員で同じ ID になるように）。 */
+std::string markerTrackIdFor (const std::string& projectId);
+
 //==============================================================================
 struct ExternalPlugin
 {
@@ -279,6 +300,7 @@ struct Project
     TempoTrack tempoTrack;
     MeterTrack meterTrack;
     ChordTrack chordTrack;
+    MarkerTrack markerTrack;
     std::vector<Track> tracks;
 
     const Track* findTrack (const std::string& trackId) const;

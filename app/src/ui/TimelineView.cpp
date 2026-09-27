@@ -13,7 +13,7 @@ namespace
     constexpr int rulerHeight = 26;
     constexpr int laneHeight = 24;
     constexpr int chordLaneHeight = 30;
-    constexpr int topHeight = rulerHeight + laneHeight * 2 + chordLaneHeight;
+    constexpr int topHeight = rulerHeight + laneHeight * 3 + chordLaneHeight;   // ルーラー、マーカー、テンポ、拍子、コード
     constexpr int scrollBarSize = 12;
     constexpr float edgeGrab = 7.0f;
 }
@@ -680,6 +680,7 @@ TimelineView::TimelineView (AppContext& c)
       tempoLane (c.document, c.state),
       meterLane (c.document, c.state),
       chordLane (c),
+      markerLane (c),
       lanes (c),
       playhead (c.state.timeline)
 {
@@ -687,6 +688,7 @@ TimelineView::TimelineView (AppContext& c)
     addAndMakeVisible (tempoLane);
     addAndMakeVisible (meterLane);
     addAndMakeVisible (chordLane);
+    addAndMakeVisible (markerLane);
     addAndMakeVisible (lanes);
 
     // コードトラックの発音（内蔵ピアノ）のオン・オフと音量
@@ -751,12 +753,14 @@ void TimelineView::paint (juce::Graphics& g)
 
     const int w = headerWidth - 10;
     g.drawText ("小節"_ju, 10, 0, w, rulerHeight, juce::Justification::centredLeft);
+    g.setColour (juce::Colour (0xff4dd0e1));
+    g.drawText ("マーカー"_ju, 10, rulerHeight, w, laneHeight, juce::Justification::centredLeft);
     g.setColour (Theme::tempo);
-    g.drawText ("テンポ"_ju, 10, rulerHeight, w, laneHeight, juce::Justification::centredLeft);
+    g.drawText ("テンポ"_ju, 10, rulerHeight + laneHeight, w, laneHeight, juce::Justification::centredLeft);
     g.setColour (Theme::meter);
-    g.drawText ("拍子"_ju, 10, rulerHeight + laneHeight, w, laneHeight, juce::Justification::centredLeft);
+    g.drawText ("拍子"_ju, 10, rulerHeight + laneHeight * 2, w, laneHeight, juce::Justification::centredLeft);
     g.setColour (juce::Colour (0xffffb74d));
-    g.drawText ("コード"_ju, 10, rulerHeight + laneHeight * 2, w, chordLaneHeight, juce::Justification::centredLeft);
+    g.drawText ("コード"_ju, 10, rulerHeight + laneHeight * 3, w, chordLaneHeight, juce::Justification::centredLeft);
 
     g.setColour (Theme::background);
     g.drawVerticalLine (headerWidth - 1, 0.0f, (float) getHeight());
@@ -774,6 +778,7 @@ void TimelineView::resized()
     hScroll.setBounds (bottom);
 
     ruler.setBounds (area.removeFromTop (rulerHeight));
+    markerLane.setBounds (area.removeFromTop (laneHeight));
     tempoLane.setBounds (area.removeFromTop (laneHeight));
     meterLane.setBounds (area.removeFromTop (laneHeight));
     chordLane.setBounds (area.removeFromTop (chordLaneHeight));
@@ -907,6 +912,7 @@ bool TimelineView::deleteLaneSelection()
     if (tempoLane.hasKeyboardFocus (false))  return tempoLane.deleteSelected();
     if (meterLane.hasKeyboardFocus (false))  return meterLane.deleteSelected();
     if (chordLane.hasKeyboardFocus (false))  return chordLane.deleteSelected();
+    if (markerLane.hasKeyboardFocus (false)) return markerLane.deleteSelected();
     return false;
 }
 

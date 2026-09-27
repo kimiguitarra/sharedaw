@@ -2,6 +2,7 @@
 
 #include "Dialogs.h"
 #include "ChannelStripEditor.h"
+#include "MarkerLane.h"
 #include "MixerView.h"
 #include "SyncUI.h"
 #include "Theme.h"
@@ -23,7 +24,8 @@ namespace
         cmdAddAudioTrack, cmdImportAudio, cmdImportMidi, cmdSplit, cmdPlugins,
         cmdRecord, cmdCountIn0, cmdCountIn1, cmdCountIn2,
         cmdToolSelect, cmdToolPencil, cmdModeCubase, cmdModeStudioOne, cmdMixer, cmdLoopToSelection,
-        cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll
+        cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
+        cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9
     };
 
     constexpr float fontScales[] = { 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
@@ -873,7 +875,8 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
                          cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory, cmdSyncRefreshLocks,
                          cmdAddAudioTrack, cmdImportAudio, cmdImportMidi, cmdSplit, cmdPlugins,
                          cmdToolSelect, cmdToolPencil, cmdModeCubase, cmdModeStudioOne, cmdMixer, cmdLoopToSelection,
-                         cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll });
+                         cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
+                         cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9 });
 }
 
 void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommandInfo& info)
@@ -925,6 +928,30 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
             info.setInfo ("縮小（横）"_ju, {}, "View", 0);
             info.defaultKeypresses.add (state.behaviour().zoomOutKey);
             break;
+        case cmdAddMarker:
+            info.setInfo ("再生位置にマーカーを追加"_ju, {}, "Transport", 0);
+            info.addDefaultKeypress (KP::insertKey, 0);
+            break;
+        case cmdMarker1: case cmdMarker2: case cmdMarker3: case cmdMarker4: case cmdMarker5:
+        case cmdMarker6: case cmdMarker7: case cmdMarker8: case cmdMarker9:
+        {
+            const int n = (int) id - cmdMarker1 + 1;
+            const auto markers = MarkerLane::sorted (document.getProject());
+            auto name = "マーカー "_ju + juce::String (n) + " へ移動"_ju;
+
+            if (n <= (int) markers.size() && ! markers[(size_t) n - 1].name.empty())
+                name << "（"_ju << toJuce (markers[(size_t) n - 1].name) << "）"_ju;
+
+            info.setInfo (name, {}, "Transport", 0);
+            info.addDefaultKeypress ('0' + n, shift);
+
+            // OS やキー配列によっては Shift + 数字が記号として届くので、US / JIS 配列の記号でも受ける
+            for (auto* symbols : { "!@#$%^&*(", "!\"#$%&'()" })
+                if (const auto c = (juce::juce_wchar) (unsigned char) symbols[n - 1]; c != (juce::juce_wchar) ('0' + n))
+                    info.defaultKeypresses.addIfNotAlreadyThere (KP (c, shift, 0));
+            info.setActive (n <= (int) markers.size());
+            break;
+        }
         case cmdSnap:
             info.setInfo ("スナップ（クオンタイズ値に合わせる）"_ju, {}, "Edit", 0);
             info.defaultKeypresses.add (state.behaviour().snapKey);
@@ -1044,6 +1071,26 @@ bool MainComponent::perform (const InvocationInfo& info)
             break;
         case cmdZoomIn:     zoom (1.25); break;
         case cmdZoomOut:    zoom (0.8); break;
+        case cmdAddMarker:
+        {
+            const auto t = (collab::Tick) std::llround (state.snapCursor (bridge.getPositionTick(), document.getTempoMap(), {}));
+            MarkerLane::addMarker (ctx, t);
+            break;
+        }
+        case cmdMarker1: case cmdMarker2: case cmdMarker3: case cmdMarker4: case cmdMarker5:
+        case cmdMarker6: case cmdMarker7: case cmdMarker8: case cmdMarker9:
+        {
+            const auto markers = MarkerLane::sorted (document.getProject());
+            const auto n = (size_t) (info.commandID - cmdMarker1);
+
+            if (n < markers.size())
+            {
+                bridge.setPositionTick ((double) markers[n].tick);
+                state.selectedMarkerId = markers[n].id;
+                state.changed();
+            }
+            break;
+        }
         case cmdSnap:
             state.setSnapEnabled (! state.snapEnabled());
             setStatus (state.snapEnabled() ? "スナップ: オン（クオンタイズ値に合わせる）"_ju : "スナップ: オフ（フリー）"_ju);
@@ -1162,6 +1209,17 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addCommandItem (cm, cmdToStart);
             m.addCommandItem (cm, cmdLoop);
             m.addCommandItem (cm, cmdLoopToSelection);
+            m.addSeparator();
+            m.addCommandItem (cm, cmdAddMarker);
+
+            {
+                juce::PopupMenu markers;
+
+                for (int c = cmdMarker1; c <= cmdMarker9; ++c)
+                    markers.addCommandItem (cm, c);
+
+                m.addSubMenu ("マーカーへ移動"_ju, markers);
+            }
             m.addCommandItem (cm, cmdMetronome);
             m.addSeparator();
             m.addCommandItem (cm, cmdCountIn0);
@@ -1184,7 +1242,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
                 const auto& p = document.getProject();
 
                 for (auto [id, name] : { std::pair (p.tempoTrack.id, "テンポのロック"_ju), std::pair (p.meterTrack.id, "拍子のロック"_ju),
-                                         std::pair (p.chordTrack.id, "コードのロック"_ju) })
+                                         std::pair (p.chordTrack.id, "コードのロック"_ju), std::pair (p.markerTrack.id, "マーカーのロック"_ju) })
                 {
                     juce::PopupMenu sub;
                     lockMenuForScope (id, sub);

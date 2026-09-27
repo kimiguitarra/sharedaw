@@ -1825,6 +1825,42 @@ var project_schema_default = {
         }
       }
     },
+    markerTrack: {
+      type: "object",
+      required: [
+        "id",
+        "events"
+      ],
+      additionalProperties: false,
+      properties: {
+        id: {
+          $ref: "#/definitions/uuid"
+        },
+        events: {
+          type: "array",
+          items: {
+            type: "object",
+            required: [
+              "id",
+              "tick"
+            ],
+            additionalProperties: false,
+            properties: {
+              id: {
+                $ref: "#/definitions/uuid"
+              },
+              tick: {
+                type: "integer",
+                minimum: 0
+              },
+              name: {
+                type: "string"
+              }
+            }
+          }
+        }
+      }
+    },
     tracks: {
       type: "array",
       items: {
@@ -2365,6 +2401,8 @@ function scopes(p) {
   m.set(p.tempoTrack.id, { kind: "tempo", content: canonical(p.tempoTrack) });
   m.set(p.meterTrack.id, { kind: "meter", content: canonical(p.meterTrack) });
   m.set(p.chordTrack.id, { kind: "chord", content: canonical(p.chordTrack) });
+  if (p.markerTrack && p.markerTrack.events?.length)
+    m.set(p.markerTrack.id, { kind: "marker", content: canonical(p.markerTrack) });
   for (const t of p.tracks) m.set(t.id, { kind: "track", content: canonical(t) });
   return m;
 }

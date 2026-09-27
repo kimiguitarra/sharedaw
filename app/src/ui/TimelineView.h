@@ -2,6 +2,7 @@
 
 #include "ui/AppContext.h"
 #include "ui/ChordLane.h"
+#include "ui/MarkerLane.h"
 #include "ui/Ruler.h"
 #include "ui/TempoMeterLanes.h"
 #include "ui/TrackHeader.h"
@@ -95,6 +96,7 @@ private:
     TempoLane tempoLane;
     MeterLane meterLane;
     ChordLane chordLane;
+    MarkerLane markerLane;
     juce::ToggleButton chordPlaybackToggle;
     juce::Slider chordVolume { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     juce::String chordVolumeMergeId;

@@ -362,7 +362,7 @@ std::vector<Change> ProjectDiff::forScope (const std::string& scopeId) const
 
 std::vector<std::string> allScopeIds (const Project& p)
 {
-    std::vector<std::string> ids { p.tempoTrack.id, p.meterTrack.id, p.chordTrack.id };
+    std::vector<std::string> ids { p.tempoTrack.id, p.meterTrack.id, p.chordTrack.id, p.markerTrack.id };
 
     for (auto& t : p.tracks)
         ids.push_back (t.id);
@@ -375,6 +375,7 @@ bool scopeEquals (const Project& a, const Project& b, const std::string& id)
     if (id == a.tempoTrack.id || id == b.tempoTrack.id)  return a.tempoTrack == b.tempoTrack;
     if (id == a.meterTrack.id || id == b.meterTrack.id)  return a.meterTrack == b.meterTrack;
     if (id == a.chordTrack.id || id == b.chordTrack.id)  return a.chordTrack == b.chordTrack;
+    if (id == a.markerTrack.id || id == b.markerTrack.id) return a.markerTrack == b.markerTrack;
 
     auto* ta = a.findTrack (id);
     auto* tb = b.findTrack (id);
@@ -493,6 +494,31 @@ ProjectDiff diffProjects (const Project& beforeIn, const Project& afterIn)
             diff.changes.push_back ({ after.chordTrack.id, ScopeKind::chord, "コード", Change::Category::chords, "コードの音源を変更", -1, -1 });
     }
 
+    // マーカー
+    {
+        auto add = [&] (std::string s, Tick t)
+        {
+            diff.changes.push_back ({ after.markerTrack.id, ScopeKind::marker, "マーカー", Change::Category::markers, std::move (s), t, t + 1 });
+        };
+
+        auto label = [] (const Marker& m) { return m.name.empty() ? std::string ("マーカー") : "マーカー「" + m.name + "」"; };
+
+        for (auto& e : after.markerTrack.events)
+        {
+            auto* o = findById (before.markerTrack.events, e.id);
+
+            if (o == nullptr)
+                add (barRange (mapB, e.tick, e.tick + 1) + " " + label (e) + "を追加", e.tick);
+            else if (! (*o == e))
+                add (barRange (mapB, e.tick, e.tick + 1) + " " + label (e) + "を変更"
+                       + (o->tick != e.tick ? "（位置を移動）" : o->name != e.name ? "（名前: " + o->name + " → " + e.name + "）" : ""), e.tick);
+        }
+
+        for (auto& o : before.markerTrack.events)
+            if (findById (after.markerTrack.events, o.id) == nullptr)
+                add (barRange (mapA, o.tick, o.tick + 1) + " " + label (o) + "を削除", o.tick);
+    }
+
     // トラック（ヘッドの並び順、削除されたものは最後）
     for (auto& tb : after.tracks)
         diffTrack (before.findTrack (tb.id), &tb, mapA, mapB, diff);
@@ -542,6 +568,7 @@ PullResult mergeForPull (const Project& base, const Project& local, const Projec
     mergeSpecial (local.tempoTrack.id, &Project::tempoTrack);
     mergeSpecial (local.meterTrack.id, &Project::meterTrack);
     mergeSpecial (local.chordTrack.id, &Project::chordTrack);
+    mergeSpecial (local.markerTrack.id, &Project::markerTrack);
 
     // トラック
     for (auto& lt : local.tracks)

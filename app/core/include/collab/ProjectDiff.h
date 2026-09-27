@@ -15,11 +15,11 @@ namespace collab
     差分の単位（スコープ）: トラック、またはテンポトラック・拍子トラック・コードトラック。
     ロックもこの単位で取る（§4.2）。スコープ ID はそれぞれの要素の id。
 */
-enum class ScopeKind { track, tempo, meter, chord };
+enum class ScopeKind { track, tempo, meter, chord, marker };
 
 struct Change
 {
-    enum class Category { track, instrument, notes, clips, audioClips, render, chords, tempo, meter };
+    enum class Category { track, instrument, notes, clips, audioClips, render, chords, tempo, meter, markers };
 
     std::string scopeId;
     ScopeKind scopeKind = ScopeKind::track;

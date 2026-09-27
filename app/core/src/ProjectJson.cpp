@@ -343,6 +343,15 @@ ojson projectToJson (const Project& source)
                             { "events", events } };
     }
 
+    {
+        ojson events = ojson::array();
+
+        for (auto& e : p.markerTrack.events)
+            events.push_back ({ { "id", e.id }, { "tick", e.tick }, { "name", toNfc (e.name) } });
+
+        o["markerTrack"] = { { "id", p.markerTrack.id.empty() ? markerTrackIdFor (p.projectId) : p.markerTrack.id }, { "events", events } };
+    }
+
     ojson tracks = ojson::array();
 
     for (auto& t : p.tracks)
@@ -444,6 +453,18 @@ Project projectFromJson (const json& j)
             }
 
             p.chordTrack.events.push_back (ev);
+        }
+
+        // マーカートラック（古いプロジェクトにはない）
+        p.markerTrack.id = markerTrackIdFor (p.projectId);
+
+        if (auto it = j.find ("markerTrack"); it != j.end())
+        {
+            p.markerTrack.id = get<std::string> (*it, "id");
+
+            for (auto& e : it->at ("events"))
+                p.markerTrack.events.push_back ({ get<std::string> (e, "id"), get<Tick> (e, "tick"),
+                                                  toNfc (getOr<std::string> (e, "name", {})) });
         }
 
         for (auto& tj : j.at ("tracks"))

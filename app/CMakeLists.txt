@@ -62,6 +62,7 @@ target_sources(ShareDAW PRIVATE
     src/ui/MainComponent.cpp
     src/ui/MainComponentSync.cpp
     src/ui/MainComponentUpdate.cpp
+    src/ui/MarkerLane.cpp
     src/ui/MixerView.cpp
     src/ui/SyncUI.cpp
     src/ui/TransportBar.cpp

@@ -203,6 +203,7 @@ juce::String SyncManager::scopeName (const std::string& scopeId) const
     if (scopeId == p.tempoTrack.id)  return "テンポ"_ju;
     if (scopeId == p.meterTrack.id)  return "拍子"_ju;
     if (scopeId == p.chordTrack.id)  return "コード"_ju;
+    if (scopeId == p.markerTrack.id) return "マーカー"_ju;
 
     if (auto* t = p.findTrack (scopeId))
         return toJuce (t->name);
