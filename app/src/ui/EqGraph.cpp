@@ -164,7 +164,7 @@ void EqGraph::timerCallback()
     // 再生中だけ新しい音を読む。止まっているときはゆっくり下げて消す
     bool fresh = false;
 
-    if (ctx.engine.isPlaying() && ctx.engine.getSpectrumSamples (fftData.data(), fftSize, spectrumRate))
+    if (isShowing() && ctx.engine.isPlaying() && ctx.engine.getSpectrumSamples (fftData.data(), fftSize, spectrumRate))
     {
         std::fill (fftData.begin() + fftSize, fftData.end(), 0.0f);
         window.multiplyWithWindowingTable (fftData.data(), (size_t) fftSize);

@@ -247,6 +247,19 @@ void AppContext::addEffect (const std::string& trackId, const juce::PluginDescri
     });
 }
 
+juce::PopupMenu AppContext::addEffectMenu (const std::string& trackId)
+{
+    juce::PopupMenu add;
+
+    for (auto& d : PluginHost::list (engine.getEngine(), false))
+        add.addItem (d.name + " (" + d.manufacturerName + ")", [this, trackId, d] { addEffect (trackId, d); });
+
+    if (add.getNumItems() == 0)
+        add.addItem ("プラグインがありません（オプション → プラグイン… でスキャン）"_ju, false, false, nullptr);
+
+    return add;
+}
+
 void AppContext::removeEffect (const std::string& trackId, const std::string& effectId)
 {
     document.perform ("エフェクトの削除"_ju, [trackId, effectId] (collab::Project& p)
@@ -703,14 +716,14 @@ juce::String AppContext::outputName (const collab::Track& t) const
     return "マスター"_ju;
 }
 
-juce::PopupMenu AppContext::routingMenu (const std::string& trackId)
+juce::PopupMenu AppContext::outputMenu (const std::string& trackId)
 {
-    juce::PopupMenu m, output, sends;
+    juce::PopupMenu output;
     const auto& project = document.getProject();
     auto* track = project.findTrack (trackId);
 
     if (track == nullptr)
-        return m;
+        return output;
 
     // 出力先: マスター、または他のバス（自分自身と、自分へ出力しているバスは除く）
     output.addItem ("マスター"_ju, true, track->output.empty(), [this, trackId] { setTrackOutput (trackId, {}); });
@@ -730,9 +743,18 @@ juce::PopupMenu AppContext::routingMenu (const std::string& trackId)
         setTrackOutput (trackId, busId);
     });
 
-    m.addSubMenu ("出力先: "_ju + outputName (*track), output);
+    return output;
+}
 
-    // センド
+juce::PopupMenu AppContext::sendMenu (const std::string& trackId)
+{
+    juce::PopupMenu sends;
+    const auto& project = document.getProject();
+    auto* track = project.findTrack (trackId);
+
+    if (track == nullptr)
+        return sends;
+
     for (auto& b : project.tracks)
     {
         if (b.type != collab::TrackType::bus || b.id == trackId)
@@ -755,8 +777,27 @@ juce::PopupMenu AppContext::routingMenu (const std::string& trackId)
     }
 
     if (sends.getNumItems() == 0)
-        sends.addItem ("バストラックがありません（トラックを追加 → バストラック）"_ju, false, false, nullptr);
+        sends.addItem ("バストラックがありません"_ju, false, false, nullptr);
 
-    m.addSubMenu ("センド"_ju, sends);
+    sends.addSeparator();
+    sends.addItem ("新しいバスを作って送る…"_ju, [this, trackId]
+    {
+        const auto busId = addBusTrack ("FX"_ju);
+        setSend (trackId, busId, -10.0, false);
+    });
+
+    return sends;
+}
+
+juce::PopupMenu AppContext::routingMenu (const std::string& trackId)
+{
+    juce::PopupMenu m;
+    auto* track = document.getProject().findTrack (trackId);
+
+    if (track == nullptr)
+        return m;
+
+    m.addSubMenu ("出力先: "_ju + outputName (*track), outputMenu (trackId));
+    m.addSubMenu ("センド"_ju, sendMenu (trackId));
     return m;
 }

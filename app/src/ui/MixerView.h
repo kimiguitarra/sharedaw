@@ -3,8 +3,9 @@
 #include "ui/AppContext.h"
 
 /**
-    ミキサー（F3）: トラックごとの音量フェーダー・パン・ミュート・ソロとレベルメーター。
-    値はトラックヘッダーと同じくプロジェクト JSON（音量・パン・ミュート・ソロ）を書き換える。
+    ミキサー（F3）。Cubase の MixConsole のように、ストリップごとに上から
+    出力先（ROUTING）・インサート・EQ・コンプ・センド・パン・フェーダーとメーター・M/S・名前を並べる。
+    値はトラックヘッダーと同じくプロジェクト JSON を書き換える。
 */
 class MixerView  : public juce::Component,
                    private juce::ChangeListener,
@@ -21,6 +22,8 @@ private:
     class Strip;
 
     AppContext& ctx;
+    juce::TextButton addBusButton;
+    juce::Label hint;
     juce::Viewport viewport;
     juce::Component content;
     juce::OwnedArray<Strip> strips;

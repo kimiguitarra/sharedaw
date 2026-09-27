@@ -414,7 +414,7 @@ void TrackHeader::showMenu()
     // エフェクト（外部プラグイン）
     if (auto* t = ctx.document.getProject().findTrack (trackId))
     {
-        juce::PopupMenu fx, add;
+        juce::PopupMenu fx;
 
         for (auto& e : t->effects)
         {
@@ -426,14 +426,8 @@ void TrackHeader::showMenu()
             fx.addSubMenu (toJuce (e.plugin.name), one);
         }
 
-        for (auto& d : PluginHost::list (ctx.engine.getEngine(), false))
-            add.addItem (d.name + " (" + d.manufacturerName + ")", [this, d] { ctx.addEffect (trackId, d); });
-
-        if (add.getNumItems() == 0)
-            add.addItem ("プラグインがありません（オプション → プラグイン… でスキャン）"_ju, false, false, nullptr);
-
         fx.addSeparator();
-        fx.addSubMenu ("追加"_ju, add);
+        fx.addSubMenu ("追加"_ju, ctx.addEffectMenu (trackId));
         m.addSeparator();
         m.addItem ("EQ / コンプ…"_ju, [this] { if (ctx.openChannelStrip) ctx.openChannelStrip (trackId); });
 

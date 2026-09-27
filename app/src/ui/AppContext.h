@@ -50,6 +50,11 @@ struct AppContext
 
     /** 出力先とセンドのメニュー（トラックヘッダー・ミキサー共通）。 */
     juce::PopupMenu routingMenu (const std::string& trackId);
+    juce::PopupMenu outputMenu (const std::string& trackId);
+    juce::PopupMenu sendMenu (const std::string& trackId);
+
+    /** エフェクト（外部プラグイン）を追加するメニュー。 */
+    juce::PopupMenu addEffectMenu (const std::string& trackId);
     juce::String outputName (const collab::Track&) const;
 
     /**

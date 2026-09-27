@@ -2207,6 +2207,15 @@ var project_schema_default = {
             strip: {
               $ref: "#/definitions/channelStrip"
             },
+            output: {
+              $ref: "#/definitions/uuid"
+            },
+            sends: {
+              type: "array",
+              items: {
+                $ref: "#/definitions/send"
+              }
+            },
             render: {
               $ref: "#/definitions/render"
             },
@@ -2268,6 +2277,15 @@ var project_schema_default = {
             strip: {
               $ref: "#/definitions/channelStrip"
             },
+            output: {
+              $ref: "#/definitions/uuid"
+            },
+            sends: {
+              type: "array",
+              items: {
+                $ref: "#/definitions/send"
+              }
+            },
             render: {
               $ref: "#/definitions/render"
             },
@@ -2276,6 +2294,71 @@ var project_schema_default = {
               items: {
                 $ref: "#/definitions/audioClip"
               }
+            }
+          }
+        },
+        {
+          type: "object",
+          required: [
+            "id",
+            "type",
+            "name",
+            "color",
+            "volumeDb",
+            "pan",
+            "mute",
+            "solo",
+            "clips"
+          ],
+          additionalProperties: false,
+          properties: {
+            id: {
+              $ref: "#/definitions/uuid"
+            },
+            type: {
+              const: "bus"
+            },
+            name: {
+              type: "string"
+            },
+            color: {
+              $ref: "#/definitions/color"
+            },
+            volumeDb: {
+              type: "number"
+            },
+            pan: {
+              type: "number",
+              minimum: -1,
+              maximum: 1
+            },
+            mute: {
+              type: "boolean"
+            },
+            solo: {
+              type: "boolean"
+            },
+            effects: {
+              type: "array",
+              items: {
+                $ref: "#/definitions/effect"
+              }
+            },
+            strip: {
+              $ref: "#/definitions/channelStrip"
+            },
+            output: {
+              $ref: "#/definitions/uuid"
+            },
+            sends: {
+              type: "array",
+              items: {
+                $ref: "#/definitions/send"
+              }
+            },
+            clips: {
+              type: "array",
+              maxItems: 0
             }
           }
         }
@@ -2297,6 +2380,11 @@ var project_schema_default = {
               minimum: 0,
               maximum: 1e3
             },
+            highCutHz: {
+              type: "number",
+              minimum: 0,
+              maximum: 2e4
+            },
             lowGainDb: {
               type: "number",
               minimum: -24,
@@ -2306,6 +2394,21 @@ var project_schema_default = {
               type: "number",
               minimum: 20,
               maximum: 1e3
+            },
+            lowMidGainDb: {
+              type: "number",
+              minimum: -24,
+              maximum: 24
+            },
+            lowMidFreqHz: {
+              type: "number",
+              minimum: 20,
+              maximum: 16e3
+            },
+            lowMidQ: {
+              type: "number",
+              minimum: 0.1,
+              maximum: 10
             },
             midGainDb: {
               type: "number",
@@ -2373,6 +2476,26 @@ var project_schema_default = {
               maximum: 24
             }
           }
+        }
+      }
+    },
+    send: {
+      type: "object",
+      required: [
+        "busId"
+      ],
+      additionalProperties: false,
+      properties: {
+        busId: {
+          $ref: "#/definitions/uuid"
+        },
+        levelDb: {
+          type: "number",
+          minimum: -100,
+          maximum: 12
+        },
+        preFader: {
+          type: "boolean"
         }
       }
     }
