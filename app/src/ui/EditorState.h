@@ -90,8 +90,8 @@ struct EditorState  : public juce::ChangeBroadcaster
     TimeAxis timeline;
     TimeAxis pianoRoll { 120.0, 0.0 };
 
-    collab::Grid grid { 16, false, true };      // クオンタイズ値（ピアノロールのグリッド、再生位置の移動）
-    collab::Grid timelineGrid { 4, false, true };
+    collab::Grid grid { 16, 1, true };      // クオンタイズ値（ピアノロールのグリッド、再生位置の移動）
+    collab::Grid timelineGrid { 4, 1, true };
 
     /** スナップ（J）。オフのときはクオンタイズ値に合わせずフリーに動かす。 */
     bool snapEnabled() const noexcept      { return grid.enabled; }
@@ -111,7 +111,7 @@ struct EditorState  : public juce::ChangeBroadcaster
         const auto presets = collab::Grid::presets();
 
         for (int i = 0; i < (int) presets.size(); ++i)
-            if (presets[(size_t) i].stepTicks() == grid.stepTicks())
+            if (presets[(size_t) i].sameValue (grid))
                 return i;
 
         return -1;

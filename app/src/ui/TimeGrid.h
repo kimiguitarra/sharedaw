@@ -50,14 +50,19 @@ namespace TimeGrid
 
             if (step == 1 && subGrid != nullptr && subGrid->enabled)
             {
-                const auto gs = subGrid->stepTicks();
-
-                if ((double) gs * axis.pixelsPerTick() >= 6.0)
+                if (subGrid->stepExact() * axis.pixelsPerTick() >= 6.0)
                 {
                     g.setColour (Theme::gridSub);
 
-                    for (auto t = start + gs; t < start + sig.ticksPerBar(); t += gs)
+                    for (long long k = 1;; ++k)
+                    {
+                        const auto t = start + subGrid->offsetOf (k);
+
+                        if (t >= start + sig.ticksPerBar())
+                            break;
+
                         g.drawVerticalLine (x0 + (int) axis.tickToX ((double) t), top, bottom);
+                    }
                 }
             }
 

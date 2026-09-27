@@ -124,7 +124,7 @@ collab::Tick ChordLane::snapToBeat (double tick, const juce::ModifierKeys& mods)
         return t;
 
     const auto sig = map.timeSignatureAtTick (t);
-    return collab::Grid { sig.denominator, false, true }.snap (t, map);
+    return collab::Grid { sig.denominator, 1, true }.snap (t, map);
 }
 
 void ChordLane::mouseDown (const juce::MouseEvent& e)
