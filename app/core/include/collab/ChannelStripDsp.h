@@ -4,6 +4,7 @@
 
 #include <array>
 #include <atomic>
+#include <vector>
 
 #include "Project.h"
 
@@ -16,6 +17,7 @@ struct Biquad
     double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0;
 
     static Biquad highPass (double sampleRate, double freq, double q);
+    static Biquad lowPass (double sampleRate, double freq, double q);
     static Biquad lowShelf (double sampleRate, double freq, double gainDb);
     static Biquad highShelf (double sampleRate, double freq, double gainDb);
     static Biquad peak (double sampleRate, double freq, double q, double gainDb);
@@ -60,7 +62,7 @@ private:
     double sampleRate = 48000.0;
     ChannelStrip params;
 
-    enum { lowCut1, lowCut2, lowShelf, midPeak, highShelf, numBands };
+    enum { lowCut1, lowCut2, highCut1, highCut2, lowShelf, lowMidPeak, midPeak, highShelf, numBands };
     std::array<Biquad, numBands> coeffs;
     std::array<bool, numBands> active {};
     std::array<std::array<BiquadState, numBands>, maxChannels> states {};
@@ -75,6 +77,12 @@ private:
     void processEq (float* const* channels, int numChannels, int numSamples);
     void processComp (float* const* channels, int numChannels, int numSamples);
 };
+
+/** EQ の周波数特性（dB）。グラフの表示用。無効なら 0。 */
+double eqResponseDb (const ChannelEq&, double sampleRate, double freq);
+
+/** EQ の係数（有効なバンドだけ）。 */
+std::vector<Biquad> eqBiquads (const ChannelEq&, double sampleRate);
 
 /** コンプの静特性（入力レベル dB → ゲインリダクション dB、ソフトニー）。 */
 double compGainReductionDb (double levelDb, double thresholdDb, double ratio, double kneeDb);

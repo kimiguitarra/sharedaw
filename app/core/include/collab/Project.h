@@ -173,8 +173,12 @@ struct ChannelEq
 {
     bool enabled = false;
     double lowCutHz = 0.0;          // ローカット（0 = オフ）
+    double highCutHz = 0.0;         // ハイカット（0 = オフ）
     double lowGainDb = 0.0;         // ローシェルフ
     double lowFreqHz = 100.0;
+    double lowMidGainDb = 0.0;      // ピーキング（低め）
+    double lowMidFreqHz = 300.0;
+    double lowMidQ = 1.0;
     double midGainDb = 0.0;         // ピーキング
     double midFreqHz = 1000.0;
     double midQ = 1.0;
@@ -261,7 +265,17 @@ struct AudioClip
     bool operator== (const AudioClip&) const = default;
 };
 
-enum class TrackType { midi, audio };
+enum class TrackType { midi, audio, bus };   // bus: グループ・FX 用のバス（クリップを持たず、他のトラックの出力・センドを受ける）
+
+/** センド（トラックの音の一部をバスへ送る）。 */
+struct Send
+{
+    std::string busId;
+    double levelDb = 0.0;
+    bool preFader = false;   // true: 音量フェーダーの前から送る
+
+    bool operator== (const Send&) const = default;
+};
 
 struct Track
 {
@@ -277,6 +291,8 @@ struct Track
     std::optional<Instrument> instrument;   // midi トラックのみ
     std::vector<Effect> effects;
     ChannelStrip strip;
+    std::string output;                     // 出力先のバストラックの ID（空ならマスター）
+    std::vector<Send> sends;
     std::optional<Render> render;
 
     std::vector<MidiClip> midiClips;        // type == midi

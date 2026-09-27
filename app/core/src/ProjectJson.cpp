@@ -128,8 +128,12 @@ namespace
         ojson eq;
         eq["enabled"] = s.eq.enabled;
         eq["lowCutHz"] = s.eq.lowCutHz;
+        eq["highCutHz"] = s.eq.highCutHz;
         eq["lowGainDb"] = s.eq.lowGainDb;
         eq["lowFreqHz"] = s.eq.lowFreqHz;
+        eq["lowMidGainDb"] = s.eq.lowMidGainDb;
+        eq["lowMidFreqHz"] = s.eq.lowMidFreqHz;
+        eq["lowMidQ"] = s.eq.lowMidQ;
         eq["midGainDb"] = s.eq.midGainDb;
         eq["midFreqHz"] = s.eq.midFreqHz;
         eq["midQ"] = s.eq.midQ;
@@ -179,6 +183,19 @@ namespace
         if (! t.strip.isDefault())
             o["strip"] = toJson (t.strip);
 
+        if (! t.output.empty())
+            o["output"] = t.output;
+
+        if (! t.sends.empty())
+        {
+            ojson sends = ojson::array();
+
+            for (auto& s : t.sends)
+                sends.push_back ({ { "busId", s.busId }, { "levelDb", s.levelDb }, { "preFader", s.preFader } });
+
+            o["sends"] = sends;
+        }
+
         if (t.render)
             o["render"] = toJson (*t.render);
 
@@ -219,6 +236,10 @@ namespace
             auto& e = *it;
             s.eq.enabled = getOr<bool> (e, "enabled", d.eq.enabled);
             s.eq.lowCutHz = getOr<double> (e, "lowCutHz", d.eq.lowCutHz);
+            s.eq.highCutHz = getOr<double> (e, "highCutHz", d.eq.highCutHz);
+            s.eq.lowMidGainDb = getOr<double> (e, "lowMidGainDb", d.eq.lowMidGainDb);
+            s.eq.lowMidFreqHz = getOr<double> (e, "lowMidFreqHz", d.eq.lowMidFreqHz);
+            s.eq.lowMidQ = getOr<double> (e, "lowMidQ", d.eq.lowMidQ);
             s.eq.lowGainDb = getOr<double> (e, "lowGainDb", d.eq.lowGainDb);
             s.eq.lowFreqHz = getOr<double> (e, "lowFreqHz", d.eq.lowFreqHz);
             s.eq.midGainDb = getOr<double> (e, "midGainDb", d.eq.midGainDb);
@@ -471,7 +492,8 @@ Project projectFromJson (const json& j)
         {
             Track t;
             t.id = get<std::string> (tj, "id");
-            t.type = get<std::string> (tj, "type") == "midi" ? TrackType::midi : TrackType::audio;
+            const auto type = get<std::string> (tj, "type");
+            t.type = type == "midi" ? TrackType::midi : type == "bus" ? TrackType::bus : TrackType::audio;
             t.name = toNfc (get<std::string> (tj, "name"));
             t.color = get<std::string> (tj, "color");
             t.volumeDb = get<double> (tj, "volumeDb");
@@ -489,6 +511,12 @@ Project projectFromJson (const json& j)
 
             if (auto it = tj.find ("strip"); it != tj.end())
                 t.strip = stripFromJson (*it);
+
+            t.output = getOr<std::string> (tj, "output", {});
+
+            if (auto it = tj.find ("sends"); it != tj.end())
+                for (auto& sj : *it)
+                    t.sends.push_back ({ get<std::string> (sj, "busId"), getOr<double> (sj, "levelDb", 0.0), getOr<bool> (sj, "preFader", false) });
 
             if (auto it = tj.find ("render"); it != tj.end())
                 t.render = Render { get<std::string> (*it, "audioHash"), get<std::string> (*it, "renderedAt"),

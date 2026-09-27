@@ -14,7 +14,7 @@ export interface ProjectJson {
   markerTrack?: { id: string };
   tracks: Array<{
     id: string;
-    type: "midi" | "audio";
+    type: "midi" | "audio" | "bus";
     render?: { audioHash: string };
     clips: Array<{ audioHash?: string }>;
   }>;

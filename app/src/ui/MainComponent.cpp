@@ -800,6 +800,7 @@ juce::PopupMenu MainComponent::addTrackMenu()
 
     m.addCommandItem (&commandManager, cmdAddAudioTrack);
     m.addSubMenu ("音源トラックを追加"_ju, instruments);
+    m.addItem ("バストラックを追加"_ju, [this] { ctx.addBusTrack ("Bus"_ju); });
     return m;
 }
 

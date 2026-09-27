@@ -38,6 +38,13 @@ Biquad Biquad::highPass (double sr, double freq, double q)
     return normalise ((1 + cw) / 2, -(1 + cw), (1 + cw) / 2, 1 + alpha, -2 * cw, 1 - alpha);
 }
 
+Biquad Biquad::lowPass (double sr, double freq, double q)
+{
+    const double w = 2.0 * pi * clampFreq (sr, freq) / sr;
+    const double cw = std::cos (w), alpha = std::sin (w) / (2.0 * q);
+    return normalise ((1 - cw) / 2, 1 - cw, (1 - cw) / 2, 1 + alpha, -2 * cw, 1 - alpha);
+}
+
 Biquad Biquad::lowShelf (double sr, double freq, double gainDb)
 {
     const double A = std::pow (10.0, gainDb / 40.0);
@@ -71,6 +78,43 @@ double Biquad::magnitudeDb (double sr, double freq) const
     const auto z = std::polar (1.0, -2.0 * pi * freq / sr);
     const auto h = (b0 + b1 * z + b2 * z * z) / (1.0 + a1 * z + a2 * z * z);
     return 20.0 * std::log10 (std::max (1e-12, std::abs (h)));
+}
+
+//==============================================================================
+std::vector<Biquad> eqBiquads (const ChannelEq& eq, double sr)
+{
+    std::vector<Biquad> r;
+
+    if (! eq.enabled)
+        return r;
+
+    if (eq.lowCutHz > 0.0)
+    {
+        r.push_back (Biquad::highPass (sr, eq.lowCutHz, 0.5412));
+        r.push_back (Biquad::highPass (sr, eq.lowCutHz, 1.3066));
+    }
+
+    if (eq.highCutHz > 0.0)
+    {
+        r.push_back (Biquad::lowPass (sr, eq.highCutHz, 0.5412));
+        r.push_back (Biquad::lowPass (sr, eq.highCutHz, 1.3066));
+    }
+
+    if (std::abs (eq.lowGainDb) > 0.01)    r.push_back (Biquad::lowShelf (sr, eq.lowFreqHz, eq.lowGainDb));
+    if (std::abs (eq.lowMidGainDb) > 0.01) r.push_back (Biquad::peak (sr, eq.lowMidFreqHz, eq.lowMidQ, eq.lowMidGainDb));
+    if (std::abs (eq.midGainDb) > 0.01)    r.push_back (Biquad::peak (sr, eq.midFreqHz, eq.midQ, eq.midGainDb));
+    if (std::abs (eq.highGainDb) > 0.01)   r.push_back (Biquad::highShelf (sr, eq.highFreqHz, eq.highGainDb));
+    return r;
+}
+
+double eqResponseDb (const ChannelEq& eq, double sr, double freq)
+{
+    double db = 0.0;
+
+    for (auto& b : eqBiquads (eq, sr))
+        db += b.magnitudeDb (sr, freq);
+
+    return db;
 }
 
 //==============================================================================
@@ -116,6 +160,13 @@ void ChannelStripDsp::setParams (const ChannelStrip& p)
     active[lowCut1] = active[lowCut2] = eq.lowCutHz > 0.0;
     coeffs[lowCut1] = Biquad::highPass (sampleRate, eq.lowCutHz, 0.5412);
     coeffs[lowCut2] = Biquad::highPass (sampleRate, eq.lowCutHz, 1.3066);
+
+    active[highCut1] = active[highCut2] = eq.highCutHz > 0.0;
+    coeffs[highCut1] = Biquad::lowPass (sampleRate, eq.highCutHz, 0.5412);
+    coeffs[highCut2] = Biquad::lowPass (sampleRate, eq.highCutHz, 1.3066);
+
+    active[lowMidPeak] = std::abs (eq.lowMidGainDb) > 0.01;
+    coeffs[lowMidPeak] = Biquad::peak (sampleRate, eq.lowMidFreqHz, eq.lowMidQ, eq.lowMidGainDb);
 
     active[lowShelf] = std::abs (eq.lowGainDb) > 0.01;
     coeffs[lowShelf] = Biquad::lowShelf (sampleRate, eq.lowFreqHz, eq.lowGainDb);

@@ -112,7 +112,7 @@ std::string compTypeName (CompType t)
 
 std::string trackTypeName (TrackType t)
 {
-    return t == TrackType::midi ? "midi" : "audio";
+    return t == TrackType::midi ? "midi" : t == TrackType::bus ? "bus" : "audio";
 }
 
 } // namespace collab

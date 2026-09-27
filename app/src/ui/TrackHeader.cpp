@@ -135,7 +135,9 @@ void TrackHeader::update()
     volumeSlider.setValue (t->volumeDb, juce::dontSendNotification);
     panSlider.setValue (t->pan, juce::dontSendNotification);
 
-    juce::String instName = t->type == collab::TrackType::audio ? "オーディオ"_ju : "音源なし"_ju;
+    juce::String instName = t->type == collab::TrackType::audio ? "オーディオ"_ju
+                          : t->type == collab::TrackType::bus ? "バス（出力: "_ju + ctx.outputName (*t) + "）"_ju
+                                                              : "音源なし"_ju;
 
     if (t->instrument)
     {
@@ -434,6 +436,8 @@ void TrackHeader::showMenu()
         fx.addSubMenu ("追加"_ju, add);
         m.addSeparator();
         m.addItem ("EQ / コンプ…"_ju, [this] { if (ctx.openChannelStrip) ctx.openChannelStrip (trackId); });
+
+        m.addSubMenu ("出力先・センド"_ju, ctx.routingMenu (trackId));
         m.addSubMenu ("エフェクト"_ju, fx);
 
         if (t->type == collab::TrackType::midi || ! t->effects.empty())

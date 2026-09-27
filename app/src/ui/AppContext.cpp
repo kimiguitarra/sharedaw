@@ -630,3 +630,133 @@ void AppContext::nudgeClips (const std::set<std::string>& ids, collab::Tick delt
         }
     });
 }
+
+//==============================================================================
+std::string AppContext::addBusTrack (const juce::String& name)
+{
+    collab::Track t;
+    t.id = collab::generateUuid();
+    t.type = collab::TrackType::bus;
+    t.name = toStd (name);
+    t.color = "#9575CD";
+
+    const auto afterId = state.selectedTrackId;
+
+    document.perform ("バストラックの追加"_ju, [t, afterId] (collab::Project& p)
+    {
+        const int i = p.indexOfTrack (afterId);
+        p.tracks.insert (i >= 0 ? p.tracks.begin() + i + 1 : p.tracks.end(), t);
+    });
+
+    state.selectedTrackId = t.id;
+    state.selectClip ({});
+    state.changed();
+    return t.id;
+}
+
+void AppContext::setTrackOutput (const std::string& trackId, const std::string& busId)
+{
+    document.perform ("出力先の変更"_ju, [trackId, busId] (collab::Project& p)
+    {
+        if (auto* t = p.findTrack (trackId))
+            t->output = busId == trackId ? std::string() : busId;
+    });
+}
+
+void AppContext::setSend (const std::string& trackId, const std::string& busId, std::optional<double> levelDb,
+                          std::optional<bool> preFader, const juce::String& mergeId)
+{
+    document.perform ("センド"_ju, [trackId, busId, levelDb, preFader] (collab::Project& p)
+    {
+        auto* t = p.findTrack (trackId);
+
+        if (t == nullptr || busId == trackId)
+            return;
+
+        auto it = std::find_if (t->sends.begin(), t->sends.end(), [&] (auto& s) { return s.busId == busId; });
+
+        if (it == t->sends.end())
+        {
+            t->sends.push_back ({ busId, -10.0, false });
+            it = std::prev (t->sends.end());
+        }
+
+        if (levelDb)  it->levelDb = juce::jlimit (-100.0, 12.0, *levelDb);
+        if (preFader) it->preFader = *preFader;
+    }, mergeId);
+}
+
+void AppContext::removeSend (const std::string& trackId, const std::string& busId)
+{
+    document.perform ("センドの削除"_ju, [trackId, busId] (collab::Project& p)
+    {
+        if (auto* t = p.findTrack (trackId))
+            std::erase_if (t->sends, [&] (auto& s) { return s.busId == busId; });
+    });
+}
+
+juce::String AppContext::outputName (const collab::Track& t) const
+{
+    if (auto* bus = document.getProject().findTrack (t.output); bus != nullptr && bus->type == collab::TrackType::bus)
+        return toJuce (bus->name);
+
+    return "マスター"_ju;
+}
+
+juce::PopupMenu AppContext::routingMenu (const std::string& trackId)
+{
+    juce::PopupMenu m, output, sends;
+    const auto& project = document.getProject();
+    auto* track = project.findTrack (trackId);
+
+    if (track == nullptr)
+        return m;
+
+    // 出力先: マスター、または他のバス（自分自身と、自分へ出力しているバスは除く）
+    output.addItem ("マスター"_ju, true, track->output.empty(), [this, trackId] { setTrackOutput (trackId, {}); });
+
+    for (auto& b : project.tracks)
+    {
+        if (b.type != collab::TrackType::bus || b.id == trackId || b.output == trackId)
+            continue;
+
+        output.addItem (toJuce (b.name), true, track->output == b.id, [this, trackId, id = b.id] { setTrackOutput (trackId, id); });
+    }
+
+    output.addSeparator();
+    output.addItem ("新しいバスを作って出力…"_ju, [this, trackId, name = track->name]
+    {
+        const auto busId = addBusTrack (toJuce (name) + " Bus");
+        setTrackOutput (trackId, busId);
+    });
+
+    m.addSubMenu ("出力先: "_ju + outputName (*track), output);
+
+    // センド
+    for (auto& b : project.tracks)
+    {
+        if (b.type != collab::TrackType::bus || b.id == trackId)
+            continue;
+
+        auto it = std::find_if (track->sends.begin(), track->sends.end(), [&] (auto& s) { return s.busId == b.id; });
+
+        if (it == track->sends.end())
+        {
+            sends.addItem (toJuce (b.name) + " へ送る"_ju, [this, trackId, id = b.id] { setSend (trackId, id, -10.0, false); });
+        }
+        else
+        {
+            juce::PopupMenu one;
+            one.addItem ("プリフェーダー（音量の前から送る）"_ju, true, it->preFader,
+                         [this, trackId, id = b.id, pre = it->preFader] { setSend (trackId, id, std::nullopt, ! pre); });
+            one.addItem ("センドを外す"_ju, [this, trackId, id = b.id] { removeSend (trackId, id); });
+            sends.addSubMenu (toJuce (b.name) + "（"_ju + juce::String (it->levelDb, 1) + " dB）"_ju, one);
+        }
+    }
+
+    if (sends.getNumItems() == 0)
+        sends.addItem ("バストラックがありません（トラックを追加 → バストラック）"_ju, false, false, nullptr);
+
+    m.addSubMenu ("センド"_ju, sends);
+    return m;
+}

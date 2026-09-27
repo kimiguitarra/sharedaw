@@ -188,6 +188,11 @@ private:
         struct Effect { std::string id, stateRef; te::Plugin::Ptr plugin; };
         std::vector<Effect> effects;
         std::string effectsKey;
+
+        // バス（出力先・センド）
+        te::Plugin::Ptr auxReturn;             // バストラック: センドを受ける
+        std::vector<te::Plugin::Ptr> sends;    // センド（AuxSend）
+        std::string sendsKey;
     };
 
     te::Engine& engine;
@@ -242,6 +247,7 @@ private:
     void syncInstrument (const collab::Track&, Binding&);
     void syncEffects (const collab::Track&, Binding&);
     void syncStrip (const collab::Track&, Binding&);
+    void syncRouting (const collab::Project&);
     void removeInstrument (Binding&);
     void removeEffects (Binding&);
     bool canPlayLive (const collab::Track&, juce::String& why) const;

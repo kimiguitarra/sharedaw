@@ -39,6 +39,19 @@ struct AppContext
     /** 空のオーディオトラックを追加して選択する。 */
     std::string addAudioTrack (const juce::String& name);
 
+    //==============================================================================
+    // バス（Cubase のグループ・FX チャンネル）
+    /** バストラックを追加する（選択中のトラックの下）。ID を返す。 */
+    std::string addBusTrack (const juce::String& name);
+    void setTrackOutput (const std::string& trackId, const std::string& busId);
+    void setSend (const std::string& trackId, const std::string& busId, std::optional<double> levelDb,
+                  std::optional<bool> preFader, const juce::String& mergeId = {});
+    void removeSend (const std::string& trackId, const std::string& busId);
+
+    /** 出力先とセンドのメニュー（トラックヘッダー・ミキサー共通）。 */
+    juce::PopupMenu routingMenu (const std::string& trackId);
+    juce::String outputName (const collab::Track&) const;
+
     /**
         オーディオファイルを読み込んでクリップを作る（§3.6: 48kHz / 32bit float WAV に変換）。
         trackId が空ならオーディオトラックを新しく作る。複数のファイルは順に並べる。

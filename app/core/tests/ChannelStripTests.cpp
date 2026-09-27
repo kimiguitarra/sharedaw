@@ -124,3 +124,42 @@ TEST_CASE ("disabled strip passes audio through")
     dsp.prepare (48000.0);
     CHECK (runSine (dsp, 1000.0, 0.25, 0.3) == doctest::Approx (0.25).epsilon (0.01));
 }
+
+TEST_CASE ("bus tracks, output routing and sends round-trip through JSON")
+{
+    auto p = projectWithTrack();
+    Track bus;
+    bus.id = generateUuid();
+    bus.type = TrackType::bus;
+    bus.name = "Drum Bus";
+    p.tracks.push_back (bus);
+    p.tracks[0].output = bus.id;
+    p.tracks[0].sends.push_back ({ bus.id, -6.0, true });
+    p.tracks[0].strip.eq.enabled = true;
+    p.tracks[0].strip.eq.lowMidGainDb = -2.0;
+    p.tracks[0].strip.eq.highCutHz = 12000.0;
+
+    const auto p2 = parseProject (serialiseProject (p));   // スキーマ検証も通る
+    CHECK (p2 == p);
+    CHECK (p2.tracks.back().type == TrackType::bus);
+
+    // 出力先・センドはバウンスの内容に影響しない
+    auto t = p.tracks[0];
+    const auto before = trackSourceFingerprint (t, {});
+    t.output.clear();
+    t.sends.clear();
+    CHECK (trackSourceFingerprint (t, {}) == before);
+}
+
+TEST_CASE ("eq response includes all bands")
+{
+    ChannelEq eq;
+    eq.enabled = true;
+    eq.lowMidGainDb = -6.0;
+    eq.lowMidFreqHz = 300.0;
+    eq.highCutHz = 5000.0;
+    CHECK (eqResponseDb (eq, 48000.0, 300.0) == doctest::Approx (-6.0).epsilon (0.05));
+    CHECK (eqResponseDb (eq, 48000.0, 15000.0) < -12.0);
+    eq.enabled = false;
+    CHECK (eqResponseDb (eq, 48000.0, 300.0) == 0.0);
+}

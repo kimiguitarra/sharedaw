@@ -256,6 +256,13 @@ void EngineBridge::sync()
             removeInstrument (it->second);
             removeEffects (it->second);
             it->second.meter.reset();   // メーターを外してからトラックを消す
+
+            // このトラック（バス）へ出力しているトラックはマスターへ戻す
+            for (auto& [otherId, other] : bindings)
+                if (other.track != nullptr && other.track != it->second.track
+                    && other.track->getOutput().getDestinationTrack() == it->second.track.get())
+                    other.track->getOutput().setOutputToDefaultDevice (false);
+
             edit->deleteTrack (it->second.track.get());
             it = bindings.erase (it);
         }
@@ -288,6 +295,7 @@ void EngineBridge::sync()
         syncTrack (t, b, tempoChanged);
     }
 
+    syncRouting (project);
     syncChordTrack (tempoChanged);
     syncMetronome (tempoChanged);
 
@@ -557,6 +565,119 @@ void EngineBridge::syncEffects (const collab::Track& t, Binding& b)
                 be.plugin->setEnabled (! e.bypass);
 }
 
+void EngineBridge::syncRouting (const collab::Project& project)
+{
+    // バスの番号（Tracktion の Aux Send / Return の番号）= プロジェクトのバストラックの順番
+    std::map<std::string, int> busNumbers;
+
+    for (auto& t : project.tracks)
+        if (t.type == collab::TrackType::bus && (int) busNumbers.size() < 32)
+            busNumbers.emplace (t.id, (int) busNumbers.size());
+
+    // 出力先をたどってループにならないか（なるならマスターへ）
+    auto resolvesWithoutLoop = [&] (const collab::Track& start)
+    {
+        std::set<std::string> seen { start.id };
+        const collab::Track* t = &start;
+
+        while (t != nullptr && ! t->output.empty())
+        {
+            if (! seen.insert (t->output).second)
+                return false;
+
+            t = project.findTrack (t->output);
+        }
+
+        return true;
+    };
+
+    for (auto& t : project.tracks)
+    {
+        auto it = bindings.find (t.id);
+
+        if (it == bindings.end() || it->second.track == nullptr)
+            continue;
+
+        auto& b = it->second;
+
+        // 出力先
+        te::AudioTrack* dest = nullptr;
+
+        if (auto d = bindings.find (t.output); ! t.output.empty() && d != bindings.end() && busNumbers.count (t.output) > 0
+                                               && resolvesWithoutLoop (t))
+            dest = d->second.track.get();
+
+        if (b.track->getOutput().getDestinationTrack() != dest)
+        {
+            if (dest != nullptr)
+                b.track->getOutput().setOutputToTrack (dest);
+            else
+                b.track->getOutput().setOutputToDefaultDevice (false);
+        }
+
+        // バスはセンドを受ける Aux Return を先頭に持つ
+        if (auto n = busNumbers.find (t.id); n != busNumbers.end())
+        {
+            if (b.auxReturn == nullptr)
+            {
+                b.auxReturn = edit->getPluginCache().createNewPlugin (te::AuxReturnPlugin::xmlTypeName, {});
+                b.track->pluginList.insertPlugin (b.auxReturn, 0, nullptr);
+            }
+
+            if (auto* ret = dynamic_cast<te::AuxReturnPlugin*> (b.auxReturn.get()); ret != nullptr && ret->busNumber != n->second)
+                ret->busNumber = n->second;
+        }
+
+        // センド（プリフェーダーは音量の前、ポストフェーダーは音量の後）
+        std::string key;
+
+        for (auto& s : t.sends)
+            if (busNumbers.count (s.busId) > 0 && s.busId != t.id)
+                key += s.busId + (s.preFader ? "|pre;" : "|post;") + std::to_string (busNumbers[s.busId]) + ";";
+
+        if (key != b.sendsKey)
+        {
+            for (auto& p : b.sends)
+                p->deleteFromParent();
+
+            b.sends.clear();
+            b.sendsKey = key;
+
+            for (auto& s : t.sends)
+            {
+                if (busNumbers.count (s.busId) == 0 || s.busId == t.id)
+                    continue;
+
+                auto plugin = edit->getPluginCache().createNewPlugin (te::AuxSendPlugin::xmlTypeName, {});
+
+                if (auto* send = dynamic_cast<te::AuxSendPlugin*> (plugin.get()))
+                    send->busNumber = busNumbers[s.busId];
+
+                auto* vol = b.track->getVolumePlugin();
+                const int volIndex = vol != nullptr ? b.track->pluginList.indexOf (vol) : -1;
+                b.track->pluginList.insertPlugin (plugin, volIndex < 0 ? -1 : (s.preFader ? volIndex : volIndex + 1), nullptr);
+                b.sends.push_back (plugin);
+            }
+        }
+
+        // 送る量
+        size_t i = 0;
+
+        for (auto& s : t.sends)
+        {
+            if (busNumbers.count (s.busId) == 0 || s.busId == t.id)
+                continue;
+
+            if (i < b.sends.size())
+                if (auto* send = dynamic_cast<te::AuxSendPlugin*> (b.sends[i].get()))
+                    if (std::abs (send->getGainDb() - (float) s.levelDb) > 0.01f)
+                        send->setGainDb ((float) s.levelDb);
+
+            ++i;
+        }
+    }
+}
+
 void EngineBridge::syncStrip (const collab::Track& t, Binding& b)
 {
     if (b.strip == nullptr)
@@ -766,6 +887,15 @@ juce::Result EngineBridge::renderTrack (const std::string& trackId, const juce::
 
     track.setMute (false);
 
+    // バスへの出力・センドもバウンスには含めない（トラックそのものの音を書き出す）
+    auto* oldDest = track.getOutput().getDestinationTrack();
+
+    if (oldDest != nullptr)
+        track.getOutput().setOutputToDefaultDevice (false);
+
+    for (auto& s : it->second.sends)
+        s->setEnabled (false);
+
     // EQ・コンプもバウンスに含めない（同上）
     auto* strip = it->second.strip;
     const bool stripWasEnabled = strip != nullptr && strip->isEnabled();
@@ -805,6 +935,12 @@ juce::Result EngineBridge::renderTrack (const std::string& trackId, const juce::
 
     if (strip != nullptr)
         strip->setEnabled (stripWasEnabled);
+
+    if (oldDest != nullptr)
+        track.getOutput().setOutputToTrack (oldDest);
+
+    for (auto& s : it->second.sends)
+        s->setEnabled (true);
 
     return ok ? juce::Result::ok() : juce::Result::fail ("書き出しに失敗しました"_ju);
 }

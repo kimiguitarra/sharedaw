@@ -206,6 +206,12 @@ namespace
         if (a->effects != b->effects)
             add (Change::Category::instrument, "エフェクトを変更");
 
+        if (a->output != b->output)
+            add (Change::Category::track, "出力先を変更");
+
+        if (a->sends != b->sends)
+            add (Change::Category::track, "センドを変更");
+
         if (a->strip.eq != b->strip.eq)
             add (Change::Category::track, a->strip.eq.enabled != b->strip.eq.enabled ? (b->strip.eq.enabled ? "EQ をオン" : "EQ をオフ") : "EQ を変更");
 
