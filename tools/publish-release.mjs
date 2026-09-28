@@ -30,12 +30,33 @@ if (!server || !key) {
 const build = Number(buildText);
 const auth = { authorization: `Bearer ${key}` };
 
+// 通信が一瞬切れる（ECONNRESET など）ことがあるので、接続の失敗と 5xx / 429 は待ってからやり直す。
+// 送る実体は SHA-256 で決まるので、同じものを 2 回送っても問題ない。
+async function fetchRetry(url, init, label) {
+  const attempts = 6;
+  for (let i = 1; ; i++) {
+    let reason;
+    try {
+      const res = await fetch(url, init);
+      if (res.status < 500 && res.status !== 429) return res;
+      reason = `HTTP ${res.status}`;
+      await res.text().catch(() => {});
+    } catch (err) {
+      reason = err?.cause?.code ?? err?.message ?? String(err);
+    }
+    if (i >= attempts) throw new Error(`${label}: ${attempts} 回試しても失敗しました（${reason}）`);
+    const wait = 2000 * 2 ** (i - 1);
+    console.warn(`  ${label}: ${reason}。${wait / 1000} 秒後にやり直します（${i}/${attempts - 1}）`);
+    await new Promise((r) => setTimeout(r, wait));
+  }
+}
+
 async function api(method, p, body) {
-  const res = await fetch(server + p, {
+  const res = await fetchRetry(server + p, {
     method,
     headers: { ...auth, ...(body !== undefined ? { "content-type": "application/json" } : {}) },
     body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  }, `${method} ${p}`);
   const text = await res.text();
   let data;
   try {
@@ -79,11 +100,11 @@ async function uploadData(transfer, data) {
         "Worker に R2 の API キー（R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY）を設定してください（server/README.md）",
     );
 
-  const res = await fetch(transfer.url, {
+  const res = await fetchRetry(transfer.url, {
     method: "PUT",
     headers: { "content-type": "application/octet-stream", ...(transfer.headers ?? {}), ...(transfer.authRequired ? auth : {}) },
     body: data,
-  });
+  }, `upload ${transfer.hash.slice(0, 12)}`);
   if (!res.ok) throw new Error(`upload ${transfer.hash}: HTTP ${res.status} ${await res.text()}`);
   if (!transfer.authRequired) await api("POST", `/blobs/${transfer.hash}/complete`, {});
 }
