@@ -325,6 +325,8 @@ blobs(
 | `GET /projects` | 参加しているプロジェクトの一覧 |
 | `POST /projects` | プロジェクトの新規作成（最初のリビジョンは push で作る） |
 | `GET /projects/:id` | プロジェクトの情報（ヘッドのリビジョン番号を含む） |
+| `DELETE /projects/:id` | 曲を削除する（作った人だけ）。リビジョン・ロック・メンバーと、その曲だけが使っていたプロジェクト JSON の実体を消す（オーディオの実体は共有されうるので残す） |
+| `DELETE /projects/:id/members/me` | 参加をやめる（作った人以外） |
 | `GET /projects/:id/revisions` | リビジョン履歴（番号、作成者、コメント、日時） |
 | `GET /projects/:id/revisions/:n` | 指定リビジョンの project JSON のハッシュとダウンロード URL |
 | `POST /blobs/check` | `{hashes: [...]}` を受け取り、サーバーに存在しないハッシュと、そのアップロード用の署名付き PUT URL を返す |

@@ -17,6 +17,7 @@
 仕様書 §6.5 のとおり。すべて `Authorization: Bearer <token>`。追加したもの:
 
 - `GET /me`、`GET /users`、`POST /projects/:id/members {userId}`
+- `DELETE /projects/:id` … 曲の削除（作った人だけ。リビジョン・ロック・その曲だけのプロジェクト JSON を消す）、`DELETE /projects/:id/members/me` … 参加をやめる
 - `POST /blobs/:hash/complete` … 署名付き URL でアップロードした後に呼ぶ。サーバーがハッシュとサイズを検証して登録する
 - `GET /projects/:id/lock-events` … ロックの履歴（強制解除の記録）
 - `POST /projects/:id/revisions` は `releaseLocks: true` で、push したトラックのロックを解除する

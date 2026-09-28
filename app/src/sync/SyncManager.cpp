@@ -926,6 +926,48 @@ juce::Result SyncManager::fetchRevisions (nlohmann::json& list)
     return juce::Result::ok();
 }
 
+juce::Result SyncManager::runDeleteProject (const std::string& projectId, const juce::File& localFolder)
+{
+    auto r = makeClient().del ("/projects/" + toJuce (projectId));
+
+    if (! r.ok())
+        return juce::Result::fail (r.message());
+
+    // この PC のフォルダはサーバーとのつながりだけを外す（ベースも消して「この PC だけ」の曲にする）
+    auto unlink = [&] (const juce::File& folder)
+    {
+        const auto dir = collabDir (folder);
+        const auto metaFile = dir.getChildFile ("meta.json");
+
+        if (! metaFile.existsAsFile())
+            return;
+
+        try
+        {
+            if (nlohmann::json::parse (metaFile.loadFileAsString().toStdString()).value ("projectId", std::string()) != projectId)
+                return;
+        }
+        catch (const std::exception&)
+        {
+            return;
+        }
+
+        metaFile.deleteFile();
+        dir.getChildFile ("base.json").deleteFile();
+    };
+
+    if (localFolder != juce::File())
+        unlink (localFolder);
+
+    juce::MessageManager::callAsync ([this, alive = alive, projectId]
+    {
+        if (*alive && linked && meta.projectId == projectId)
+            reloadForDocument();   // いま開いている曲なら、同期の状態を「未登録」に戻す
+    });
+
+    return juce::Result::ok();
+}
+
 juce::Result SyncManager::runOpenFromServer (const std::string& projectId, const juce::File& parentDir, juce::File& createdFolder,
                                              const SyncProgress& progress)
 {

@@ -124,7 +124,7 @@ void MainComponent::registerProject()
     sync.applyRegistered (snapshot, sync.getMeta().baseRevision);
     SyncUI::runWithProgress ("ロックを確認しています"_ju, [this] { return sync.fetchLocks(); });
     setStatus ("サーバーに登録しました（リビジョン "_ju + juce::String (sync.getMeta().baseRevision) + "）"_ju);
-    toast.show ("サーバーにアップしました"_ju, "仲間は「楽曲を選ぶ」からダウンロードして一緒に作業できます。"_ju, {}, {}, Theme::green);
+    toast.show ("サーバーにアップしました"_ju, "仲間は「楽曲を選ぶ」からダウンロードして一緒に作業できます。"_ju, {}, {}, Theme::ok);
 
     if (! syncPanel.isVisible())
         toggleSyncPanel();
@@ -260,7 +260,7 @@ void MainComponent::pullNow (bool quiet)
             self.setStatus ("リビジョン "_ju + juce::String (preview->head) + " を自動で取り込みました"_ju);
             self.toast.show ("他の人の変更を取り込みました"_ju,
                              scopes.joinIntoString ("、"_ju) + (report.conflicts.empty() ? juce::String() : "（不整合あり: 取り込む前の状態を保存しました）"_ju),
-                             {}, {}, report.conflicts.empty() ? Theme::green : Theme::warning);
+                             {}, {}, report.conflicts.empty() ? Theme::ok : Theme::warning);
         });
     });
 }

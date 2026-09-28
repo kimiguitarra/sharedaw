@@ -162,6 +162,60 @@ route("GET", "/projects/:id", async (ctx, { id }) => {
   });
 });
 
+// 曲の削除（作成した人だけ）。リビジョン・ロック・メンバーを消し、この曲だけが使っていたプロジェクト JSON の実体も消す。
+// オーディオの実体は他の曲と共有している可能性があるので残す（コンテンツアドレスで重複しない）。
+route("DELETE", "/projects/:id", async (ctx, { id }) => {
+  const project = await requireMember(ctx, id);
+  if (project.created_by !== ctx.user.id) {
+    throw new HttpError(403, "not_owner", "曲を削除できるのは作った人だけです（参加をやめるには「参加をやめる」を使ってください）");
+  }
+
+  const revs = await ctx.env.DB.prepare("SELECT project_json_hash FROM revisions WHERE project_id = ?").bind(id).all<{ project_json_hash: string }>();
+  const jsonHashes = [...new Set(revs.results.map((r) => r.project_json_hash))];
+
+  await ctx.env.DB.batch([
+    ctx.env.DB.prepare("DELETE FROM lock_events WHERE project_id = ?").bind(id),
+    ctx.env.DB.prepare("DELETE FROM locks WHERE project_id = ?").bind(id),
+    ctx.env.DB.prepare("DELETE FROM revisions WHERE project_id = ?").bind(id),
+    ctx.env.DB.prepare("DELETE FROM project_members WHERE project_id = ?").bind(id),
+    ctx.env.DB.prepare("DELETE FROM projects WHERE id = ?").bind(id),
+  ]);
+
+  // ほかのリビジョンから参照されていないプロジェクト JSON だけ消す
+  let deletedBlobs = 0;
+  for (let i = 0; i < jsonHashes.length; i += 50) {
+    const chunk = jsonHashes.slice(i, i + 50);
+    const placeholders = chunk.map(() => "?").join(",");
+    const stillUsed = await ctx.env.DB.prepare(`SELECT DISTINCT project_json_hash AS h FROM revisions WHERE project_json_hash IN (${placeholders})`)
+      .bind(...chunk)
+      .all<{ h: string }>();
+    const used = new Set(stillUsed.results.map((r) => r.h));
+    const orphans = chunk.filter((h) => !used.has(h));
+    if (orphans.length === 0) continue;
+
+    await ctx.env.BLOBS.delete(orphans.map(blobKey));
+    await ctx.env.DB.prepare(`DELETE FROM blobs WHERE hash IN (${orphans.map(() => "?").join(",")})`).bind(...orphans).run();
+    deletedBlobs += orphans.length;
+  }
+
+  return json({ ok: true, deletedRevisions: revs.results.length, deletedBlobs });
+});
+
+// 参加をやめる（自分をメンバーから外す。作った人は削除を使う）
+route("DELETE", "/projects/:id/members/me", async (ctx, { id }) => {
+  const project = await requireMember(ctx, id);
+  if (project.created_by === ctx.user.id) {
+    throw new HttpError(400, "owner_cannot_leave", "作った人は参加をやめられません（曲を削除してください）");
+  }
+
+  await ctx.env.DB.batch([
+    ctx.env.DB.prepare("DELETE FROM locks WHERE project_id = ? AND user_id = ?").bind(id, ctx.user.id),
+    ctx.env.DB.prepare("DELETE FROM project_members WHERE project_id = ? AND user_id = ?").bind(id, ctx.user.id),
+  ]);
+
+  return json({ ok: true });
+});
+
 route("POST", "/projects/:id/members", async (ctx, { id }) => {
   await requireMember(ctx, id);
   const body = await readJson<{ userId?: string }>(ctx.request);

@@ -154,6 +154,12 @@ public:
 
     juce::Result fetchRevisions (nlohmann::json& list);
 
+    /**
+        サーバーから曲を削除する（作った人だけ）。成功したら、この PC のフォルダ（あれば）はサーバーとのつながりを外す
+        （フォルダと曲の中身は残る。「この PC だけ」の曲になる）。
+    */
+    juce::Result runDeleteProject (const std::string& projectId, const juce::File& localFolder);
+
     /** ローカルのプロジェクトのフォルダの状態（開かずに読む。「楽曲を選ぶ」画面用）。 */
     struct LocalInfo
     {

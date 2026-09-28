@@ -115,6 +115,39 @@ describe("projects and revisions", () => {
     expect(locks.data).toEqual([]);
   });
 
+  it("lets only the creator delete a song, and removes its revisions and project JSON", async () => {
+    const r = await push(alice, pid, minimalFixture, 0);
+    expect(r.status).toBe(201);
+    const rev = await alice("GET", `/projects/${pid}/revisions/1`);
+    const jsonHash = rev.data.projectJsonHash;
+
+    const denied = await bob("DELETE", `/projects/${pid}`);
+    expect(denied.status).toBe(403);
+    expect(denied.data.error).toBe("not_owner");
+
+    const ok = await alice("DELETE", `/projects/${pid}`);
+    expect(ok.status).toBe(200);
+    expect(ok.data).toMatchObject({ ok: true, deletedRevisions: 1, deletedBlobs: 1 });
+
+    expect((await alice("GET", "/projects")).data).toEqual([]);
+    expect((await bob("GET", `/projects/${pid}`)).status).toBe(404);
+    expect(await env.BLOBS.head(`blobs/${jsonHash}`)).toBeNull();
+    const row = await env.DB.prepare("SELECT hash FROM blobs WHERE hash = ?").bind(jsonHash).first();
+    expect(row).toBeNull();
+
+    // 同じ ID でまた作れる
+    expect((await alice("POST", "/projects", { id: pid, name: "again" })).status).toBe(201);
+  });
+
+  it("lets a member leave a song, but not its creator", async () => {
+    expect((await alice("DELETE", `/projects/${pid}/members/me`)).status).toBe(400);
+
+    const left = await bob("DELETE", `/projects/${pid}/members/me`);
+    expect(left.status).toBe(200);
+    expect((await bob("GET", "/projects")).data).toEqual([]);
+    expect((await alice("GET", "/projects")).data.length).toBe(1);
+  });
+
   it("rejects a push whose parent is not the head", async () => {
     await push(alice, pid, minimalFixture, 0);
     const r = await push(bob, pid, { ...minimalFixture, name: "changed" }, 0);

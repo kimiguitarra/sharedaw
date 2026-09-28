@@ -2748,6 +2748,45 @@ route("GET", "/projects/:id", async (ctx, { id }) => {
     members: members.results.map((m) => ({ id: m.id, displayName: m.display_name }))
   });
 });
+route("DELETE", "/projects/:id", async (ctx, { id }) => {
+  const project = await requireMember(ctx, id);
+  if (project.created_by !== ctx.user.id) {
+    throw new HttpError(403, "not_owner", "\u66F2\u3092\u524A\u9664\u3067\u304D\u308B\u306E\u306F\u4F5C\u3063\u305F\u4EBA\u3060\u3051\u3067\u3059\uFF08\u53C2\u52A0\u3092\u3084\u3081\u308B\u306B\u306F\u300C\u53C2\u52A0\u3092\u3084\u3081\u308B\u300D\u3092\u4F7F\u3063\u3066\u304F\u3060\u3055\u3044\uFF09");
+  }
+  const revs = await ctx.env.DB.prepare("SELECT project_json_hash FROM revisions WHERE project_id = ?").bind(id).all();
+  const jsonHashes = [...new Set(revs.results.map((r) => r.project_json_hash))];
+  await ctx.env.DB.batch([
+    ctx.env.DB.prepare("DELETE FROM lock_events WHERE project_id = ?").bind(id),
+    ctx.env.DB.prepare("DELETE FROM locks WHERE project_id = ?").bind(id),
+    ctx.env.DB.prepare("DELETE FROM revisions WHERE project_id = ?").bind(id),
+    ctx.env.DB.prepare("DELETE FROM project_members WHERE project_id = ?").bind(id),
+    ctx.env.DB.prepare("DELETE FROM projects WHERE id = ?").bind(id)
+  ]);
+  let deletedBlobs = 0;
+  for (let i = 0; i < jsonHashes.length; i += 50) {
+    const chunk = jsonHashes.slice(i, i + 50);
+    const placeholders = chunk.map(() => "?").join(",");
+    const stillUsed = await ctx.env.DB.prepare(`SELECT DISTINCT project_json_hash AS h FROM revisions WHERE project_json_hash IN (${placeholders})`).bind(...chunk).all();
+    const used = new Set(stillUsed.results.map((r) => r.h));
+    const orphans = chunk.filter((h) => !used.has(h));
+    if (orphans.length === 0) continue;
+    await ctx.env.BLOBS.delete(orphans.map(blobKey));
+    await ctx.env.DB.prepare(`DELETE FROM blobs WHERE hash IN (${orphans.map(() => "?").join(",")})`).bind(...orphans).run();
+    deletedBlobs += orphans.length;
+  }
+  return json({ ok: true, deletedRevisions: revs.results.length, deletedBlobs });
+});
+route("DELETE", "/projects/:id/members/me", async (ctx, { id }) => {
+  const project = await requireMember(ctx, id);
+  if (project.created_by === ctx.user.id) {
+    throw new HttpError(400, "owner_cannot_leave", "\u4F5C\u3063\u305F\u4EBA\u306F\u53C2\u52A0\u3092\u3084\u3081\u3089\u308C\u307E\u305B\u3093\uFF08\u66F2\u3092\u524A\u9664\u3057\u3066\u304F\u3060\u3055\u3044\uFF09");
+  }
+  await ctx.env.DB.batch([
+    ctx.env.DB.prepare("DELETE FROM locks WHERE project_id = ? AND user_id = ?").bind(id, ctx.user.id),
+    ctx.env.DB.prepare("DELETE FROM project_members WHERE project_id = ? AND user_id = ?").bind(id, ctx.user.id)
+  ]);
+  return json({ ok: true });
+});
 route("POST", "/projects/:id/members", async (ctx, { id }) => {
   await requireMember(ctx, id);
   const body = await readJson(ctx.request);

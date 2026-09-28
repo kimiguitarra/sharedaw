@@ -9,7 +9,7 @@
     曲は基本的にサーバーで管理し、この PC にはダウンロードしたフォルダを置く。
 */
 class ProjectPicker  : public juce::Component,
-                       private juce::ListBoxModel
+                       private juce::TableListBoxModel
 {
 public:
     enum class Status
@@ -64,7 +64,6 @@ public:
     static juce::File projectsFolder (juce::PropertiesFile&);
 
     static juce::String statusText (const Entry&);
-    static juce::String statusShort (const Entry&);
     static juce::Colour statusColour (Status);
 
 private:
@@ -73,11 +72,12 @@ private:
     juce::File currentFolder;
     Callbacks callbacks;
 
-    juce::Label serverLine, folderLine;
-    juce::ListBox table { {}, this };
+    juce::Label title, serverLine, folderLine;
+    juce::TableListBox table { {}, this };
     juce::TextButton refreshButton { "更新"_ju }, serverButton { "サーバー設定…"_ju }, folderButton { "変更…"_ju };
-    juce::TextButton createButton { "＋ サーバーに新しい曲を作る"_ju };
+    juce::TextButton createButton { "サーバーに新しい曲を作る…"_ju };
     juce::TextButton newButton { "この PC だけで新規作成"_ju }, otherButton { "フォルダから開く…"_ju }, forgetButton { "一覧から外す"_ju };
+    juce::TextButton deleteButton { "サーバーから削除…"_ju };
     juce::TextButton openButton { "開く"_ju }, closeButton { "閉じる"_ju };
 
     std::vector<SyncManager::LocalInfo> locals;
@@ -90,11 +90,13 @@ private:
     void rebuildEntries();
     void updateButtons();
     void openSelected();
+    void deleteSelected();
     void close();
 
     int getNumRows() override                            { return (int) entries.size(); }
-    void paintListBoxItem (int row, juce::Graphics&, int width, int height, bool selected) override;
+    void paintRowBackground (juce::Graphics&, int row, int width, int height, bool selected) override;
+    void paintCell (juce::Graphics&, int row, int column, int width, int height, bool selected) override;
     void selectedRowsChanged (int) override              { updateButtons(); }
-    void listBoxItemDoubleClicked (int, const juce::MouseEvent&) override   { openSelected(); }
+    void cellDoubleClicked (int, int, const juce::MouseEvent&) override   { openSelected(); }
     void returnKeyPressed (int) override                 { openSelected(); }
 };

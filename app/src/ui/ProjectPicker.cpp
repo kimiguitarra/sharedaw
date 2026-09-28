@@ -4,6 +4,8 @@
 
 namespace
 {
+    enum Column { nameColumn = 1, statusColumn, serverColumn, localColumn };
+
     juce::String normaliseUrl (juce::String url)
     {
         url = url.trim();
@@ -103,7 +105,7 @@ juce::String ProjectPicker::statusText (const Entry& e)
 
     switch (e.status)
     {
-        case Status::upToDate:     return "サーバーとこの PC が同じです"_ju;
+        case Status::upToDate:     return "最新（サーバーとこの PC が同じ）"_ju;
         case Status::localChanges: return "この PC に未送信の変更 "_ju + juce::String (changes) + " 件（送信 = push してください）"_ju;
         case Status::serverNewer:  return "サーバーに新しい版（rev "_ju + juce::String (base) + " → "_ju + juce::String (e.headRevision) + "。開くと取り込みます）"_ju;
         case Status::both:         return "両方に変更あり（取り込んでから送信してください）"_ju;
@@ -122,12 +124,12 @@ juce::Colour ProjectPicker::statusColour (Status s)
 {
     switch (s)
     {
-        case Status::upToDate:     return Theme::green;
-        case Status::localChanges: return Theme::orange;
-        case Status::serverNewer:  return Theme::accent;
-        case Status::both:         return Theme::red;
-        case Status::serverOnly:   return Theme::purple;
-        case Status::localOnly:    return Theme::pink;
+        case Status::upToDate:     return juce::Colour (0xff66bb6a);
+        case Status::localChanges: return juce::Colour (0xffffb74d);
+        case Status::serverNewer:  return juce::Colour (0xff4fc3f7);
+        case Status::both:         return juce::Colour (0xffef5350);
+        case Status::serverOnly:   return juce::Colour (0xffba68c8);
+        case Status::localOnly:
         case Status::unchecked:
         case Status::otherServer:
         case Status::notOnServer:  return Theme::textDim;
@@ -136,39 +138,30 @@ juce::Colour ProjectPicker::statusColour (Status s)
     return Theme::textDim;
 }
 
-juce::String ProjectPicker::statusShort (const Entry& e)
-{
-    const int changes = e.local ? e.local->changedScopes : 0;
-    const auto up = juce::String::fromUTF8 ("\xE2\x86\x91 "), down = juce::String::fromUTF8 ("\xE2\x86\x93 ");
-
-    switch (e.status)
-    {
-        case Status::upToDate:     return "最新"_ju;
-        case Status::localChanges: return up + juce::String (changes) + " 件 未送信"_ju;
-        case Status::serverNewer:  return down + "新しい版あり"_ju;
-        case Status::both:         return down + up + "両方に変更"_ju;
-        case Status::serverOnly:   return "サーバーだけ"_ju;
-        case Status::localOnly:    return "この PC だけ"_ju;
-        case Status::unchecked:    return "未確認"_ju;
-        case Status::otherServer:  return "別のサーバー"_ju;
-        case Status::notOnServer:  return "見当たらない"_ju;
-    }
-
-    return {};
-}
-
 //==============================================================================
 ProjectPicker::ProjectPicker (SyncManager& s, juce::PropertiesFile& p, juce::File current, Callbacks cb)
     : sync (s), settings (p), currentFolder (std::move (current)), callbacks (std::move (cb))
 {
+    title.setText ("楽曲を選ぶ"_ju, juce::dontSendNotification);
+    title.setFont (juce::FontOptions (20.0f, juce::Font::bold));
+    addAndMakeVisible (title);
+
     serverLine.setFont (juce::FontOptions (12.5f));
     addAndMakeVisible (serverLine);
     folderLine.setFont (juce::FontOptions (12.0f));
     folderLine.setColour (juce::Label::textColourId, Theme::textDim);
     addAndMakeVisible (folderLine);
 
-    table.setRowHeight (78);
-    table.setColour (juce::ListBox::backgroundColourId, juce::Colours::transparentBlack);
+    auto& header = table.getHeader();
+    header.addColumn ("曲名"_ju, nameColumn, 220, 120, 400, juce::TableHeaderComponent::notSortable);
+    header.addColumn ("状況"_ju, statusColumn, 330, 160, 600, juce::TableHeaderComponent::notSortable);
+    header.addColumn ("サーバー"_ju, serverColumn, 190, 120, 400, juce::TableHeaderComponent::notSortable);
+    header.addColumn ("この PC"_ju, localColumn, 260, 120, 600, juce::TableHeaderComponent::notSortable);
+    header.setColour (juce::TableHeaderComponent::backgroundColourId, Theme::panelLight);
+    header.setColour (juce::TableHeaderComponent::textColourId, Theme::text);
+    header.setColour (juce::TableHeaderComponent::outlineColourId, Theme::background);
+    table.setRowHeight (46);
+    table.setColour (juce::ListBox::backgroundColourId, Theme::background);
     table.setMultipleSelectionEnabled (false);
     addAndMakeVisible (table);
 
@@ -189,12 +182,10 @@ ProjectPicker::ProjectPicker (SyncManager& s, juce::PropertiesFile& p, juce::Fil
         });
     };
 
-    createButton.setColour (juce::TextButton::buttonColourId, Theme::pink);
-    createButton.setColour (juce::TextButton::textColourOffId, juce::Colours::white);
     createButton.setTooltip ("サーバーに曲を作り、この PC（ダウンロード先のフォルダ）にも置いて開きます"_ju);
     createButton.onClick = [this] { auto fn = callbacks.createOnServer; close(); if (fn) fn(); };
-    openButton.setColour (juce::TextButton::buttonColourId, Theme::accent);
-    openButton.setColour (juce::TextButton::textColourOffId, juce::Colour (0xff15162a));
+    deleteButton.setTooltip ("サーバーから曲を削除します（作った人だけ）。この PC のフォルダは消しません"_ju);
+    deleteButton.onClick = [this] { deleteSelected(); };
 
     newButton.onClick = [this] { auto fn = callbacks.newProject; close(); if (fn) fn(); };
     otherButton.onClick = [this] { auto fn = callbacks.openOther; close(); if (fn) fn(); };
@@ -213,10 +204,11 @@ ProjectPicker::ProjectPicker (SyncManager& s, juce::PropertiesFile& p, juce::Fil
     openButton.onClick = [this] { openSelected(); };
     closeButton.onClick = [this] { close(); };
 
-    for (auto* b : { &refreshButton, &serverButton, &folderButton, &createButton, &newButton, &otherButton, &forgetButton, &openButton, &closeButton })
+    for (auto* b : { &refreshButton, &serverButton, &folderButton, &createButton, &newButton, &otherButton, &forgetButton, &deleteButton,
+                     &openButton, &closeButton })
         addAndMakeVisible (b);
 
-    setSize (980, 640);
+    setSize (1180, 580);
     refresh();
 }
 
@@ -410,18 +402,18 @@ void ProjectPicker::rebuildEntries()
     if (loadingServer)
     {
         serverLine.setText ("サーバーを確認しています…（"_ju + sync.getServerUrl() + "）"_ju, juce::dontSendNotification);
-        serverLine.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.8f));
+        serverLine.setColour (juce::Label::textColourId, Theme::textDim);
     }
     else if (serverError.isNotEmpty())
     {
         serverLine.setText (serverError, juce::dontSendNotification);
-        serverLine.setColour (juce::Label::textColourId, Theme::selection);
+        serverLine.setColour (juce::Label::textColourId, Theme::warning);
     }
     else
     {
         serverLine.setText ("サーバー: "_ju + sync.getServerUrl() + "（参加している曲 "_ju + juce::String ((int) serverOrder.size()) + " 曲）"_ju,
                             juce::dontSendNotification);
-        serverLine.setColour (juce::Label::textColourId, juce::Colours::white);
+        serverLine.setColour (juce::Label::textColourId, juce::Colour (0xff66bb6a));
     }
 
     table.updateContent();
@@ -453,6 +445,8 @@ void ProjectPicker::updateButtons()
 
     openButton.setEnabled (e != nullptr);
     forgetButton.setEnabled (e != nullptr && e->local.has_value());
+    deleteButton.setEnabled (e != nullptr && e->onServer);
+    createButton.setEnabled (sync.hasCredentials());
 
     if (e == nullptr)
         openButton.setButtonText ("開く"_ju);
@@ -492,6 +486,52 @@ void ProjectPicker::openSelected()
     }
 }
 
+void ProjectPicker::deleteSelected()
+{
+    const int row = table.getSelectedRow();
+
+    if (row < 0 || row >= (int) entries.size() || ! entries[(size_t) row].onServer)
+        return;
+
+    const auto e = entries[(size_t) row];
+    const auto name = e.name.isEmpty() ? "（名前なし）"_ju : e.name;
+
+    // 取り返しがつかないので、何が消えて何が残るかをはっきり書く
+    auto options = juce::MessageBoxOptions()
+                     .withIconType (juce::MessageBoxIconType::WarningIcon)
+                     .withTitle ("サーバーから削除"_ju)
+                     .withMessage ("「"_ju + name + "」をサーバーから削除します。\n\n"_ju
+                                   + "・サーバーのリビジョン（履歴）とロックがすべて消え、仲間も開けなくなります。\n"_ju
+                                   + "・元に戻せません。\n"_ju
+                                   + "・この PC のフォルダは消しません（あとで「開いてサーバーにアップ」で上げ直せます）。\n\n"_ju
+                                   + "削除できるのは曲を作った人だけです。"_ju)
+                     .withButton ("削除する"_ju)
+                     .withButton ("やめる"_ju)
+                     .withAssociatedComponent (this);
+
+    juce::AlertWindow::showAsync (options, [this, flag = alive, e] (int result)
+    {
+        if (! *flag || result != 1)
+            return;
+
+        juce::Thread::launch ([this, flag, e]
+        {
+            auto r = sync.runDeleteProject (e.projectId, e.local ? e.local->folder : juce::File());
+
+            juce::MessageManager::callAsync ([this, flag, r]
+            {
+                if (! *flag)
+                    return;
+
+                if (r.failed())
+                    juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "削除できませんでした"_ju, r.getErrorMessage(), {}, this);
+
+                refresh();
+            });
+        });
+    });
+}
+
 void ProjectPicker::close()
 {
     if (auto* dw = findParentComponentOfClass<juce::DialogWindow>())
@@ -499,163 +539,124 @@ void ProjectPicker::close()
 }
 
 //==============================================================================
-void ProjectPicker::paintListBoxItem (int row, juce::Graphics& g, int width, int height, bool selected)
+void ProjectPicker::paintRowBackground (juce::Graphics& g, int row, int, int height, bool selected)
+{
+    g.fillAll (selected ? Theme::accent.withAlpha (0.25f) : (row % 2 ? Theme::laneAlt : Theme::lane));
+    juce::ignoreUnused (height);
+}
+
+void ProjectPicker::paintCell (juce::Graphics& g, int row, int column, int width, int height, bool)
 {
     if (row < 0 || row >= (int) entries.size())
         return;
 
     const auto& e = entries[(size_t) row];
-    const auto colour = statusColour (e.status);
-    auto card = juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height).reduced (4.0f, 4.0f);
+    auto area = juce::Rectangle<int> (0, 0, width, height).reduced (8, 4);
+    auto top = area.removeFromTop (area.getHeight() / 2);
 
-    g.setColour (selected ? Theme::panelLight : Theme::panel);
-    g.fillRoundedRectangle (card, 12.0f);
-
-    if (selected)
+    auto line = [&] (juce::Rectangle<int> r, const juce::String& text, juce::Colour colour, float size, bool bold)
     {
-        g.setColour (Theme::accent);
-        g.drawRoundedRectangle (card.reduced (1.0f), 12.0f, 2.0f);
-    }
-
-    // 左の色の帯
-    {
-        juce::Graphics::ScopedSaveState save (g);
-        juce::Path clip;
-        clip.addRoundedRectangle (card, 12.0f);
-        g.reduceClipRegion (clip);
         g.setColour (colour);
-        g.fillRect (card.withWidth (6.0f));
-    }
-
-    auto area = card.reduced (16.0f, 8.0f).withTrimmedLeft (4.0f);
-
-    // 曲の頭文字の丸（Google Drive のアイコンのように、曲ごとに色を変える）
-    auto icon = area.removeFromLeft (46.0f).withSizeKeepingCentre (42.0f, 42.0f);
-    const auto iconColour = Theme::personColour (e.name + toJuce (e.projectId));
-    g.setGradientFill (juce::ColourGradient (iconColour.brighter (0.2f), icon.getX(), icon.getY(), iconColour.darker (0.2f),
-                                             icon.getRight(), icon.getBottom(), false));
-    g.fillRoundedRectangle (icon, 12.0f);
-    g.setColour (juce::Colour (0xff15162a));
-    g.setFont (juce::FontOptions (20.0f, juce::Font::bold));
-    g.drawText (e.name.isEmpty() ? juce::String ("?") : e.name.substring (0, 1).toUpperCase(), icon, juce::Justification::centred);
-
-    // どこにあるか（雲 = サーバー、PC = この PC）の小さな印
-    auto where = [&] (juce::Rectangle<float> r, const juce::String& text, bool on)
-    {
-        g.setColour (on ? Theme::text.withAlpha (0.9f) : Theme::textDim.withAlpha (0.35f));
-        g.drawRoundedRectangle (r, 4.0f, 1.0f);
-        g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
-        g.drawText (text, r, juce::Justification::centred);
+        g.setFont (juce::FontOptions (size, bold ? juce::Font::bold : juce::Font::plain));
+        g.drawText (text, r, juce::Justification::centredLeft, true);
     };
 
-    area.removeFromLeft (14.0f);
-    auto whereArea = area.removeFromRight (120.0f);
-    where (whereArea.removeFromTop (28.0f).removeFromLeft (56.0f).reduced (0.0f, 3.0f), "サーバー"_ju, e.onServer);
-    where (juce::Rectangle<float> (whereArea.getX() + 62.0f, card.getY() + 11.0f, 56.0f, 22.0f), "この PC"_ju, e.local.has_value());
-
-    // 1 行目: 曲名と状況のバッジ
-    auto line1 = area.removeFromTop (28.0f);
-    const auto name = e.name.isEmpty() ? "（名前なし）"_ju : e.name;
-    g.setColour (Theme::text);
-    g.setFont (juce::FontOptions (17.0f, juce::Font::bold));
-    const float nameWidth = juce::jmin (line1.getWidth() * 0.55f,
-                                        juce::GlyphArrangement::getStringWidth (juce::Font (juce::FontOptions (17.0f, juce::Font::bold)), name) + 4.0f);
-    g.drawText (name, line1.removeFromLeft (nameWidth), juce::Justification::centredLeft, true);
-    line1.removeFromLeft (10.0f);
-
-    const auto pill = statusShort (e);
-    const float pillWidth = juce::GlyphArrangement::getStringWidth (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)), pill) + 22.0f;
-    Theme::drawPill (g, line1.removeFromLeft (pillWidth).withSizeKeepingCentre (pillWidth, 20.0f), colour, pill, 12.0f);
-
-    if (e.local && e.local->folder == currentFolder)
+    switch (column)
     {
-        line1.removeFromLeft (6.0f);
-        Theme::drawPill (g, line1.removeFromLeft (92.0f).withSizeKeepingCentre (92.0f, 20.0f), Theme::selection, "いま開いている"_ju, 11.0f);
+        case nameColumn:
+        {
+            const bool isCurrent = e.local && e.local->folder == currentFolder;
+            line (top, e.name.isEmpty() ? "（名前なし）"_ju : e.name, Theme::text, 15.0f, true);
+            line (area, isCurrent ? "いま開いている曲"_ju : juce::String(), Theme::accent, 11.0f, false);
+            break;
+        }
+
+        case statusColumn:
+        {
+            // 色の付いた丸と状況
+            g.setColour (statusColour (e.status));
+            g.fillEllipse (juce::Rectangle<float> (8.0f, 8.0f, 10.0f, 10.0f).withY ((float) top.getCentreY() - 5.0f));
+            line (top.withTrimmedLeft (16), statusText (e), statusColour (e.status).brighter (0.2f), 13.0f, true);
+
+            if (e.local && e.local->changedScopes > 0)
+                line (area.withTrimmedLeft (16), "変更: "_ju + e.local->changedNames.joinIntoString ("、"_ju)
+                                                 + (e.local->changedScopes > e.local->changedNames.size() ? " ほか"_ju : juce::String()),
+                      Theme::textDim, 11.5f, false);
+            break;
+        }
+
+        case serverColumn:
+        {
+            if (! e.onServer)
+            {
+                line (top, e.local && e.local->linked ? "—"_ju : "未登録"_ju, Theme::textDim, 12.5f, false);
+                break;
+            }
+
+            line (top, "rev "_ju + juce::String (e.headRevision), Theme::text, 13.0f, true);
+            line (area, relativeTime (e.updatedAt) + (e.updatedBy.isNotEmpty() ? "　"_ju + e.updatedBy : juce::String()),
+                  Theme::textDim, 11.5f, false);
+            break;
+        }
+
+        case localColumn:
+        {
+            if (! e.local)
+            {
+                line (top, "この PC にはありません"_ju, Theme::textDim, 12.5f, false);
+                break;
+            }
+
+            line (top, (e.local->linked ? "rev "_ju + juce::String (e.local->baseRevision) + "　"_ju : juce::String())
+                          + "保存 "_ju + relativeTime (e.local->savedAt),
+                  Theme::text, 13.0f, e.local->linked);
+            line (area, e.local->folder.getFullPathName(), Theme::textDim, 11.0f, false);
+            break;
+        }
+
+        default:
+            break;
     }
-
-    // 2 行目: 状況の説明（変更したトラック名など）
-    auto line2 = area.removeFromTop (18.0f);
-    juce::String detail = statusText (e);
-
-    if (e.local && e.local->changedScopes > 0)
-        detail << "　変更: "_ju << e.local->changedNames.joinIntoString ("、"_ju)
-               << (e.local->changedScopes > e.local->changedNames.size() ? " ほか"_ju : juce::String());
-
-    g.setColour (colour.interpolatedWith (Theme::text, 0.35f));
-    g.setFont (juce::FontOptions (12.5f));
-    g.drawText (detail, line2, juce::Justification::centredLeft, true);
-
-    // 3 行目: サーバーとこの PC のリビジョン・日時
-    juce::StringArray facts;
-
-    if (e.onServer)
-        facts.add ("サーバー rev "_ju + juce::String (e.headRevision) + "・"_ju + relativeTime (e.updatedAt)
-                   + (e.updatedBy.isNotEmpty() ? " "_ju + e.updatedBy : juce::String()));
-
-    if (e.local)
-        facts.add ("この PC "_ju + (e.local->linked ? "rev "_ju + juce::String (e.local->baseRevision) + "・"_ju : juce::String())
-                   + "保存 "_ju + relativeTime (e.local->savedAt));
-
-    g.setColour (Theme::textDim);
-    g.setFont (juce::FontOptions (11.5f));
-    g.drawText (facts.joinIntoString ("　　"_ju), area.removeFromTop (18.0f), juce::Justification::centredLeft, true);
 }
 
 //==============================================================================
 void ProjectPicker::paint (juce::Graphics& g)
 {
-    g.fillAll (Theme::background);
-
-    // 上の帯（ピンク → 紫のグラデーションと水玉）
-    auto banner = getLocalBounds().removeFromTop (96).toFloat().reduced (12.0f, 12.0f).withTrimmedBottom (-4.0f);
-    g.setGradientFill (juce::ColourGradient (Theme::pink, banner.getX(), banner.getY(), Theme::purple, banner.getRight(), banner.getBottom(), false));
-    g.fillRoundedRectangle (banner, 16.0f);
-
-    {
-        juce::Graphics::ScopedSaveState save (g);
-        juce::Path clip;
-        clip.addRoundedRectangle (banner, 16.0f);
-        g.reduceClipRegion (clip);
-        g.setColour (juce::Colours::white.withAlpha (0.1f));
-        g.fillEllipse (banner.getRight() - 150.0f, banner.getY() - 40.0f, 120.0f, 120.0f);
-        g.fillEllipse (banner.getRight() - 260.0f, banner.getBottom() - 30.0f, 60.0f, 60.0f);
-        g.fillEllipse (banner.getCentreX(), banner.getY() - 20.0f, 36.0f, 36.0f);
-    }
-
-    g.setColour (juce::Colours::white);
-    g.setFont (juce::FontOptions (24.0f, juce::Font::bold));
-    g.drawText ("楽曲を選ぶ"_ju, banner.reduced (20.0f, 0.0f).withHeight (46.0f).translated (0.0f, 8.0f), juce::Justification::centredLeft);
+    g.fillAll (Theme::panel);
 }
 
 void ProjectPicker::resized()
 {
-    auto area = getLocalBounds();
+    auto area = getLocalBounds().reduced (14);
 
-    auto banner = area.removeFromTop (96).reduced (12, 12).withTrimmedBottom (-4).reduced (20, 0);
-    auto bannerTop = banner.removeFromTop (46).translated (0, 8);
-    serverButton.setBounds (bannerTop.removeFromRight (120).withSizeKeepingCentre (120, 28));
-    bannerTop.removeFromRight (6);
-    refreshButton.setBounds (bannerTop.removeFromRight (70).withSizeKeepingCentre (70, 28));
-    serverLine.setBounds (banner.translated (-4, 2).withHeight (22));
+    auto top = area.removeFromTop (30);
+    title.setBounds (top.removeFromLeft (200));
+    serverButton.setBounds (top.removeFromRight (120).reduced (0, 2));
+    top.removeFromRight (6);
+    refreshButton.setBounds (top.removeFromRight (80).reduced (0, 2));
 
-    area.reduce (14, 4);
-
-    auto actions = area.removeFromTop (38);
-    createButton.setBounds (actions.removeFromLeft (240).reduced (0, 2));
-    actions.removeFromLeft (8);
-    newButton.setBounds (actions.removeFromLeft (170).reduced (0, 4));
-    actions.removeFromLeft (6);
-    otherButton.setBounds (actions.removeFromLeft (150).reduced (0, 4));
+    serverLine.setBounds (area.removeFromTop (22));
     area.removeFromTop (6);
 
-    auto bottom = area.removeFromBottom (44).reduced (0, 6);
-    openButton.setBounds (bottom.removeFromRight (200));
-    bottom.removeFromRight (8);
+    auto bottom = area.removeFromBottom (32);
+    openButton.setBounds (bottom.removeFromRight (180));
+    bottom.removeFromRight (6);
     closeButton.setBounds (bottom.removeFromRight (100));
-    forgetButton.setBounds (bottom.removeFromLeft (120));
-    bottom.removeFromLeft (10);
-    folderButton.setBounds (bottom.removeFromRight (70).reduced (0, 2));
-    folderLine.setBounds (bottom);
+    createButton.setBounds (bottom.removeFromLeft (190));
+    bottom.removeFromLeft (6);
+    newButton.setBounds (bottom.removeFromLeft (170));
+    bottom.removeFromLeft (6);
+    otherButton.setBounds (bottom.removeFromLeft (140));
+    bottom.removeFromLeft (16);
+    forgetButton.setBounds (bottom.removeFromLeft (110));
+    bottom.removeFromLeft (6);
+    deleteButton.setBounds (bottom.removeFromLeft (140));
+
+    area.removeFromBottom (6);
+    auto folderRow = area.removeFromBottom (24);
+    folderButton.setBounds (folderRow.removeFromRight (70).reduced (0, 1));
+    folderLine.setBounds (folderRow);
+    area.removeFromBottom (4);
 
     table.setBounds (area);
 }
