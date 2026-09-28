@@ -954,6 +954,10 @@ TimelineView::TimelineView (AppContext& c)
     addAndMakeVisible (markerLane);
     addAndMakeVisible (lanes);
 
+    // 上の段にマウスが乗ったら、その段（見出しも含めて）を明るくする
+    for (auto* lane : topLanes())
+        lane->addMouseListener (this, false);
+
     // コードトラックのミュート（内蔵ピアノで鳴らすか。音量はミキサーのコードのストリップ）
     chordMute.setButtonText ("M");
     chordMute.setTooltip ("コードトラックのミュート"_ju);
@@ -1021,6 +1025,57 @@ void TimelineView::paint (juce::Graphics& g)
     g.setColour (Theme::background);
     g.drawVerticalLine (headerWidth - 1, 0.0f, (float) getHeight());
     g.drawHorizontalLine (topHeight - 1, 0.0f, (float) getWidth());
+}
+
+std::vector<juce::Component*> TimelineView::topLanes() const
+{
+    return { const_cast<MeterLane*> (&meterLane), const_cast<TempoLane*> (&tempoLane), const_cast<KeyLane*> (&keyLane),
+             const_cast<ChordLane*> (&chordLane), const_cast<MarkerLane*> (&markerLane) };
+}
+
+void TimelineView::mouseMove (const juce::MouseEvent& e)
+{
+    auto lanes2 = topLanes();
+    auto* over = std::find (lanes2.begin(), lanes2.end(), e.eventComponent) != lanes2.end() ? e.eventComponent : nullptr;
+
+    // 見出しの列の上でも、その高さの段を明るくする
+    if (over == nullptr && e.eventComponent == this && e.x < headerWidth)
+        for (auto* lane : lanes2)
+            if (e.y >= lane->getY() && e.y < lane->getBottom())
+                over = lane;
+
+    if (over != hoveredLane)
+    {
+        hoveredLane = over;
+        repaint (0, ruler.getBottom(), getWidth(), topHeight - ruler.getBottom());
+    }
+}
+
+void TimelineView::mouseExit (const juce::MouseEvent& e)
+{
+    if (hoveredLane != nullptr && (e.eventComponent == hoveredLane || e.eventComponent == this))
+    {
+        hoveredLane = nullptr;
+        repaint (0, ruler.getBottom(), getWidth(), topHeight - ruler.getBottom());
+    }
+}
+
+void TimelineView::paintOverChildren (juce::Graphics& g)
+{
+    // 上の段の区切り線と、マウスのある段の明るさ（見出しから右端まで）
+    for (auto* lane : topLanes())
+    {
+        const auto row = juce::Rectangle<int> (0, lane->getY(), lane->getRight(), lane->getHeight());
+
+        if (lane == hoveredLane)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.07f));
+            g.fillRect (row);
+        }
+
+        g.setColour (Theme::background);
+        g.fillRect (row.getX(), row.getBottom() - 1, row.getWidth(), 1);
+    }
 }
 
 void TimelineView::resized()

@@ -18,6 +18,8 @@ namespace
 
         if (editable)
         {
+            l.setColour (juce::Label::backgroundColourId, Theme::field);
+            l.setColour (juce::Label::outlineColourId, Theme::fieldOutline);
             l.setEditable (true, false, false);
             l.setColour (juce::Label::backgroundWhenEditingColourId, Theme::panelLight);
             l.setColour (juce::Label::textWhenEditingColourId, Theme::text);

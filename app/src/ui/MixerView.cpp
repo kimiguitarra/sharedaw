@@ -24,8 +24,9 @@ namespace
     {
         l.setJustificationType (juce::Justification::centred);
         l.setFont (juce::FontOptions (14.0f));
-        l.setColour (juce::Label::backgroundColourId, juce::Colour (0xff15171b));
-        l.setColour (juce::Label::backgroundWhenEditingColourId, juce::Colour (0xff0e0f12));
+        l.setColour (juce::Label::backgroundColourId, Theme::field);
+        l.setColour (juce::Label::outlineColourId, Theme::fieldOutline);
+        l.setColour (juce::Label::backgroundWhenEditingColourId, Theme::field);
         l.setColour (juce::Label::textWhenEditingColourId, Theme::text);
         l.setColour (juce::Label::outlineWhenEditingColourId, Theme::accent);
         l.setColour (juce::TextEditor::highlightColourId, Theme::accent.withAlpha (0.4f));
@@ -74,7 +75,7 @@ public:
     void paint (juce::Graphics& g) override
     {
         auto area = getLocalBounds().toFloat();
-        g.setColour (juce::Colour (0xff15171b));
+        g.setColour (Theme::field);
         g.fillRect (area);
 
         auto toY = [&] (float db) { return juce::jmap (db, meterFloorDb, 6.0f, area.getBottom(), area.getY()); };
@@ -112,7 +113,7 @@ struct PanBar  : public juce::Slider
     void paint (juce::Graphics& g) override
     {
         auto r = getLocalBounds().toFloat();
-        g.setColour (juce::Colour (0xff15171b));
+        g.setColour (Theme::field);
         g.fillRoundedRectangle (r, 2.0f);
 
         const float centre = r.getCentreX();
@@ -158,7 +159,7 @@ public:
             g.drawText (juce::String::fromUTF8 ("\xE2\x87\x85"), swapArea, juce::Justification::centred);
         }
 
-        g.setColour (juce::Colour (0xff1b1e22));
+        g.setColour (Theme::field.brighter (0.08f));
         g.fillRect (r);
         paintBody (g, r);
 
@@ -422,7 +423,7 @@ public:
 
         // ゲインリダクション（右から左へ伸びる）
         auto bar = r.reduced (3, 2).toFloat();
-        g.setColour (juce::Colour (0xff15171b));
+        g.setColour (Theme::field);
         g.fillRect (bar);
         g.setColour (juce::Colour (0xffffb74d));
         g.fillRect (bar.withLeft (bar.getRight() - bar.getWidth() * juce::jlimit (0.0f, 1.0f, gainReduction / 20.0f)));
@@ -465,7 +466,7 @@ public:
         drawRow (g, r.removeFromTop (rowHeight), "Thr " + juce::String (l.thresholdDb, 1) + " / Ceil " + juce::String (l.ceilingDb, 1), l.enabled, false);
 
         auto bar = r.removeFromTop (8).reduced (3, 1).toFloat();
-        g.setColour (juce::Colour (0xff15171b));
+        g.setColour (Theme::field);
         g.fillRect (bar);
         g.setColour (juce::Colour (0xffffb74d));
         g.fillRect (bar.withLeft (bar.getRight() - bar.getWidth() * juce::jlimit (0.0f, 1.0f, status.gainReductionDb / 12.0f)));

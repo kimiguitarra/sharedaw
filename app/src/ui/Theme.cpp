@@ -106,8 +106,11 @@ LookAndFeel::LookAndFeel()
     setColour (juce::TooltipWindow::outlineColourId, juce::Colours::white.withAlpha (0.25f));
     setColour (juce::BubbleComponent::backgroundColourId, juce::Colour (0xff2b2f36));
     setColour (juce::BubbleComponent::outlineColourId, juce::Colours::white.withAlpha (0.25f));
-    setColour (juce::TextEditor::backgroundColourId, juce::Colours::black.withAlpha (0.25f));
-    setColour (juce::TextEditor::outlineColourId, juce::Colours::white.withAlpha (0.14f));
+    setColour (juce::TextEditor::backgroundColourId, field);
+    setColour (juce::TextEditor::outlineColourId, fieldOutline);
+    setColour (juce::AlertWindow::backgroundColourId, panel);
+    setColour (juce::AlertWindow::outlineColourId, juce::Colours::white.withAlpha (0.25f));
+    setColour (juce::AlertWindow::textColourId, text);
     setColour (juce::TextEditor::focusedOutlineColourId, accent);
 }
 

@@ -246,7 +246,7 @@ void EqGraph::updateShownSpectrum()
 void EqGraph::paint (juce::Graphics& g)
 {
     const auto r = plotArea();
-    g.setColour (juce::Colour (0xff15171b));
+    g.setColour (Theme::field);
     g.fillRect (r);
 
     // グリッド

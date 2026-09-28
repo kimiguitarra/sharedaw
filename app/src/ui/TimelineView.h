@@ -95,7 +95,12 @@ public:
     std::function<void()> onOpenClip;
 
     void paint (juce::Graphics&) override;
+    void paintOverChildren (juce::Graphics&) override;
     void resized() override;
+
+    /** 上の段（拍子〜マーカー）のどれにマウスがあるか（その段を明るくして、鉛筆で何を書くのか分かるように）。 */
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
 
     /** マーカー〜コードのレーンの上のホイール（レーンから親へ渡ってくる）: Ctrl でズーム、Shift で横スクロール。 */
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
@@ -122,6 +127,8 @@ private:
     ChordLane chordLane;
     MarkerLane markerLane;
     juce::TextButton chordMute;   // コードトラックのミュート（M）
+    juce::Component* hoveredLane = nullptr;
+    std::vector<juce::Component*> topLanes() const;
     TrackLanes lanes;
     /** トラックヘッダーを並べる所。空いている所を右クリックするとトラックを追加するメニュー（Cubase と同じ）。 */
     struct HeaderArea  : public juce::Component

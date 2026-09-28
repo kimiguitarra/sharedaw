@@ -316,7 +316,10 @@ bool ChordLane::keyPressed (const juce::KeyPress& key)
             }
 
             if (i + 1 < events.size())
+            {
                 ctx.state.selectedChordId = events[i + 1].id;
+                scrollToShow (events[i + 1].tick);
+            }
 
             ctx.state.changed();
             return true;
@@ -324,6 +327,16 @@ bool ChordLane::keyPressed (const juce::KeyPress& key)
     }
 
     return false;
+}
+
+void ChordLane::scrollToShow (collab::Tick tick)
+{
+    // 選んだコードが画面の右寄り（または外）に来たら、左から 1/4 の位置まで送る（続けて入力できるように）
+    auto& axis = ctx.state.timeline;
+    const double x = axis.tickToX ((double) tick);
+
+    if (x < 20.0 || x > getWidth() * 0.8)
+        axis.scrollTick = juce::jmax (0.0, (double) tick - getWidth() * 0.25 / axis.pixelsPerTick());
 }
 
 std::optional<collab::ChordEvent> ChordLane::chordForDegree (juce::juce_wchar digit, collab::Tick tick) const
@@ -472,6 +485,10 @@ void ChordLane::bulkFill (int fromBar, int toBar, int beatsPerStep, int barsPerS
         }
 
     ctx.state.selectedChordId = firstEmpty;
+
+    if (! firstEmpty.empty())
+        scrollToShow (firstTick);
+
     ctx.state.changed();
 
     // ダイアログが閉じた後にフォーカスを取り戻す（続けて数字を打てるように）

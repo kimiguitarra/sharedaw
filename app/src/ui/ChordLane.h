@@ -60,6 +60,9 @@ private:
     /** fromBar〜toBar に stepTicks（0 なら 1 小節ごと、負なら -n 小節ごと）で空のコードを置き、degrees を順に入れる。 */
     void bulkFill (int fromBar, int toBar, int beatsPerStep, int barsPerStep, const juce::String& degrees);
 
+    /** tick が画面に入るようにタイムラインを横に送る（呼んだ側で state.changed() する）。 */
+    void scrollToShow (collab::Tick tick);
+
     /** ディグリー（'1'〜'7'）をその位置のキーのコードにする。 */
     std::optional<collab::ChordEvent> chordForDegree (juce::juce_wchar digit, collab::Tick) const;
 

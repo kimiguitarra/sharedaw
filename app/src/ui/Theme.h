@@ -5,16 +5,21 @@
 
 namespace Theme
 {
-    const juce::Colour background     { 0xff1e2126 };
-    const juce::Colour panel          { 0xff262a30 };
-    const juce::Colour panelLight     { 0xff30353c };
-    const juce::Colour lane           { 0xff22262b };
-    const juce::Colour laneAlt        { 0xff1f2227 };
-    const juce::Colour gridBar        { 0xff4a515b };
-    const juce::Colour gridBeat       { 0xff3a414a };
-    const juce::Colour gridSub        { 0xff2f353c };
-    const juce::Colour text           { 0xffe6e8eb };
-    const juce::Colour textDim        { 0xff9aa3ad };
+    // Cubase のように、真っ黒ではなく落ち着いた灰色
+    const juce::Colour background     { 0xff2c2f33 };
+    const juce::Colour panel          { 0xff383b40 };
+    const juce::Colour panelLight     { 0xff464a50 };
+    const juce::Colour lane           { 0xff393c41 };
+    const juce::Colour laneAlt        { 0xff34373c };
+    const juce::Colour gridBar        { 0xff676d75 };
+    const juce::Colour gridBeat       { 0xff51565d };
+    const juce::Colour gridSub        { 0xff45494f };
+    const juce::Colour text           { 0xffeceef0 };
+    const juce::Colour textDim        { 0xffb0b6bd };
+
+    // 入力欄: 周りより暗くして、はっきりした枠を付ける（どこに打てるか分かるように）
+    const juce::Colour field          { 0xff232528 };
+    const juce::Colour fieldOutline   { 0x66ffffff };
     const juce::Colour accent         { 0xff4fc3f7 };
     const juce::Colour selection      { 0xffffd54f };
     const juce::Colour playhead       { 0xffff5252 };

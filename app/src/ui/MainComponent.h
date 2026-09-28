@@ -70,7 +70,7 @@ private:
     SyncPanel syncPanel { sync, document, settings };
     SyncToast toast;
     juce::Label statusBar;
-    juce::TooltipWindow tooltips { nullptr, 700 };   // マウスを少し止めるとボタンの説明を出す
+    juce::TooltipWindow tooltips { nullptr, 400 };   // マウスを少し止めるとボタンの説明を出す
     std::unique_ptr<juce::FileChooser> chooser;
 
     bool lastLoop = false;

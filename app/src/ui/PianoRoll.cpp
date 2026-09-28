@@ -190,7 +190,18 @@ void NoteGrid::paint (juce::Graphics& g)
     {
         g.setColour (Theme::textDim);
         g.setFont (juce::FontOptions (16.5f));
-        g.drawText ("タイムラインで MIDI クリップを選択すると、ここで編集できます"_ju, getLocalBounds(), juce::Justification::centred);
+        g.drawText (owner.canCreateClip() ? "鉛筆ツールでクリックすると、クリップを作ってノートを置きます"_ju
+                                          : "MIDI トラックかクリップを選ぶと、ここで編集できます"_ju,
+                    getLocalBounds(), juce::Justification::centred);
+
+        // 鉛筆の置き場所の影（クリップがなくても出す）
+        if (ghostPitch >= 0 && ghostTick >= 0.0)
+        {
+            g.setColour (Theme::accent.withAlpha (0.35f));
+            g.fillRect (juce::Rectangle<float> ((float) axis.tickToX (ghostTick), owner.pitchToY (ghostPitch),
+                                                (float) (owner.ctx.state.grid.stepTicks() * axis.pixelsPerTick()), (float) owner.noteHeight));
+        }
+
         return;
     }
 
@@ -292,7 +303,8 @@ void NoteGrid::mouseMove (const juce::MouseEvent& e)
     {
         bool onEdge = false;
         auto* clip = owner.getClip();
-        const bool pencilFree = owner.ctx.state.pencil() && clip != nullptr && hitNote (e.position, onEdge) == nullptr;
+        const bool canCreate = owner.canCreateClip();
+        const bool pencilFree = owner.ctx.state.pencil() && (clip != nullptr || canCreate) && hitNote (e.position, onEdge) == nullptr;
         double tick = -1.0;
         int pitch = -1;
 
@@ -300,7 +312,7 @@ void NoteGrid::mouseMove (const juce::MouseEvent& e)
         {
             const auto abs = owner.snap (owner.axis().xToTick (e.position.x), true, e.mods);
 
-            if (abs >= clip->startTick && abs < clip->endTick())
+            if (canCreate || (abs >= clip->startTick && abs < clip->endTick()))
             {
                 tick = (double) abs;
                 pitch = owner.yToPitch (e.position.y);
@@ -345,6 +357,16 @@ void NoteGrid::mouseDown (const juce::MouseEvent& e)
     grabKeyboardFocus();
     auto* clip = owner.getClip();
     mode = Mode::none;
+
+    // 鉛筆で空いている所に書いたら、MIDI クリップを自動で作る（または選択中のクリップを伸ばす）
+    if (owner.ctx.state.pencil() && ! e.mods.isPopupMenu() && owner.canCreateClip())
+    {
+        bool onEdge = false;
+        const auto abs = owner.snap (owner.axis().xToTick (e.position.x), true, e.mods);
+
+        if ((clip == nullptr || abs < clip->startTick || abs >= clip->endTick()) && hitNote (e.position, onEdge) == nullptr)
+            clip = owner.ensureClipAt (abs);
+    }
 
     if (clip == nullptr)
         return;
@@ -1110,6 +1132,84 @@ void PianoRollView::duplicateSelectedNotes()
 void PianoRollView::focusEditor()
 {
     grid.grabKeyboardFocus();
+}
+
+bool PianoRollView::canCreateClip() const
+{
+    auto* t = getTrack();
+    return t != nullptr && t->type == collab::TrackType::midi;
+}
+
+const collab::MidiClip* PianoRollView::ensureClipAt (collab::Tick abs)
+{
+    auto* track = getTrack();
+
+    if (track == nullptr || track->type != collab::TrackType::midi)
+        return nullptr;
+
+    // すでにクリップがある所ならそれを選ぶ
+    for (auto& c : track->midiClips)
+        if (abs >= c.startTick && abs < c.endTick())
+        {
+            if (c.id != ctx.state.selectedClipId)
+            {
+                ctx.state.selectClip (c.id);
+                ctx.state.changed();
+            }
+
+            return getClip();
+        }
+
+    const auto& map = ctx.document.getTempoMap();
+    const int bar = map.tickToBar (abs);
+    const auto barEnd = map.barToTick (bar + 1);
+    const auto trackId = track->id;
+
+    // 選択中のクリップの後ろで、間にほかのクリップがなければ、そのクリップを伸ばす
+    if (auto* sel = getClip(); sel != nullptr && abs >= sel->endTick()
+                                && track->findMidiClip (sel->id) != nullptr)
+    {
+        const bool blocked = std::any_of (track->midiClips.begin(), track->midiClips.end(), [&] (auto& c)
+        {
+            return c.id != sel->id && c.startTick >= sel->endTick() && c.startTick < barEnd;
+        });
+
+        if (! blocked)
+        {
+            const auto clipId = sel->id;
+            const auto newLength = barEnd - sel->startTick;
+            ctx.document.perform ("クリップを伸ばす"_ju, [trackId, clipId, newLength] (collab::Project& p)
+            {
+                if (auto* t = p.findTrack (trackId))
+                    if (auto* c = t->findMidiClip (clipId))
+                        c->lengthTick = newLength;
+            });
+            return getClip();
+        }
+    }
+
+    // その小節に新しいクリップ（次のクリップにかからない長さ）
+    collab::MidiClip clip;
+    clip.id = collab::generateUuid();
+    clip.startTick = map.barToTick (bar);
+    clip.lengthTick = barEnd - clip.startTick;
+
+    for (auto& c : track->midiClips)
+        if (c.startTick > clip.startTick && c.startTick < clip.endTick())
+            clip.lengthTick = c.startTick - clip.startTick;
+
+    if (clip.lengthTick <= 0)
+        return nullptr;
+
+    ctx.document.perform ("MIDI クリップを作る"_ju, [trackId, clip] (collab::Project& p)
+    {
+        if (auto* t = p.findTrack (trackId))
+            t->midiClips.push_back (clip);
+    });
+
+    ctx.state.selectClip (clip.id);
+    ctx.state.changed();
+    return getClip();
 }
 
 void PianoRollView::editNotes (const juce::String& description, std::function<void (collab::MidiClip&)> fn, const juce::String& mergeId)

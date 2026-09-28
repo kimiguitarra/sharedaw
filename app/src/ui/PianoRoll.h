@@ -130,6 +130,16 @@ public:
 
     const collab::Track* getTrack() const  { return ctx.selectedTrack(); }
     const collab::MidiClip* getClip() const { return ctx.selectedClip(); }
+
+    /** 選択中のトラックが MIDI トラックなら、クリップがなくても鉛筆で書ける（クリップを自動で作る）。 */
+    bool canCreateClip() const;
+
+    /**
+        abs（曲の先頭からの tick）にノートを置けるクリップを用意して選ぶ。
+        そこにクリップがあればそれ、選択中のクリップのすぐ後ろならそのクリップを小節単位で伸ばし、
+        どちらでもなければその小節に新しいクリップを作る。作れなければ nullptr。
+    */
+    const collab::MidiClip* ensureClipAt (collab::Tick abs);
     /** 選択中のオーディオクリップ（あればピアノロールの代わりに波形を拡大表示する）。 */
     const collab::AudioClip* getAudioClip() const;
     bool isDrumTrack() const;

@@ -112,8 +112,9 @@ TrackHeader::TrackHeader (AppContext& c, const std::string& id)
         l->setJustificationType (juce::Justification::centred);
         l->setFont (juce::FontOptions (15.0f));
         l->setColour (juce::Label::textColourId, Theme::text);
-        l->setColour (juce::Label::backgroundColourId, juce::Colours::black.withAlpha (0.25f));
-        l->setColour (juce::Label::backgroundWhenEditingColourId, juce::Colour (0xff0e0f12));
+        l->setColour (juce::Label::backgroundColourId, Theme::field);
+        l->setColour (juce::Label::outlineColourId, Theme::fieldOutline);
+        l->setColour (juce::Label::backgroundWhenEditingColourId, Theme::field);
         l->setColour (juce::Label::textWhenEditingColourId, Theme::text);
         l->setColour (juce::Label::outlineWhenEditingColourId, Theme::accent);
         addAndMakeVisible (l);
