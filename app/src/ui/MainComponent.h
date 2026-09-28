@@ -137,6 +137,13 @@ public:
 private:
     // 同期パネル（右側）から: 画面に出ている差分のまま、すぐに取り込む・アップする
     void toggleSyncPanel();
+
+    /** 曲を置くフォルダを選んでもらう（キャンセルなら何もしない）。選んだ場所は次の既定になる。 */
+    void chooseProjectParent (const juce::String& title, std::function<void (const juce::File&)> onChosen);
+
+    /** 保存済みの曲をサーバーに登録する（registerProject の後半）。 */
+    void uploadRegistration();
+
     /** ダウンロード（競合などの選択つき）。quiet なら自動ダウンロード（バックグラウンド）。取り込めたら true。 */
     bool downloadWithChoices (const std::map<std::string, collab::Resolution>& choices, bool quiet);
     void uploadFromPanel (const std::set<std::string>& excluded, const juce::String& message,

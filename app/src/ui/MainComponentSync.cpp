@@ -93,26 +93,59 @@ void MainComponent::registerProject()
     if (sync.isLinked())
         return Dialogs::showInfo ("同期"_ju, "このプロジェクトは既にサーバーに登録されています。"_ju);
 
-    // まだ保存していない曲は、ダウンロード先と同じフォルダ（ドキュメント/ShareDAW）に保存してから登録する
+    // まだ保存していない曲は、どこに置くかを聞いて保存してから登録する
     if (! document.hasLocation())
     {
-        auto dir = ProjectPicker::projectsFolder (settings);
+        chooseProjectParent ("曲を置くフォルダを選んでください"_ju, [this] (const juce::File& dir)
+        {
+            if (auto r = document.saveNew (dir); r.failed())
+                return Dialogs::showError ("保存に失敗しました"_ju, r.getErrorMessage());
 
-        if (! dir.isDirectory() && ! dir.createDirectory())
-            return Dialogs::showError ("登録できませんでした"_ju, "フォルダを作れません: "_ju + dir.getFullPathName());
-
-        if (auto r = document.saveNew (dir); r.failed())
-            return Dialogs::showError ("保存に失敗しました"_ju, r.getErrorMessage());
-
-        settings.setValue ("lastProjectDir", document.getProjectDir().getFullPathName());
-        ProjectPicker::remember (settings, document.getProjectDir());
+            settings.setValue ("lastProjectDir", document.getProjectDir().getFullPathName());
+            ProjectPicker::remember (settings, document.getProjectDir());
+            uploadRegistration();
+        });
+        return;
     }
-    else if (document.isDirty())
+
+    if (document.isDirty())
     {
         if (auto r = document.save(); r.failed())
             return Dialogs::showError ("保存に失敗しました"_ju, r.getErrorMessage());
     }
 
+    uploadRegistration();
+}
+
+void MainComponent::chooseProjectParent (const juce::String& title, std::function<void (const juce::File&)> onChosen)
+{
+    // 前回選んだ場所（なければドキュメント/ShareDAW）から始める。選んだ場所は次の既定にする
+    auto start = ProjectPicker::projectsFolder (settings);
+
+    if (! start.isDirectory())
+        start.createDirectory();
+
+    auto chooser = std::make_shared<juce::FileChooser> (title, start.isDirectory() ? start
+                                                                                  : juce::File::getSpecialLocation (juce::File::userDocumentsDirectory));
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+                          [this, chooser, onChosen = std::move (onChosen)] (const juce::FileChooser& fc)
+    {
+        const auto dir = fc.getResult();
+
+        if (dir == juce::File())
+            return;   // キャンセル
+
+        if (! dir.isDirectory() && ! dir.createDirectory())
+            return Dialogs::showError ("フォルダを使えません"_ju, dir.getFullPathName());
+
+        settings.setValue ("projectsFolder", dir.getFullPathName());
+        settings.saveIfNeeded();
+        onChosen (dir);
+    });
+}
+
+void MainComponent::uploadRegistration()
+{
     const auto snapshot = document.getProject();
     const auto dir = document.getProjectDir();
     auto r = SyncUI::runWithProgress ("サーバーに登録しています"_ju, [&] (const SyncProgress& p) { return sync.runRegister (snapshot, dir, p); });
@@ -149,7 +182,7 @@ void MainComponent::createProjectOnServer()
             state.changed();
             bridge.returnToStart();
 
-            // サーバーに作って、この PC（ドキュメント/ShareDAW）にも置く
+            // 置き場所を聞いてこの PC に保存し、サーバーにも作る
             registerProject();
         });
     });
@@ -439,19 +472,17 @@ void MainComponent::downloadProject (const std::string& projectId)
     if (! ensureSyncReady (false))
         return;
 
-    // ダウンロード先（ドキュメント/ShareDAW など）の中に曲のフォルダを作る
-    auto dir = ProjectPicker::projectsFolder (settings);
+    // どこに置くかを聞いて、その中に曲のフォルダを作る
+    chooseProjectParent ("ダウンロードした曲を置くフォルダを選んでください"_ju, [this, projectId] (const juce::File& dir)
+    {
+        juce::File created;
+        auto res = SyncUI::runWithProgress ("ダウンロードしています"_ju, [&] (const SyncProgress& p) { return sync.runOpenFromServer (projectId, dir, created, p); });
 
-    if (! dir.isDirectory() && ! dir.createDirectory())
-        return Dialogs::showError ("開けませんでした"_ju, "ダウンロード先のフォルダを作れません: "_ju + dir.getFullPathName());
+        if (res.failed())
+            return Dialogs::showError ("開けませんでした"_ju, res.getErrorMessage());
 
-    juce::File created;
-    auto res = SyncUI::runWithProgress ("ダウンロードしています"_ju, [&] (const SyncProgress& p) { return sync.runOpenFromServer (projectId, dir, created, p); });
-
-    if (res.failed())
-        return Dialogs::showError ("開けませんでした"_ju, res.getErrorMessage());
-
-    openProjectFolder (created);
+        openProjectFolder (created);
+    });
 }
 
 void MainComponent::showHistory()
