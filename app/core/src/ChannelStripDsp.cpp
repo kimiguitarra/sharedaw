@@ -145,6 +145,9 @@ void ChannelStripDsp::reset()
         for (auto& s : ch)
             s = {};
 
+    for (auto& s : sidechainStates)
+        s = {};
+
     envDb = 0.0;
     rmsSquare = 0.0;
     optoMemory = 0.0;
@@ -178,6 +181,8 @@ void ChannelStripDsp::setParams (const ChannelStrip& p)
     coeffs[highShelf] = Biquad::highShelf (sampleRate, eq.highFreqHz, eq.highGainDb);
 
     makeupGain = dbToGain (p.comp.makeupDb);
+    sidechainActive = p.comp.sidechainHpHz > 0.0;
+    sidechainHp = Biquad::highPass (sampleRate, std::max (10.0, p.comp.sidechainHpHz), 0.7071);
 
     if (! p.comp.enabled)
     {
@@ -190,10 +195,13 @@ void ChannelStripDsp::process (float* const* channels, int numChannels, int numS
 {
     numChannels = std::min (numChannels, maxChannels);
 
+    if (params.compFirst && params.comp.enabled)
+        processComp (channels, numChannels, numSamples);
+
     if (params.eq.enabled)
         processEq (channels, numChannels, numSamples);
 
-    if (params.comp.enabled)
+    if (! params.compFirst && params.comp.enabled)
         processComp (channels, numChannels, numSamples);
 }
 
@@ -237,7 +245,9 @@ void ChannelStripDsp::processComp (float* const* channels, int numChannels, int 
 
         for (int ch = 0; ch < numChannels; ++ch)
         {
-            const double x = channels[ch][i];
+            // 低域のスルー: 検出だけ低域を削る（音そのものは削らない）
+            const double x = sidechainActive ? (double) sidechainStates[(size_t) ch].process (sidechainHp, channels[ch][i])
+                                             : (double) channels[ch][i];
             peak = std::max (peak, std::abs (x));
             square = std::max (square, x * x);
         }

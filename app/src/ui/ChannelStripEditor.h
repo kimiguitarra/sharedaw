@@ -5,7 +5,8 @@
 #include "ui/EqGraph.h"
 
 /**
-    トラックの EQ・Compressor（チャンネルストリップ）の編集画面。
+    トラックの EQ または Compressor（チャンネルストリップ）の編集画面。EQ と Compressor は別々のウィンドウで開く。
+    上の「EQ → Comp」ボタンで、かける順番を入れ替えられる。
     値はプロジェクト JSON（Track::strip）を書き換え、EngineBridge が音に反映する。
 */
 class ChannelStripEditor  : public juce::Component,
@@ -13,7 +14,9 @@ class ChannelStripEditor  : public juce::Component,
                             private juce::Timer
 {
 public:
-    ChannelStripEditor (AppContext&, std::string trackId);
+    enum class Section { eq, comp };
+
+    ChannelStripEditor (AppContext&, std::string trackId, Section);
     ~ChannelStripEditor() override;
 
     void setTrack (std::string trackId);
@@ -29,17 +32,16 @@ public:
 private:
     AppContext& ctx;
     std::string trackId;
+    const Section section;
     juce::String mergeId;
 
-    juce::ToggleButton eqEnabled { "EQ"_ju }, compEnabled { "Compressor"_ju };
+    juce::ToggleButton enabled;
     juce::ComboBox compType;
-    juce::TextButton resetEq { "EQ をリセット"_ju }, resetComp { "Compressor をリセット"_ju };
+    juce::TextButton orderButton, resetButton;
 
-    EqGraph eqGraph;
+    std::unique_ptr<EqGraph> eqGraph;
     juce::Label eqHint;
-    CompressorPanel compressor;
-
-    juce::Rectangle<int> eqArea, compArea;
+    std::unique_ptr<CompressorPanel> compressor;
 
     const collab::Track* getTrack() const;
     void edit (const juce::String& description, std::function<void (collab::ChannelStrip&)>, bool merge);

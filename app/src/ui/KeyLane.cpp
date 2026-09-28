@@ -67,13 +67,13 @@ void KeyLane::paint (juce::Graphics& g)
     if (events.empty())
     {
         g.setColour (Theme::textDim);
-        g.setFont (juce::FontOptions (13.0f));
+        g.setFont (juce::FontOptions (14.5f));
         g.drawText ("キー未設定（右クリックで設定。コードから推定もできます）"_ju, getLocalBounds().reduced (6, 0),
                     juce::Justification::centredLeft);
         return;
     }
 
-    g.setFont (juce::FontOptions (13.5f, juce::Font::bold));
+    g.setFont (juce::FontOptions (15.0f, juce::Font::bold));
 
     // 左にスクロールして変更点が見えなくなっても、いまのキーを左端に出す
     {
@@ -208,6 +208,11 @@ void KeyLane::showMenu (const std::string& id, int bar)
 }
 
 void KeyLane::setKeyAt (int bar, collab::chord::Key k)
+{
+    setKey (ctx, bar, k);
+}
+
+void KeyLane::setKey (AppContext& ctx, int bar, collab::chord::Key k)
 {
     // 同じ小節にあれば書き換え、なければ追加
     std::string id = collab::generateUuid();

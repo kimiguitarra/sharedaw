@@ -121,7 +121,7 @@ struct AppContext
     std::function<juce::PopupMenu()> addTrackMenu;
 
     /** トラックの EQ・コンプの画面を開く（MainComponent が設定する）。 */
-    std::function<void (const std::string& trackId)> openChannelStrip;
+    std::function<void (const std::string& trackId, bool compressor)> openChannelStrip;   // EQ か Compressor の画面
 
     /** マスターの画面（リミッター・ラウドネス）を開く。 */
     std::function<void()> openMaster;

@@ -265,7 +265,7 @@ void MasterPanel::paint (juce::Graphics& g)
 void MasterPanel::paintLimiter (juce::Graphics& g)
 {
     g.setColour (amber);
-    g.setFont (juce::FontOptions (15.0f, juce::Font::bold));
+    g.setFont (juce::FontOptions (16.5f, juce::Font::bold));
     g.drawText ("VINTAGE LIMITER", limiterArea.reduced (120, 10).withHeight (22), juce::Justification::centred);
 
     // IN / OUT メーター（-30〜0 dB）
@@ -282,7 +282,7 @@ void MasterPanel::paintLimiter (juce::Graphics& g)
         g.fillRect (r.reduced (3.0f, 2.0f).withTop (y));
 
         g.setColour (cream.withAlpha (0.35f));
-        g.setFont (juce::FontOptions (9.0f));
+        g.setFont (juce::FontOptions (12.0f));
 
         for (int v : { 0, -3, -6, -10, -15, -20, -30 })
             g.drawHorizontalLine ((int) toY (v), r.getX(), r.getX() + 4.0f);
@@ -292,9 +292,9 @@ void MasterPanel::paintLimiter (juce::Graphics& g)
         g.drawHorizontalLine ((int) toY (markDb), r.getX(), r.getRight());
 
         g.setColour (cream);
-        g.setFont (juce::FontOptions (12.5f, juce::Font::bold));
+        g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
         g.drawText (label, area.withY (area.getBottom() + 2).withHeight (14).expanded (10, 0), juce::Justification::centred);
-        g.setFont (juce::FontOptions (11.5f));
+        g.setFont (juce::FontOptions (13.0f));
         g.drawText (db <= -99.0f ? juce::String ("-inf") : juce::String (db, 1), area.withY (area.getY() - 16).withHeight (14).expanded (12, 0),
                     juce::Justification::centred);
     };
@@ -305,7 +305,7 @@ void MasterPanel::paintLimiter (juce::Graphics& g)
 
     // 目盛り（メーターの間の数字）
     g.setColour (cream.withAlpha (0.5f));
-    g.setFont (juce::FontOptions (9.5f));
+    g.setFont (juce::FontOptions (12.0f));
 
     for (int v : { 0, -3, -6, -10, -15, -20, -30 })
     {
@@ -317,7 +317,7 @@ void MasterPanel::paintLimiter (juce::Graphics& g)
     {
         auto row = juce::Rectangle<int> (limiterArea.getX() + 14, inMeter.getBottom() + 20, limiterArea.getWidth() - 28, 16);
         g.setColour (amber);
-        g.setFont (juce::FontOptions (12.5f, juce::Font::bold));
+        g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
         g.drawText ("THRESHOLD  " + juce::String (l.thresholdDb, 1) + " dB", row, juce::Justification::centredLeft);
         g.drawText ("CEILING  " + juce::String (l.ceilingDb, 1) + " dB", row, juce::Justification::centredRight);
     }
@@ -352,14 +352,14 @@ void MasterPanel::paintLimiter (juce::Graphics& g)
         }
 
         g.setColour (cream);
-        g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
-        g.drawText ("GAIN REDUCTION", r.reduced (6.0f, 3.0f), juce::Justification::topLeft);
         g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+        g.drawText ("GAIN REDUCTION", r.reduced (6.0f, 3.0f), juce::Justification::topLeft);
+        g.setFont (juce::FontOptions (14.5f, juce::Font::bold));
         g.drawText ("-" + juce::String (grShown, 1) + " dB", r.reduced (6.0f, 3.0f), juce::Justification::topRight);
     }
 
     g.setColour (amber);
-    g.setFont (juce::FontOptions (12.5f, juce::Font::bold));
+    g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
     g.drawText ("CHARACTER  " + juce::String (character.getValue(), 1), characterLabel, juce::Justification::centred);
 }
 
@@ -367,10 +367,10 @@ void MasterPanel::paintLoudness (juce::Graphics& g)
 {
     auto r = loudnessArea.reduced (16, 10);
     g.setColour (amber);
-    g.setFont (juce::FontOptions (15.0f, juce::Font::bold));
+    g.setFont (juce::FontOptions (16.5f, juce::Font::bold));
     g.drawText ("LOUDNESS", r.removeFromTop (22), juce::Justification::centredLeft);
     g.setColour (cream.withAlpha (0.6f));
-    g.setFont (juce::FontOptions (12.5f));
+    g.setFont (juce::FontOptions (14.0f));
     g.drawText ("目標 -14 LUFS（リミッターの後、マスター音量の前で測定）"_ju, loudnessArea.reduced (16, 10).withHeight (22), juce::Justification::centredRight);
 
     // 数字
@@ -383,12 +383,12 @@ void MasterPanel::paintLoudness (juce::Graphics& g)
         const auto colour = ! hasValue ? cream : std::abs (diff) <= 1.0 ? good : diff > 0.0 ? over : amber;
 
         g.setColour (cream.withAlpha (0.7f));
-        g.setFont (juce::FontOptions (12.5f, juce::Font::bold));
+        g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
         g.drawText ("INTEGRATED", big.removeFromTop (16), juce::Justification::centredLeft);
         g.setColour (colour);
         g.setFont (juce::FontOptions (40.0f, juce::Font::bold));
         g.drawText (formatLufs (integrated), big.removeFromTop (46), juce::Justification::centredLeft);
-        g.setFont (juce::FontOptions (13.5f));
+        g.setFont (juce::FontOptions (15.0f));
         g.drawText (! hasValue ? "LUFS（再生すると測ります）"_ju
                     : std::abs (diff) <= 1.0 ? "LUFS  ちょうど良い（目標との差 "_ju + juce::String (diff, 1) + " LU）"_ju
                     : diff > 0.0 ? "LUFS  "_ju + juce::String (diff, 1) + " LU 大きい"_ju
@@ -399,7 +399,7 @@ void MasterPanel::paintLoudness (juce::Graphics& g)
         {
             auto line = n.removeFromTop (30);
             g.setColour (cream.withAlpha (0.7f));
-            g.setFont (juce::FontOptions (12.5f, juce::Font::bold));
+            g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
             g.drawText (name, line.removeFromLeft (100), juce::Justification::centredLeft);
             g.setColour (cream);
             g.setFont (juce::FontOptions (20.0f, juce::Font::bold));
@@ -410,7 +410,7 @@ void MasterPanel::paintLoudness (juce::Graphics& g)
         row ("MOMENTARY", status.momentaryLufs);
 
         g.setColour (cream.withAlpha (0.6f));
-        g.setFont (juce::FontOptions (12.5f));
+        g.setFont (juce::FontOptions (14.0f));
         g.drawText ("測定 "_ju + juce::String (status.seconds, 0) + " 秒　出力ピーク "_ju
                     + (status.outputPeakDb <= -99.0f ? juce::String ("-inf") : juce::String (outShown, 1)) + " dB",
                     n.removeFromTop (16), juce::Justification::centredLeft);
@@ -441,7 +441,7 @@ void MasterPanel::paintLoudness (juce::Graphics& g)
         g.drawVerticalLine ((int) toX (targetLufs), b.getY() - 4.0f, b.getBottom() + 4.0f);
 
         g.setColour (cream.withAlpha (0.55f));
-        g.setFont (juce::FontOptions (9.5f));
+        g.setFont (juce::FontOptions (12.0f));
 
         for (int v = (int) lufsMin; v <= (int) lufsMax; v += 4)
             g.drawText (juce::String (v), juce::Rectangle<float> (toX (v) - 15.0f, b.getBottom() + 3.0f, 30.0f, 12.0f), juce::Justification::centred);
@@ -483,7 +483,7 @@ void MasterPanel::paintLoudness (juce::Graphics& g)
         }
 
         g.setColour (cream.withAlpha (0.6f));
-        g.setFont (juce::FontOptions (11.5f));
+        g.setFont (juce::FontOptions (13.0f));
         g.drawText ("SHORT-TERM（2 分）"_ju, h.reduced (6.0f, 3.0f), juce::Justification::topLeft);
     }
 }

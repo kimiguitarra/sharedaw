@@ -119,9 +119,9 @@ juce::Colour ProjectPicker::statusColour (Status s)
 ProjectPicker::ProjectPicker (SyncManager& s, juce::PropertiesFile& p, juce::File current, Callbacks cb)
     : sync (s), settings (p), currentFolder (std::move (current)), callbacks (std::move (cb))
 {
-    serverLine.setFont (juce::FontOptions (14.0f));
+    serverLine.setFont (juce::FontOptions (15.5f));
     addAndMakeVisible (serverLine);
-    folderLine.setFont (juce::FontOptions (13.0f));
+    folderLine.setFont (juce::FontOptions (14.5f));
     folderLine.setColour (juce::Label::textColourId, Theme::textDim);
     addAndMakeVisible (folderLine);
 
@@ -512,7 +512,7 @@ void ProjectPicker::paintListBoxItem (int row, juce::Graphics& g, int width, int
     Theme::drawStatusDot (g, line2.removeFromLeft (12.0f).withSizeKeepingCentre (9.0f, 9.0f), statusColour (e.status));
     line2.removeFromLeft (6.0f);
     g.setColour (e.status == Status::serverOnly || e.status == Status::offline ? Theme::textDim : Theme::text);
-    g.setFont (juce::FontOptions (14.5f));
+    g.setFont (juce::FontOptions (16.0f));
     juce::String text = statusText (e);
 
     if (e.local && e.local->folder == currentFolder)
@@ -524,7 +524,7 @@ void ProjectPicker::paintListBoxItem (int row, juce::Graphics& g, int width, int
     if (e.updatedAt.toMilliseconds() > 0)
     {
         g.setColour (Theme::textDim);
-        g.setFont (juce::FontOptions (13.5f));
+        g.setFont (juce::FontOptions (15.0f));
         g.drawText (relativeTime (e.updatedAt) + (e.updatedBy.isNotEmpty() ? "　"_ju + e.updatedBy : juce::String()),
                     right.removeFromTop (26.0f), juce::Justification::centredRight, true);
         g.drawText (e.local ? "この PC にダウンロード済み"_ju : juce::String(), right.removeFromTop (22.0f), juce::Justification::centredRight, true);
@@ -539,7 +539,7 @@ void ProjectPicker::paint (juce::Graphics& g)
     g.drawText ("楽曲"_ju, 22, 14, 200, 36, juce::Justification::centredLeft);
 
     g.setColour (Theme::textDim);
-    g.setFont (juce::FontOptions (13.0f));
+    g.setFont (juce::FontOptions (14.5f));
     g.drawText ("右クリック（または Delete / F2）で、名前の変更・削除"_ju, getLocalBounds().reduced (22, 0).withTop (getHeight() - 96).withHeight (20),
                 juce::Justification::centredLeft);
 }

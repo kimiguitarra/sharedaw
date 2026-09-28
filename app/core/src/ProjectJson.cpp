@@ -149,9 +149,16 @@ namespace
         comp["releaseMs"] = s.comp.releaseMs;
         comp["makeupDb"] = s.comp.makeupDb;
 
+        if (s.comp.sidechainHpHz > 0.0)
+            comp["sidechainHpHz"] = s.comp.sidechainHpHz;
+
         ojson o;
         o["eq"] = eq;
         o["comp"] = comp;
+
+        if (s.compFirst)
+            o["order"] = "compEq";
+
         return o;
     }
 
@@ -259,7 +266,10 @@ namespace
             s.comp.attackMs = getOr<double> (c, "attackMs", d.comp.attackMs);
             s.comp.releaseMs = getOr<double> (c, "releaseMs", d.comp.releaseMs);
             s.comp.makeupDb = getOr<double> (c, "makeupDb", d.comp.makeupDb);
+            s.comp.sidechainHpHz = getOr<double> (c, "sidechainHpHz", d.comp.sidechainHpHz);
         }
+
+        s.compFirst = getOr<std::string> (j, "order", "eqComp") == "compEq";
 
         return s;
     }

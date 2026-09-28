@@ -125,7 +125,7 @@ void MainComponent::registerProject()
     setStatus ("サーバーに登録しました（リビジョン "_ju + juce::String (sync.getMeta().baseRevision) + "）"_ju);
     toast.show ("サーバーにアップしました"_ju, "仲間は「楽曲を選ぶ」からダウンロードして一緒に作業できます。"_ju, {}, {}, Theme::ok);
 
-    if (! syncPanel.isVisible())
+    if (syncPanel.isCollapsed())
         toggleSyncPanel();
 }
 
@@ -157,12 +157,11 @@ void MainComponent::createProjectOnServer()
 
 void MainComponent::toggleSyncPanel()
 {
-    syncPanel.setVisible (! syncPanel.isVisible());
-    settings.setValue ("syncPanelVisible", syncPanel.isVisible());
+    syncPanel.setCollapsed (! syncPanel.isCollapsed());
     resized();
     commandManager.commandStatusChanged();
 
-    if (syncPanel.isVisible())
+    if (! syncPanel.isCollapsed())
         sync.checkServerNow();
 }
 
@@ -210,7 +209,7 @@ void MainComponent::onIncomingRevisions (const std::vector<SyncManager::Revision
     {
         if (conflicts > 0)
         {
-            if (! syncPanel.isVisible())
+            if (syncPanel.isCollapsed())
                 toggleSyncPanel();
         }
         else
@@ -257,7 +256,7 @@ bool MainComponent::downloadWithChoices (const std::map<std::string, collab::Res
             for (auto& st : collab::syncStates (*base, document.getProject(), &preview->headProject))
                 if (st.conflict && choices.count (st.id) == 0)
                 {
-                    if (! syncPanel.isVisible())
+                    if (syncPanel.isCollapsed())
                         toggleSyncPanel();
 
                     sync.checkServerNow();
@@ -308,7 +307,7 @@ bool MainComponent::downloadWithChoices (const std::map<std::string, collab::Res
                 for (auto& st : collab::syncStates (*base, self.document.getProject(), &preview->headProject))
                     if (st.conflict)
                         return self.toast.show ("競合があります"_ju, "同期パネルで採用する版を選んでください"_ju, "同期パネル"_ju,
-                                                [s = safe] { if (s != nullptr && ! s->syncPanel.isVisible()) s->toggleSyncPanel(); },
+                                                [s = safe] { if (s != nullptr && s->syncPanel.isCollapsed()) s->toggleSyncPanel(); },
                                                 Theme::warning);
 
             if (self.bridge.isPlaying() || self.bridge.isRecording())

@@ -103,7 +103,7 @@ void CompressorPanel::VuMeter::paint (juce::Graphics& g)
     g.setColour (juce::Colour (0xffc62828));
     g.strokePath (red, juce::PathStrokeType (3.0f));
 
-    g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
+    g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
 
     for (float vu : { -20.0f, -10.0f, -7.0f, -5.0f, -3.0f, -2.0f, -1.0f, 0.0f, 1.0f, 2.0f, 3.0f })
     {
@@ -119,10 +119,10 @@ void CompressorPanel::VuMeter::paint (juce::Graphics& g)
     }
 
     g.setColour (juce::Colours::black.withAlpha (0.8f));
-    g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+    g.setFont (juce::FontOptions (14.5f, juce::Font::bold));
     const float textY = face.getY() + 34.0f + radius * 0.35f;
     g.drawText ("VU", juce::Rectangle<float> (face.getX(), textY, face.getWidth(), 16.0f), juce::Justification::centred);
-    g.setFont (juce::FontOptions (9.5f));
+    g.setFont (juce::FontOptions (12.0f));
     g.drawText ("GAIN REDUCTION (dB)", juce::Rectangle<float> (face.getX(), textY + 16.0f, face.getWidth(), 12.0f), juce::Justification::centred);
 
     // 針（リダクションがないときは 0 の位置、かかるほど左へ振れる）
@@ -160,7 +160,7 @@ void CompressorPanel::Knob::paint (juce::Graphics& g)
     g.setColour (light ? optoText : fetText);
     g.setFont (juce::FontOptions (big ? 12.0f : 11.0f, juce::Font::bold));
     g.drawText (name, getLocalBounds().removeFromTop (16), juce::Justification::centred);
-    g.setFont (juce::FontOptions (12.5f));
+    g.setFont (juce::FontOptions (14.0f));
     g.setColour ((light ? optoText : fetText).withAlpha (0.75f));
     g.drawText (format ? format (slider.getValue()) : juce::String(), getLocalBounds().removeFromBottom (16), juce::Justification::centred);
 }
@@ -185,6 +185,12 @@ CompressorPanel::CompressorPanel() : look (std::make_unique<KnobLook>())
           [] (auto& c) { return c.makeupDb; }, [] (auto& c, double v) { c.makeupDb = v; });
     bind (peakReduction, 0.0, 50.0, 18.0, 18.0, "Compressor PEAK REDUCTION"_ju,
           [] (auto& c) { return -c.thresholdDb; }, [] (auto& c, double v) { c.thresholdDb = -v; });
+
+    // 低域のスルー: 検出だけ低域を削る（ベースやキックで必要以上にかからないように）
+    bind (lowThru, 0.0, 500.0, 100.0, 0.0, "Compressor LOW THRU"_ju,
+          [] (auto& c) { return c.sidechainHpHz; }, [] (auto& c, double v) { c.sidechainHpHz = v < 20.0 ? 0.0 : std::round (v); });
+    lowThru.format = [] (double v) { return v < 20.0 ? juce::String ("OFF") : juce::String (juce::roundToInt (v)) + " Hz"; };
+    lowThru.slider.setTooltip ("この周波数より下の音では、かかり具合を決めない（ベースやキックで必要以上にかからないように）。左端で OFF"_ju);
 
     input.format = peakReduction.format = [] (double v) { return "Thr "_ju + juce::String (-v, 1) + " dB"; };
     output.format = gain.format = formatDb;
@@ -226,7 +232,7 @@ CompressorPanel::CompressorPanel() : look (std::make_unique<KnobLook>())
 
 CompressorPanel::~CompressorPanel()
 {
-    for (auto* k : { &input, &output, &attack, &release, &gain, &peakReduction })
+    for (auto* k : { &input, &output, &attack, &release, &gain, &peakReduction, &lowThru })
         k->slider.setLookAndFeel (nullptr);
 }
 
@@ -314,6 +320,10 @@ void CompressorPanel::updateVisibility()
     compressButton.setVisible (opto);
     limitButton.setVisible (opto);
     meter.light = opto;
+    lowThru.setVisible (true);
+    lowThru.light = opto;
+    lowThru.slider.getProperties().set ("light", opto);
+    lowThru.repaint();
 }
 
 void CompressorPanel::timerCallback()
@@ -347,17 +357,17 @@ void CompressorPanel::paint (juce::Graphics& g)
     }
 
     g.setColour (opto ? optoText : fetText);
-    g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+    g.setFont (juce::FontOptions (14.5f, juce::Font::bold));
     auto title = r.reduced (24.0f, 8.0f).withHeight (18.0f);
     g.drawText (opto ? "OPTICAL LEVELING AMPLIFIER" : "FET LIMITING AMPLIFIER", title, juce::Justification::centredLeft);
-    g.setFont (juce::FontOptions (12.0f));
+    g.setFont (juce::FontOptions (13.5f));
     g.setColour ((opto ? optoText : fetText).withAlpha (0.6f));
     g.drawText (opto ? "LA-2A style" : "1176 style", title, juce::Justification::centredRight);
 
     if (! opto && ! ratioButtons[0].getBounds().isEmpty())
     {
         g.setColour (fetText);
-        g.setFont (juce::FontOptions (12.5f, juce::Font::bold));
+        g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
         g.drawText ("RATIO", ratioButtons[3].getBounds().withY (ratioButtons[3].getY() - 18).withHeight (16), juce::Justification::centred);
     }
 }
@@ -382,9 +392,9 @@ void CompressorPanel::resized()
             ratioButtons[i].setBounds (ratioColumn.removeFromTop (h).reduced (4, 2));
 
         area.removeFromRight (10);
-        const int w = area.getWidth() / 4;
+        const int w = area.getWidth() / 5;
 
-        for (auto* k : { &input, &output, &attack, &release })
+        for (auto* k : { &input, &output, &attack, &release, &lowThru })
             k->setBounds (area.removeFromLeft (w));
     }
     else
@@ -395,9 +405,10 @@ void CompressorPanel::resized()
         switchColumn.removeFromTop (4);
         limitButton.setBounds (switchColumn.removeFromTop (28).reduced (4, 1));
 
-        const int knobWidth = juce::jmin (150, area.getWidth() / 4);
+        const int knobWidth = juce::jmin (150, area.getWidth() / 5);
         gain.setBounds (area.removeFromLeft (knobWidth));
         peakReduction.setBounds (area.removeFromRight (knobWidth));
+        lowThru.setBounds (area.removeFromRight (juce::jmin (100, knobWidth)));
         meter.setBounds (area.reduced (16, 4));
     }
 }

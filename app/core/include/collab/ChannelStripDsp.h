@@ -52,7 +52,7 @@ public:
     void reset();
     void setParams (const ChannelStrip&);
 
-    /** channels[ch][i] をその場で処理する。 */
+    /** channels[ch][i] をその場で処理する（順番は ChannelStrip::compFirst）。 */
     void process (float* const* channels, int numChannels, int numSamples);
 
     /** 直近のゲインリダクション（dB、0 以上）。 */
@@ -72,6 +72,9 @@ private:
     double rmsSquare = 0.0;      // オプティカルの検出（RMS）
     double optoMemory = 0.0;     // オプティカル: 圧縮が続いた度合い（0〜1）。大きいほどリリースが遅い
     double makeupGain = 1.0;
+    Biquad sidechainHp;                                       // 低域のスルー（検出側だけにかける）
+    bool sidechainActive = false;
+    std::array<BiquadState, maxChannels> sidechainStates {};
     std::atomic<float> gainReductionDb { 0.0f };
 
     void processEq (float* const* channels, int numChannels, int numSamples);

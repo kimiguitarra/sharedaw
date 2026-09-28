@@ -254,6 +254,7 @@ struct ChannelComp
     double attackMs = 1.0;          // FET のみ（オプティカルは音に応じて自動）
     double releaseMs = 150.0;       // FET のみ
     double makeupDb = 0.0;
+    double sidechainHpHz = 0.0;     // 低域のスルー: 検出にかける前にこの周波数より下を削る（0 = オフ）
 
     bool operator== (const ChannelComp&) const = default;
 };
@@ -262,6 +263,7 @@ struct ChannelStrip
 {
     ChannelEq eq;
     ChannelComp comp;
+    bool compFirst = false;         // true なら Compressor → EQ の順（既定は EQ → Compressor）
 
     bool isDefault() const          { return *this == ChannelStrip {}; }
     bool operator== (const ChannelStrip&) const = default;

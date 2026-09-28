@@ -16,7 +16,7 @@ InstrumentPanel::InstrumentPanel (AppContext& c, const std::string& id)
     if (t != nullptr && t->instrument && t->instrument->kind == collab::Instrument::Kind::builtin)
         manifest = ctx.library.find (t->instrument->id, t->instrument->version);
 
-    title.setFont (juce::FontOptions (15.0f, juce::Font::bold));
+    title.setFont (juce::FontOptions (16.5f, juce::Font::bold));
     addAndMakeVisible (title);
 
     // 新しい版があれば更新できるようにする（版を固定しているのは、共同作業の相手と同じ音にするため）
@@ -51,7 +51,7 @@ InstrumentPanel::InstrumentPanel (AppContext& c, const std::string& id)
         addAndMakeVisible (l);
 
     credits.setColour (juce::Label::textColourId, Theme::textDim);
-    credits.setFont (juce::FontOptions (12.5f));
+    credits.setFont (juce::FontOptions (14.0f));
     addAndMakeVisible (credits);
 
     int height = 40 + 3 * rowHeight + 10;
@@ -109,7 +109,7 @@ InstrumentPanel::InstrumentPanel (AppContext& c, const std::string& id)
             PieceRow row;
             row.key = piece.key;
             row.name = std::make_unique<juce::Label> ("", toJuce (piece.displayName) + " (" + juce::String (piece.note) + ")");
-            row.name->setFont (juce::FontOptions (13.5f));
+            row.name->setFont (juce::FontOptions (15.0f));
             row.sample = std::make_unique<juce::ComboBox>();
 
             int sid = 1;
@@ -271,7 +271,7 @@ void InstrumentPanel::paint (juce::Graphics& g)
     if (! rows.empty())
     {
         g.setColour (Theme::textDim);
-        g.setFont (juce::FontOptions (12.5f));
+        g.setFont (juce::FontOptions (14.0f));
         const int y = rows.front().name->getY() - 18;
         g.drawText ("パーツ"_ju, 8, y, 150, 16, juce::Justification::centredLeft);
         g.drawText ("サンプル"_ju, 160, y, 150, 16, juce::Justification::centredLeft);

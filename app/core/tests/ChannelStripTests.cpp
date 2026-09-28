@@ -163,3 +163,74 @@ TEST_CASE ("eq response includes all bands")
     eq.enabled = false;
     CHECK (eqResponseDb (eq, 48000.0, 300.0) == 0.0);
 }
+
+TEST_CASE ("compressor low-frequency through keeps bass from triggering compression")
+{
+    for (auto type : { CompType::fet, CompType::opto })
+    {
+        CAPTURE ((int) type);
+        ChannelStrip s;
+        s.comp.enabled = true;
+        s.comp.type = type;
+        s.comp.thresholdDb = -20.0;
+        s.comp.ratio = 4.0;
+
+        ChannelStripDsp plain;
+        plain.setParams (s);
+        plain.prepare (48000.0);
+        const double squashed = runSine (plain, 50.0, 0.5, 1.5);
+
+        s.comp.sidechainHpHz = 300.0;   // 50 Hz は検出にほとんど届かない
+        ChannelStripDsp through;
+        through.setParams (s);
+        through.prepare (48000.0);
+        const double passed = runSine (through, 50.0, 0.5, 1.5);
+
+        CHECK (squashed < 0.3);
+        CHECK (passed > 0.4);
+    }
+}
+
+TEST_CASE ("channel strip order and low-frequency through round-trip through JSON")
+{
+    auto p = projectWithTrack();
+    REQUIRE (! p.tracks.empty());
+    p.tracks[0].strip.compFirst = true;
+    p.tracks[0].strip.comp.sidechainHpHz = 120.0;
+
+    const auto back = parseProject (serialiseProject (p));
+    CHECK (back.tracks[0].strip.compFirst);
+    CHECK (back.tracks[0].strip.comp.sidechainHpHz == doctest::Approx (120.0));
+
+    // 既定値のときは書き出さない（古いアプリでも読める）
+    p.tracks[0].strip.compFirst = false;
+    p.tracks[0].strip.comp.sidechainHpHz = 0.0;
+    p.tracks[0].strip.comp.enabled = true;
+    const auto text = serialiseProject (p);
+    CHECK (text.find ("sidechainHpHz") == std::string::npos);
+    CHECK (text.find ("\"order\"") == std::string::npos);
+}
+
+TEST_CASE ("compressor before eq changes the result when eq boosts into the threshold")
+{
+    ChannelStrip s;
+    s.eq.enabled = true;
+    s.eq.midGainDb = 12.0;
+    s.eq.midFreqHz = 1000.0;
+    s.comp.enabled = true;
+    s.comp.thresholdDb = -12.0;
+    s.comp.ratio = 8.0;
+
+    ChannelStripDsp eqFirst;
+    eqFirst.setParams (s);
+    eqFirst.prepare (48000.0);
+    const double a = runSine (eqFirst, 1000.0, 0.1, 1.0);   // EQ で持ち上げてから圧縮 → 抑えられる
+
+    s.compFirst = true;
+    ChannelStripDsp compFirst;
+    compFirst.setParams (s);
+    compFirst.prepare (48000.0);
+    const double b = runSine (compFirst, 1000.0, 0.1, 1.0);  // 小さいまま圧縮されず、あとで 12 dB 上がる
+
+    CHECK (b > a * 1.3);   // 約 -8 dB と約 -11.5 dB
+}

@@ -2,61 +2,28 @@
 
 #include "Dialogs.h"
 #include "Theme.h"
+#include "ValueText.h"
 
 #include <collab/ChannelStripDsp.h>
 
 namespace
 {
-    constexpr int stripWidth = 118;
-    constexpr int headerHeight = 15;
-    constexpr int rowHeight = 17;
+    constexpr int stripWidth = 128;
+    constexpr int headerHeight = 18;
+    constexpr int rowHeight = 20;
     constexpr int insertRows = 4, sendRows = 4;
     constexpr float meterFloorDb = -60.0f;
     const std::string metronomeId = "#metronome", masterId = "#master";   // トラック以外のストリップ
 
-    juce::String formatDb (double db)
-    {
-        return db <= -59.9 ? juce::String ("-inf") : (db > 0.05 ? "+" : "") + juce::String (db, 1);
-    }
-
-    /** 打ち込んだ dB（「-6」「+3.5」「-inf」「6dB」など）。数字でなければ nullopt。 */
-    std::optional<double> parseDb (juce::String text, double minDb, double maxDb)
-    {
-        text = text.trim().toLowerCase().removeCharacters ("db ");
-
-        if (text.contains ("inf") || text == "off")
-            return minDb;
-
-        if (! text.containsAnyOf ("0123456789"))
-            return std::nullopt;
-
-        return juce::jlimit (minDb, maxDb, text.getDoubleValue());
-    }
-
-    /** 打ち込んだパン（「L30」「R20」「C」「-30」「30」）を -1〜1 に。 */
-    std::optional<double> parsePan (juce::String text)
-    {
-        text = text.trim().toUpperCase();
-
-        if (text == "C" || text == "0")
-            return 0.0;
-
-        double sign = 1.0;
-
-        if (text.startsWithChar ('L'))       { sign = -1.0; text = text.substring (1); }
-        else if (text.startsWithChar ('R'))  { text = text.substring (1); }
-
-        if (! text.containsAnyOf ("0123456789"))
-            return std::nullopt;
-
-        return juce::jlimit (-1.0, 1.0, sign * text.getDoubleValue() / 100.0);
-    }
+    using ValueText::formatDb;
+    using ValueText::parseDb;
+    using ValueText::parsePan;
 
     /** 数値を打ち込むラベル（クリックで入力、Enter で確定、Esc でやめる）。 */
     void styleValueLabel (juce::Label& l)
     {
         l.setJustificationType (juce::Justification::centred);
-        l.setFont (juce::FontOptions (12.5f));
+        l.setFont (juce::FontOptions (14.0f));
         l.setColour (juce::Label::backgroundColourId, juce::Colour (0xff15171b));
         l.setColour (juce::Label::backgroundWhenEditingColourId, juce::Colour (0xff0e0f12));
         l.setColour (juce::Label::textWhenEditingColourId, Theme::text);
@@ -156,14 +123,15 @@ struct PanBar  : public juce::Slider
         g.setColour (Theme::gridBar);
         g.drawVerticalLine (juce::roundToInt (centre), r.getY(), r.getBottom());
         g.setColour (Theme::text);
-        g.setFont (juce::FontOptions (12.0f));
+        g.setFont (juce::FontOptions (13.5f));
         g.drawText (getTextFromValue (getValue()), r, juce::Justification::centred);
     }
 };
 
 //==============================================================================
 /** ストリップの中の 1 区画（見出し ＋ 中身）。見出しの右に電源ボタンを付けられる。 */
-class MixSection  : public juce::Component
+class MixSection  : public juce::Component,
+                    public juce::SettableTooltipClient
 {
 public:
     MixSection (AppContext& c, std::string id, juce::String t) : ctx (c), trackId (std::move (id)), title (std::move (t)) {}
@@ -175,15 +143,52 @@ public:
         g.setColour (Theme::background.withAlpha (0.6f));
         g.fillRect (header);
         g.setColour (Theme::textDim);
-        g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+        g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
         g.drawText (title, header.reduced (4, 0), juce::Justification::centredLeft);
 
         if (auto on = powerState())
             drawPower (g, header.removeFromRight (16).toFloat(), *on);
 
+        if (hasOrderSwap())
+        {
+            // EQ と Compressor の順番を入れ替える（⇅）
+            swapArea = header.removeFromRight (18);
+            g.setColour (hoverSwap ? Theme::text : Theme::textDim);
+            g.setFont (juce::FontOptions (14.5f, juce::Font::bold));
+            g.drawText (juce::String::fromUTF8 ("\xE2\x87\x85"), swapArea, juce::Justification::centred);
+        }
+
         g.setColour (juce::Colour (0xff1b1e22));
         g.fillRect (r);
         paintBody (g, r);
+
+        // クリックで画面が開く区画は、マウスを乗せると枠を出す
+        if (opensEditor() && hoverBody)
+        {
+            g.setColour (Theme::accent.withAlpha (0.8f));
+            g.drawRect (r, 1);
+        }
+    }
+
+    void mouseMove (const juce::MouseEvent& e) override
+    {
+        const bool body = e.y >= headerHeight, swap = hasOrderSwap() && swapArea.contains (e.getPosition());
+
+        if (body != hoverBody || swap != hoverSwap)
+        {
+            hoverBody = body;
+            hoverSwap = swap;
+            repaint();
+        }
+
+        setMouseCursor ((opensEditor() && body) || swap || (powerState() && e.y < headerHeight && e.x >= getWidth() - 18)
+                            ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+    }
+
+    void mouseExit (const juce::MouseEvent&) override
+    {
+        hoverBody = hoverSwap = false;
+        repaint();
     }
 
     void mouseDown (const juce::MouseEvent& e) override
@@ -192,6 +197,10 @@ public:
         {
             if (powerState() && e.x >= getWidth() - 18)
                 togglePower();
+            else if (hasOrderSwap() && swapArea.contains (e.getPosition()))
+                editTrack ("EQ と Compressor の順番"_ju, [] (collab::Track& t) { t.strip.compFirst = ! t.strip.compFirst; });
+            else if (opensEditor())
+                bodyMouseDown (e, {});
 
             return;
         }
@@ -211,6 +220,10 @@ protected:
     juce::Rectangle<int> body() const                   { return getLocalBounds().withTrimmedTop (headerHeight); }
 
     virtual std::optional<bool> powerState() const      { return std::nullopt; }
+    virtual bool opensEditor() const                    { return false; }   // クリックで画面が開く
+    virtual bool hasOrderSwap() const                   { return false; }   // 見出しに順番の入れ替え（⇅）
+    juce::Rectangle<int> swapArea;
+    bool hoverBody = false, hoverSwap = false;
     virtual void togglePower()                          {}
     virtual void paintBody (juce::Graphics&, juce::Rectangle<int>) {}
     virtual void bodyMouseDown (const juce::MouseEvent&, juce::Point<int>) {}
@@ -220,7 +233,7 @@ protected:
         g.setColour (filled ? Theme::panelLight : Theme::panel.withAlpha (0.5f));
         g.fillRect (row.reduced (1, 1));
         g.setColour (active ? Theme::text : Theme::textDim);
-        g.setFont (juce::FontOptions (12.5f));
+        g.setFont (juce::FontOptions (14.0f));
         g.drawText (text, row.reduced (4, 0), juce::Justification::centredLeft, true);
     }
 
@@ -311,7 +324,10 @@ public:
 class EqSection  : public MixSection
 {
 public:
-    EqSection (AppContext& c, std::string id) : MixSection (c, std::move (id), "EQ") {}
+    EqSection (AppContext& c, std::string id) : MixSection (c, std::move (id), "EQ") { setTooltip ("クリックで EQ を開く。右上の丸でオン・オフ、⇅ で Compressor との順番を入れ替え"_ju); }
+
+    bool opensEditor() const override       { return true; }
+    bool hasOrderSwap() const override      { return true; }
 
     std::optional<bool> powerState() const override
     {
@@ -363,7 +379,7 @@ public:
     void bodyMouseDown (const juce::MouseEvent&, juce::Point<int>) override
     {
         if (ctx.openChannelStrip)
-            ctx.openChannelStrip (trackId);
+            ctx.openChannelStrip (trackId, false);
     }
 };
 
@@ -372,7 +388,10 @@ public:
 class CompSection  : public MixSection
 {
 public:
-    CompSection (AppContext& c, std::string id) : MixSection (c, std::move (id), "COMPRESSOR") {}
+    CompSection (AppContext& c, std::string id) : MixSection (c, std::move (id), "COMP") { setTooltip ("クリックで Compressor を開く。右上の丸でオン・オフ、⇅ で EQ との順番を入れ替え"_ju); }
+
+    bool opensEditor() const override       { return true; }
+    bool hasOrderSwap() const override      { return true; }
 
     float gainReduction = 0.0f;
 
@@ -398,7 +417,7 @@ public:
 
         const auto& c = t->strip.comp;
         auto row = r.removeFromTop (rowHeight);
-        drawRow (g, row, (c.type == collab::CompType::opto ? "OPTO " : "FET ") + juce::String (juce::roundToInt (c.thresholdDb)) + " dB",
+        drawRow (g, row, (c.type == collab::CompType::opto ? "Optical " : "FET ") + juce::String (juce::roundToInt (c.thresholdDb)) + " dB",
                  c.enabled, true);
 
         // ゲインリダクション（右から左へ伸びる）
@@ -412,7 +431,7 @@ public:
     void bodyMouseDown (const juce::MouseEvent&, juce::Point<int>) override
     {
         if (ctx.openChannelStrip)
-            ctx.openChannelStrip (trackId);
+            ctx.openChannelStrip (trackId, true);
     }
 };
 
@@ -460,7 +479,7 @@ public:
         g.setFont (juce::FontOptions (18.0f, juce::Font::bold));
         g.drawText (integrated <= -99.0 ? juce::String ("--.-") : juce::String (integrated, 1), r.removeFromTop (22), juce::Justification::centred);
         g.setColour (Theme::textDim);
-        g.setFont (juce::FontOptions (11.5f));
+        g.setFont (juce::FontOptions (13.0f));
         g.drawText ("LUFS（目標 -14）"_ju, r.removeFromTop (13), juce::Justification::centred);
         g.drawText ("S " + (status.shortTermLufs <= -99.0 ? juce::String ("--.-") : juce::String (status.shortTermLufs, 1)),
                     r.removeFromTop (14), juce::Justification::centred);
@@ -501,7 +520,7 @@ public:
                 g.fillRect (inner.withWidth (inner.getWidth() * (float) sendRatioForDb (s.levelDb)));
 
                 g.setColour (Theme::text);
-                g.setFont (juce::FontOptions (12.0f));
+                g.setFont (juce::FontOptions (13.5f));
                 auto text = inner.reduced (3.0f, 0.0f);
                 g.drawText (formatDb (s.levelDb), text, juce::Justification::centredRight);
                 g.drawText ((s.preFader ? "PRE " : "") + (bus != nullptr ? toJuce (bus->name) : juce::String ("?")),
@@ -623,7 +642,7 @@ public:
           inserts (c, trackId), eq (c, trackId), comp (c, trackId), sends (c, trackId), masterSection (c)
     {
         routingTitle.setText ("ROUTING", juce::dontSendNotification);
-        routingTitle.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+        routingTitle.setFont (juce::FontOptions (12.0f, juce::Font::bold));
         routingTitle.setColour (juce::Label::textColourId, Theme::textDim);
         routingTitle.setColour (juce::Label::backgroundColourId, Theme::background.withAlpha (0.6f));
         addAndMakeVisible (routingTitle);
@@ -644,11 +663,7 @@ public:
         sends.setVisible (isTrack());
 
         pan.setRange (-1.0, 1.0, 0.01);
-        pan.textFromValueFunction = [] (double v)
-        {
-            const int n = juce::roundToInt (std::abs (v) * 100.0);
-            return n == 0 ? juce::String ("C") : (v < 0 ? "L" : "R") + juce::String (n);
-        };
+        pan.textFromValueFunction = [] (double v) { return ValueText::formatPan (v); };
         pan.setDoubleClickReturnValue (true, 0.0, juce::ModifierKeys::altModifier);
         pan.setTooltip ("パン（ダブルクリックで数値を入力: L30・C・R20。Alt ＋クリックで中央）"_ju);
         pan.onType = [this]
@@ -695,9 +710,9 @@ public:
         addAndMakeVisible (value);
         addAndMakeVisible (meter);
 
-        mute.setButtonText (isChord() ? "発音"_ju : isMetronome() ? "オン"_ju : juce::String ("M"));
-        mute.setTooltip (isChord() ? "コードトラックを鳴らす"_ju : isMetronome() ? "メトロノームを鳴らす（C）"_ju : "ミュート"_ju);
-        mute.setColour (juce::TextButton::buttonOnColourId, isChord() || isMetronome() ? Theme::accent.darker (0.3f) : juce::Colour (0xffe57373));
+        mute.setButtonText (isMetronome() ? "オン"_ju : juce::String ("M"));
+        mute.setTooltip (isMetronome() ? "メトロノームを鳴らす（C）"_ju : "ミュート"_ju);
+        mute.setColour (juce::TextButton::buttonOnColourId, isMetronome() ? Theme::accent.darker (0.3f) : juce::Colour (0xffe57373));
         solo.setButtonText ("S");
         solo.setTooltip ("ソロ"_ju);
         solo.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffffd54f).darker (0.2f));
@@ -747,7 +762,7 @@ public:
                 ctx.state.changed();
             }
             else if (isChord())
-                ctx.document.perform ("コードトラックの発音"_ju, [] (collab::Project& p) { p.chordTrack.playback.enabled = ! p.chordTrack.playback.enabled; });
+                ctx.document.perform ("コードトラックのミュート"_ju, [] (collab::Project& p) { p.chordTrack.playback.enabled = ! p.chordTrack.playback.enabled; });
             else
                 editTrack ("ミュート"_ju, [] (collab::Track& t) { t.mute = ! t.mute; });
         };
@@ -794,7 +809,7 @@ public:
             output.setButtonText ("マスター"_ju);
             colour = juce::Colour (0xffffb74d);
             fader.setValue (project.chordTrack.playback.volumeDb, juce::dontSendNotification);
-            mute.setToggleState (project.chordTrack.playback.enabled, juce::dontSendNotification);
+            mute.setToggleState (! project.chordTrack.playback.enabled, juce::dontSendNotification);
         }
         else if (auto* t = project.findTrack (trackId))
         {
@@ -809,6 +824,12 @@ public:
             pan.setValue (t->pan, juce::dontSendNotification);
             mute.setToggleState (t->mute, juce::dontSendNotification);
             solo.setToggleState (t->solo, juce::dontSendNotification);
+
+            if (t->strip.compFirst != laidOutCompFirst)
+            {
+                laidOutCompFirst = t->strip.compFirst;
+                resized();
+            }
         }
 
         for (auto* s : std::initializer_list<MixSection*> { &inserts, &eq, &comp, &sends, &masterSection })
@@ -853,7 +874,7 @@ public:
         g.fillRect (getLocalBounds().reduced (1, 0).removeFromTop (3));
 
         // フェーダーの目盛り
-        g.setFont (juce::FontOptions (9.0f));
+        g.setFont (juce::FontOptions (12.0f));
 
         for (double db : { 6.0, 0.0, -6.0, -12.0, -24.0, -36.0, -60.0 })
         {
@@ -874,15 +895,15 @@ public:
 
         if (number.isNotEmpty())
         {
-            g.setFont (juce::FontOptions (12.5f, juce::Font::bold));
+            g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
             g.drawText (number, r.removeFromLeft (16), juce::Justification::centredLeft);
         }
 
-        g.setFont (juce::FontOptions (13.5f, juce::Font::bold));
+        g.setFont (juce::FontOptions (15.0f, juce::Font::bold));
         g.drawText (name, r, juce::Justification::centred, true);
 
         g.setColour (Theme::textDim);
-        g.setFont (juce::FontOptions (11.5f));
+        g.setFont (juce::FontOptions (13.0f));
         g.drawText (detail, detailArea, juce::Justification::centred, true);
 
         g.setColour (Theme::background);
@@ -901,10 +922,14 @@ public:
         const auto insertsTop = area.getY();
         inserts.setBounds (area.removeFromTop (headerHeight + rowHeight * insertRows + 2));
         area.removeFromTop (3);
-        eq.setBounds (area.removeFromTop (headerHeight + 36));
+        // EQ と Compressor はかける順番に並べる
+        const bool compFirst = isTrack() && laidOutCompFirst;
+        auto first = area.removeFromTop (compFirst ? headerHeight + rowHeight + 8 : headerHeight + 36);
         area.removeFromTop (3);
-        comp.setBounds (area.removeFromTop (headerHeight + rowHeight + 8));
+        auto second = area.removeFromTop (compFirst ? headerHeight + 36 : headerHeight + rowHeight + 8);
         area.removeFromTop (3);
+        eq.setBounds (compFirst ? second : first);
+        comp.setBounds (compFirst ? first : second);
         sends.setBounds (area.removeFromTop (headerHeight + rowHeight * sendRows + 2));
         masterSection.setBounds (inserts.getX(), insertsTop, inserts.getWidth(), headerHeight + rowHeight * 2 + 8 + 4 + 22 + 13 + 14 + 6);
         area.removeFromTop (5);
@@ -979,6 +1004,7 @@ private:
     SendSection sends;
     MasterSection masterSection;
     juce::Label value, panEdit;
+    bool laidOutCompFirst = false;
     PanBar pan;
     juce::Slider fader;
     juce::TextButton mute, solo;
@@ -1089,23 +1115,23 @@ public:
         auto area = getLocalBounds().reduced (6, 0);
         area.removeFromTop (8);
         g.setColour (Theme::textDim);
-        g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
+        g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
         g.drawText ("INPUT", area.removeFromTop (15), juce::Justification::centredLeft);
         g.setColour (Theme::text);
-        g.setFont (juce::FontOptions (12.5f));
+        g.setFont (juce::FontOptions (14.0f));
         g.drawFittedText (deviceName.isNotEmpty() ? deviceName : "オーディオ機器なし"_ju, area.removeFromTop (34), juce::Justification::topLeft, 2);
 
         if (columns.empty())
         {
             g.setColour (Theme::textDim);
-            g.setFont (juce::FontOptions (12.5f));
+            g.setFont (juce::FontOptions (14.0f));
             g.drawFittedText ("入力が使えません。\nオーディオ設定で入力を有効にしてください"_ju, getLocalBounds().reduced (8).withTrimmedTop (80).withHeight (80),
                               juce::Justification::centredTop, 4);
         }
         else if (! meterArea.isEmpty())
         {
             // 目盛り
-            g.setFont (juce::FontOptions (11.0f));
+            g.setFont (juce::FontOptions (13.0f));
 
             for (float db : { 6.0f, 0.0f, -6.0f, -12.0f, -24.0f, -36.0f, -48.0f })
             {
@@ -1123,13 +1149,13 @@ public:
 
                 // 最大値（0 dB を超えたら赤）
                 g.setColour (col.maxDb > -0.1f ? Theme::danger : Theme::text);
-                g.setFont (juce::FontOptions (11.5f));
+                g.setFont (juce::FontOptions (13.0f));
                 g.drawText (col.maxDb <= meterFloorDb ? juce::String ("-") : juce::String (juce::roundToInt (col.maxDb)),
                             juce::Rectangle<int> (x, meterArea.getY() - 18, columnWidth, 16), juce::Justification::centred);
 
                 // チャンネル番号
                 g.setColour (Theme::text);
-                g.setFont (juce::FontOptions (12.5f, juce::Font::bold));
+                g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
                 g.drawText (juce::String ((int) i + 1), juce::Rectangle<int> (x, meterArea.getBottom() + 4, columnWidth, 16), juce::Justification::centred);
             }
         }
@@ -1138,7 +1164,7 @@ public:
         g.setColour (Theme::panelLight);
         g.fillRoundedRectangle (nameArea.toFloat(), 3.0f);
         g.setColour (Theme::text);
-        g.setFont (juce::FontOptions (13.5f, juce::Font::bold));
+        g.setFont (juce::FontOptions (15.0f, juce::Font::bold));
         g.drawText ("入力"_ju, nameArea, juce::Justification::centred);
 
         g.setColour (Theme::background);
@@ -1204,7 +1230,7 @@ MixerView::MixerView (AppContext& c) : ctx (c)
     addAndMakeVisible (addBusButton);
 
     hint.setText ("INSERTS・SENDS の空き枠（+）で追加、右クリックでメニュー。音量の数字はクリック、パン・センドはダブルクリックで数値を入力"_ju, juce::dontSendNotification);
-    hint.setFont (juce::FontOptions (12.5f));
+    hint.setFont (juce::FontOptions (14.0f));
     hint.setColour (juce::Label::textColourId, Theme::textDim);
     addAndMakeVisible (hint);
 
@@ -1249,7 +1275,7 @@ void MixerView::resized()
     hint.setBounds (top);
 
     // 左端に入力、右端にメトロノームとマスター（スクロールしても動かない）。間のトラックだけ横にスクロールする
-    const int stripHeight = juce::jmax (560, area.getHeight() - viewport.getScrollBarThickness());
+    const int stripHeight = juce::jmax (640, area.getHeight() - viewport.getScrollBarThickness());
     inputStrip->setBounds (area.removeFromLeft (inputStrip->preferredWidth()).withHeight (stripHeight));
     area.removeFromLeft (3);
 

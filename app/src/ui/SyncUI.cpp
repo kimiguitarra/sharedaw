@@ -72,7 +72,7 @@ ServerSettings::ServerSettings (const juce::String& url, bool hasToken,
     tokenEditor.setPasswordCharacter ((juce::juce_wchar) 0x2022);
     tokenEditor.setTextToShowWhenEmpty (hasToken ? "（保存済み。変更するときだけ入力）"_ju : "オーナーから受け取ったトークン"_ju, Theme::textDim);
 
-    status.setFont (juce::FontOptions (13.0f));
+    status.setFont (juce::FontOptions (14.5f));
     status.setColour (juce::Label::textColourId, Theme::textDim);
     status.setText ("トークンは OS の資格情報ストア（Windows 資格情報マネージャー / macOS キーチェーン）に保存されます。"_ju,
                     juce::dontSendNotification);
@@ -101,7 +101,7 @@ void ServerSettings::paint (juce::Graphics& g)
 {
     g.fillAll (Theme::panel);
     g.setColour (Theme::text);
-    g.setFont (juce::FontOptions (13.0f));
+    g.setFont (juce::FontOptions (14.5f));
     g.drawText ("サーバー URL"_ju, 12, 12, 120, 26, juce::Justification::centredLeft);
     g.drawText ("トークン"_ju, 12, 48, 120, 26, juce::Justification::centredLeft);
 }
@@ -121,7 +121,7 @@ std::unique_ptr<juce::Component> createHistoryView (const nlohmann::json& revisi
     auto editor = std::make_unique<juce::TextEditor>();
     editor->setMultiLine (true);
     editor->setReadOnly (true);
-    editor->setFont (juce::FontOptions (14.0f));
+    editor->setFont (juce::FontOptions (15.5f));
 
     juce::String text;
 

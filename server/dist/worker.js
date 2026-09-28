@@ -2563,8 +2563,19 @@ var project_schema_default = {
               type: "number",
               minimum: -24,
               maximum: 24
+            },
+            sidechainHpHz: {
+              type: "number",
+              minimum: 0,
+              maximum: 1e3
             }
           }
+        },
+        order: {
+          enum: [
+            "eqComp",
+            "compEq"
+          ]
         }
       }
     },

@@ -7,15 +7,19 @@
 #include "sync/SyncManager.h"
 
 /**
-    同期パネル（右側）。プロジェクトのすべてのトラック（とテンポ・拍子・コードなど）を一覧にして:
+    同期パネル（右側）。プロジェクトのすべてのトラック（とテンポ・拍子・コードなど）を
+    「名前 | ダウンロード | アップロード」の表にする。
 
-    ・この PC で変えたもの … チェック。チェックしたものだけをアップする
-    ・他の人がアップして新しくなったもの … 色を付けてダウンロードを促す（採用しない、も選べる）
-    ・両方で変わったもの（競合）… 自分の版 / サーバーの版 / 両方残す（トラックだけ）を選んでからダウンロードする
+    ・他の人がアップして新しくなったもの … ダウンロードの欄に自動でチェック（外すと今のまま）
+    ・この PC で変えたもの … アップロードの欄に自動でチェック（外すと今回はアップしない）
+    ・両方で変わったもの（競合）… 色を付ける。トラックは両方にチェック（サーバーの版を使い、自分の版を別トラックで残す）。
+      片方だけにすればその版を使う。テンポなどトラック以外は、どちらかを選ぶ
 
-    行を選ぶと、自分の変更とサーバーの変更の中身（何小節目の何が変わったか）を並べて見せる。
+    行をクリックすると、自分の変更とサーバーの変更の中身（何小節目の何が変わったか）を並べて見せる。
+    「>>」で右端の細い帯に畳み、「<<」で開く。畳んでいてもダウンロード・アップロードの件数を色分けして出す。
 */
 class SyncPanel  : public juce::Component,
+                   public juce::SettableTooltipClient,
                    private juce::ChangeListener,
                    private juce::Timer
 {
@@ -23,14 +27,14 @@ public:
     SyncPanel (SyncManager&, ProjectDocument&, juce::PropertiesFile&);
     ~SyncPanel() override;
 
-    std::function<void()> onRegister, onServerSettings, onOpenPicker, onClose;
+    std::function<void()> onRegister, onServerSettings, onOpenPicker, onToggle;
 
-    /** ダウンロード（競合などの選択つき）。 */
+    /** ダウンロード（サーバーの変更・競合への選択つき）。 */
     std::function<void (const std::map<std::string, collab::Resolution>& choices)> onDownload;
 
     /**
-        アップ（この PC で変えたもののうち、チェックを外したもの以外）。
-        サーバーに新しい版があれば、先に choices でダウンロードしてからアップする（「両方残す」でできたトラックも含む）。
+        アップロード（この PC で変えたもののうち、アップロードの欄のチェックを外したもの以外）。
+        サーバーに新しい版があれば、先に choices でダウンロードしてからアップする（「両方」でできたトラックも含む）。
     */
     std::function<void (const std::set<std::string>& excludedScopes, const juce::String& message,
                         const std::map<std::string, collab::Resolution>& choices)> onUpload;
@@ -40,14 +44,19 @@ public:
     /** 他の人の変更を自動でダウンロードするか（この PC の設定）。 */
     bool autoPullEnabled() const;
 
-    /** アップ・ダウンロードが済んだら、コメントと選択を消す。 */
+    /** アップ・ダウンロードが済んだら、選択を消す。 */
     void clearAfterSync();
+
+    bool isCollapsed() const noexcept           { return collapsed; }
+    void setCollapsed (bool);
+    int getPreferredWidth() const noexcept      { return collapsed ? collapsedWidth : expandedWidth; }
 
     void paint (juce::Graphics&) override;
     void resized() override;
     void visibilityChanged() override;
+    void mouseUp (const juce::MouseEvent&) override;
 
-    static constexpr int preferredWidth = 380;
+    static constexpr int expandedWidth = 310, collapsedWidth = 46;
 
 private:
     class List;
@@ -58,44 +67,35 @@ private:
 
     juce::Viewport viewport;
     std::unique_ptr<List> list;
-    juce::TextButton closeButton, downloadButton, uploadButton, registerButton, settingsButton;
-    juce::TextEditor comment;
+    juce::TextButton toggleButton, downloadButton, uploadButton, registerButton, settingsButton;
     juce::ToggleButton autoPull;
-    juce::Label statusLabel, hintLabel;
+    juce::Label statusLabel;
 
-    std::set<std::string> excluded;                          // この PC の変更のうち、チェックを外したもの
-    std::map<std::string, collab::Resolution> choices;       // サーバーの変更・競合への選択
+    // 表のチェック（既定から変えたものだけ覚える）
+    std::map<std::string, bool> downloadChecks, uploadChecks;
     std::string expandedId;                                  // 中身を開いている行
+    bool collapsed = false;
+
+    // 畳んだ帯・見出しに出す件数
+    int downloadCount = 0, uploadCount = 0, conflictCount = 0;
+    bool offline = false;
 
     bool dirty = true;
     int ticks = 0;
     bool laidOutLinked = false;   // 最後に resized() したときに、サーバーにある曲だったか
 
+    struct Checks { bool canDownload = false, canUpload = false, download = false, upload = false; };
+    Checks checksFor (const collab::ScopeSyncState&) const;
+    void toggleCheck (const collab::ScopeSyncState&, bool downloadColumn);
+
+    /** 表のチェックから、ダウンロードの選択とアップしないものを作る。未解決の競合があればその名前を返す。 */
+    std::map<std::string, collab::Resolution> currentChoices (juce::String* unresolved) const;
+    std::set<std::string> currentExcluded() const;
+
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
     void timerCallback() override;
     void rebuild();
-    void updateButtons();
-};
-
-/** ツールバーの同期の状態（「最新」「↓2」「↑3」「競合」など）。クリックで同期パネルを開く。 */
-class SyncBadge  : public juce::Button,
-                   private juce::ChangeListener,
-                   private juce::Timer
-{
-public:
-    SyncBadge (SyncManager&, ProjectDocument&);
-    ~SyncBadge() override;
-
-    void paintButton (juce::Graphics&, bool highlighted, bool down) override;
-
-private:
-    SyncManager& sync;
-    ProjectDocument& document;
-    int mine = 0, theirs = 0, conflicts = 0;
-    bool dirty = true;
-
-    void changeListenerCallback (juce::ChangeBroadcaster*) override;
-    void timerCallback() override;
+    void paintCounts (juce::Graphics&, juce::Rectangle<int>, bool vertical) const;
 };
 
 /** 画面の右下に出すお知らせ（「○○ さんがアップしました [ダウンロード]」）。 */

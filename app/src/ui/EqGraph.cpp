@@ -37,7 +37,7 @@ EqGraph::EqGraph (AppContext& c)
     : ctx (c)
 {
     fftData.assign ((size_t) fftSize * 2, 0.0f);
-    spectrumDb.assign ((size_t) fftSize / 2 + 1, spectrumFloorDb);
+    binPower.assign ((size_t) fftSize / 2 + 1, 0.0);
     setRepaintsOnMouseActivity (false);
     startTimerHz (30);
 }
@@ -172,27 +172,74 @@ void EqGraph::timerCallback()
         fresh = true;
     }
 
-    const float norm = 4.0f / (float) fftSize;   // ハン窓で 0 dBFS の正弦波が 0 dB になるように
-    bool changed = false;
+    if (! fresh && ! hasSpectrum)
+        return;
 
-    for (size_t i = 0; i < spectrumDb.size(); ++i)
+    // 時間方向の平滑化（パワーで）: 上がるときは速く、下がるときはゆっくり。Neutron などと同じく滑らかに動く
+    const double norm = 4.0 / fftSize;   // ハン窓で 0 dBFS の正弦波が 0 dB になるように
+
+    for (size_t i = 0; i < binPower.size(); ++i)
     {
-        const float target = fresh ? juce::jmax (spectrumFloorDb, juce::Decibels::gainToDecibels (fftData[i] * norm, spectrumFloorDb))
-                                   : spectrumFloorDb;
-        auto& v = spectrumDb[i];
-        const float next = target > v ? v + (target - v) * 0.6f : juce::jmax (target, v - 1.5f);   // 速く上がり、ゆっくり下がる
-
-        if (std::abs (next - v) > 0.01f)
-        {
-            v = next;
-            changed = true;
-        }
+        const double amp = fresh ? fftData[i] * norm : 0.0;
+        const double target = amp * amp;
+        auto& p = binPower[i];
+        p = target > p ? p + (target - p) * 0.55 : p + (target - p) * 0.14;
     }
 
-    hasSpectrum = changed || hasSpectrum;
+    updateShownSpectrum();
+    repaint();
+}
 
-    if (changed)
-        repaint();
+void EqGraph::updateShownSpectrum()
+{
+    const double binHz = spectrumRate / fftSize;
+    const int last = (int) binPower.size() - 1;
+    std::vector<float> raw ((size_t) numPoints);
+    bool anything = false;
+
+    for (int i = 0; i < numPoints; ++i)
+    {
+        const double f = minHz * std::pow (maxHz / minHz, (i + 0.5) / numPoints);
+
+        // 1/6 オクターブの帯域のパワーの平均。帯域がビンより狭い低域はビンの間を補間する
+        const double lo = f * std::pow (2.0, -1.0 / 12.0) / binHz, hi = f * std::pow (2.0, 1.0 / 12.0) / binHz;
+        double power;
+
+        if (hi - lo < 1.0)
+        {
+            const double pos = juce::jlimit (1.0, (double) last - 1, f / binHz);
+            const int b = (int) pos;
+            const double t = pos - b;
+            power = binPower[(size_t) b] * (1.0 - t) + binPower[(size_t) b + 1] * t;
+        }
+        else
+        {
+            const int b0 = juce::jlimit (1, last, (int) std::ceil (lo)), b1 = juce::jlimit (b0, last, (int) std::floor (hi));
+            power = 0.0;
+
+            for (int b = b0; b <= b1; ++b)
+                power += binPower[(size_t) b];
+
+            power /= (b1 - b0 + 1);
+        }
+
+        // 1 kHz を中心に +4.5 dB/oct 傾けて、普通の曲がおおよそ平らに見えるようにする（無音は傾けずに消す）
+        const double db = 10.0 * std::log10 (power + 1e-30) + 4.5 * std::log2 (f / 1000.0);
+        raw[(size_t) i] = (float) juce::jmax ((double) spectrumFloorDb, db);
+        anything = anything || raw[(size_t) i] > spectrumFloorDb + 1.0f;
+    }
+
+    // 周波数方向にもならす（2 回）
+    for (int pass = 0; pass < 2; ++pass)
+    {
+        auto copy = raw;
+
+        for (int i = 1; i < numPoints - 1; ++i)
+            raw[(size_t) i] = 0.25f * copy[(size_t) i - 1] + 0.5f * copy[(size_t) i] + 0.25f * copy[(size_t) i + 1];
+    }
+
+    shownDb = std::move (raw);
+    hasSpectrum = anything;
 }
 
 //==============================================================================
@@ -203,7 +250,7 @@ void EqGraph::paint (juce::Graphics& g)
     g.fillRect (r);
 
     // グリッド
-    g.setFont (juce::FontOptions (11.5f));
+    g.setFont (juce::FontOptions (13.0f));
 
     for (double hz : { 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0 })
     {
@@ -225,51 +272,42 @@ void EqGraph::paint (juce::Graphics& g)
                     juce::Justification::centredRight);
     }
 
-    // スペクトラム（1 kHz を中心に +3 dB/oct 傾けて、ピンクノイズが平らに見えるようにする）
-    if (hasSpectrum)
+    // スペクトラム（なめらかな曲線で塗る）
+    if (hasSpectrum && (int) shownDb.size() == numPoints)
     {
-        juce::Path p;
-        p.startNewSubPath (r.getX(), r.getBottom());
-        const double binHz = spectrumRate / fftSize;
-        const int last = (int) spectrumDb.size() - 1;
-
-        for (float x = r.getX(); x <= r.getRight(); x += 2.0f)
+        auto pointAt = [&] (int i)
         {
-            // 1/6 オクターブ幅の中の最大値を取って、ギザギザを抑える
-            const double f0 = freqForX (x), f1 = freqForX (x + 2.0f);
-            const int b0 = juce::jlimit (1, last, (int) std::floor (f0 * 0.944 / binHz));
-            const int b1 = juce::jlimit (b0, last, (int) std::floor (f1 * 1.059 / binHz));
-            float db;
+            const double f = minHz * std::pow (maxHz / minHz, (i + 0.5) / numPoints);
+            const float norm = juce::jlimit (0.0f, 1.0f, (shownDb[(size_t) i] - spectrumFloorDb) / -spectrumFloorDb);
+            return juce::Point<float> (xForFreq (f), r.getBottom() - norm * r.getHeight());
+        };
 
-            if (b1 > b0)
-            {
-                db = spectrumFloorDb;
+        juce::Path line;
+        auto prev = pointAt (0);
+        line.startNewSubPath (r.getX(), prev.y);
+        line.lineTo (prev);
 
-                for (int b = b0; b <= b1; ++b)
-                    db = juce::jmax (db, spectrumDb[(size_t) b]);
-            }
-            else
-            {
-                // 低域はビンが粗いので補間する
-                const double pos = juce::jlimit (1.0, (double) last, f0 / binHz);
-                const int i = juce::jmin ((int) pos, last - 1);
-                const float t = (float) (pos - i);
-                db = spectrumDb[(size_t) i] * (1.0f - t) + spectrumDb[(size_t) i + 1] * t;
-            }
-
-            db += 3.0f * (float) std::log2 (f0 / 1000.0);
-            const float norm = juce::jlimit (0.0f, 1.0f, (db - spectrumFloorDb) / -spectrumFloorDb);
-            p.lineTo (x, r.getBottom() - norm * r.getHeight());
+        for (int i = 1; i < numPoints; ++i)
+        {
+            const auto p = pointAt (i);
+            line.quadraticTo (prev, (prev + p) * 0.5f);
+            prev = p;
         }
 
-        p.lineTo (r.getRight(), r.getBottom());
-        p.closeSubPath();
+        line.lineTo (r.getRight(), prev.y);
 
-        g.setGradientFill (juce::ColourGradient (Theme::accent.withAlpha (0.45f), 0.0f, r.getY(),
-                                                 Theme::accent.withAlpha (0.08f), 0.0f, r.getBottom(), false));
-        g.fillPath (p);
-        g.setColour (Theme::accent.withAlpha (0.5f));
-        g.strokePath (p, juce::PathStrokeType (1.0f));
+        juce::Path fill (line);
+        fill.lineTo (r.getRight(), r.getBottom());
+        fill.lineTo (r.getX(), r.getBottom());
+        fill.closeSubPath();
+
+        g.saveState();
+        g.reduceClipRegion (r.toNearestInt());
+        g.setColour (Theme::accent.withAlpha (0.16f));
+        g.fillPath (fill);
+        g.setColour (Theme::accent.withAlpha (0.55f));
+        g.strokePath (line, juce::PathStrokeType (1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.restoreState();
     }
 
     // EQ カーブ（オフのときも形は薄く見せる）
@@ -319,7 +357,7 @@ void EqGraph::paint (juce::Graphics& g)
         g.setColour (colour);
         g.fillEllipse (pos.x - radius, pos.y - radius, radius * 2, radius * 2);
         g.setColour (juce::Colours::black.withAlpha (0.8f));
-        g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+        g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
         g.drawText (bandName (b), juce::Rectangle<float> (pos.x - 10.0f, pos.y - 6.0f, 20.0f, 12.0f), juce::Justification::centred);
     }
 
@@ -327,7 +365,7 @@ void EqGraph::paint (juce::Graphics& g)
     if (const int b = dragBand >= 0 ? dragBand : hoverBand; b >= 0)
     {
         const auto text = describe (b);
-        g.setFont (juce::FontOptions (13.5f));
+        g.setFont (juce::FontOptions (15.0f));
         auto box = juce::Rectangle<float> (r.getX() + 6.0f, r.getY() + 6.0f, 260.0f, 20.0f);
         g.setColour (juce::Colours::black.withAlpha (0.6f));
         g.fillRoundedRectangle (box, 4.0f);

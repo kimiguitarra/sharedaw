@@ -121,9 +121,7 @@ private:
     KeyLane keyLane;
     ChordLane chordLane;
     MarkerLane markerLane;
-    juce::ToggleButton chordPlaybackToggle;
-    juce::Slider chordVolume { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
-    juce::String chordVolumeMergeId;
+    juce::TextButton chordMute;   // コードトラックのミュート（M）
     TrackLanes lanes;
     /** トラックヘッダーを並べる所。空いている所を右クリックするとトラックを追加するメニュー（Cubase と同じ）。 */
     struct HeaderArea  : public juce::Component

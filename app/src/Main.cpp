@@ -69,7 +69,7 @@ public:
        #if JUCE_MAC
         juce::MenuBarModel::setMacMainMenu (mc);
        #else
-        setMenuBar (mc);
+        setMenuBar (mc, 28);
        #endif
 
         mc->onTitleChanged = [this] (const juce::String& t) { setName (t); };

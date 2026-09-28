@@ -30,10 +30,16 @@ void Ruler::paint (juce::Graphics& g)
         const auto x2 = (float) axis.tickToX ((double) state.loopEnd);
         g.setColour (state.loopEnabled ? Theme::accent.withAlpha (0.45f) : Theme::textDim.withAlpha (0.25f));
         g.fillRect (juce::Rectangle<float> (x1, 0.0f, x2 - x1, (float) getHeight() * 0.35f));
+
+        // 左右のロケーターの旗（Cubase と同じく、開始は右向き・終了は左向き）
+        const float h = (float) getHeight() * 0.62f;
+        g.setColour (state.loopEnabled ? Theme::accent : Theme::textDim);
+        g.fillPath (Theme::iconPath ("flagL", juce::Rectangle<float> (x1 - h * 0.25f, 0.0f, h, h)));
+        g.fillPath (Theme::iconPath ("flagR", juce::Rectangle<float> (x2 - h * 0.75f, 0.0f, h, h)));
     }
 
     const int step = TimeGrid::barLabelStep (axis, map, 36.0);
-    g.setFont (juce::FontOptions (13.5f));
+    g.setFont (juce::FontOptions (15.0f));
 
     TimeGrid::forEachVisibleBar (axis, map, getWidth(), [&] (int bar, collab::Tick start, collab::TimeSignature sig)
     {

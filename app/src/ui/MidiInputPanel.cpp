@@ -22,16 +22,16 @@ namespace
 MidiInputPanel::MidiInputPanel (EngineBridge& e) : engine (e)
 {
     title.setText ("MIDI キーボード（MIDI 入力）"_ju, juce::dontSendNotification);
-    title.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+    title.setFont (juce::FontOptions (14.5f, juce::Font::bold));
     addAndMakeVisible (title);
 
     note.setText ("鍵盤を弾くとバーが動きます。選択中の MIDI トラックの音源で鳴り、R で録音できます。"_ju, juce::dontSendNotification);
-    note.setFont (juce::FontOptions (13.5f));
+    note.setFont (juce::FontOptions (15.0f));
     note.setColour (juce::Label::textColourId, Theme::textDim);
     addAndMakeVisible (note);
 
     empty.setText ("MIDI 機器が見つかりません。つないだ後、少し待つと表示されます。"_ju, juce::dontSendNotification);
-    empty.setFont (juce::FontOptions (13.5f));
+    empty.setFont (juce::FontOptions (15.0f));
     empty.setColour (juce::Label::textColourId, Theme::textDim);
     addChildComponent (empty);
 
@@ -131,7 +131,7 @@ void MidiActivityLight::paint (juce::Graphics& g)
 {
     auto r = getLocalBounds().toFloat().reduced (2.0f, 6.0f);
     g.setColour (Theme::textDim);
-    g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
+    g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
     g.drawText ("MIDI", r.removeFromTop (12.0f), juce::Justification::centred);
     drawBar (g, r.reduced (0.0f, 4.0f), level);
 }

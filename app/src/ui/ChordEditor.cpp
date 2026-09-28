@@ -89,7 +89,7 @@ public:
         }
 
         g.setColour (Theme::text);
-        g.setFont (juce::FontOptions (16.0f, juce::Font::bold));
+        g.setFont (juce::FontOptions (17.5f, juce::Font::bold));
         g.drawText (owner.currentNoChord ? juce::String ("X") : toJuce (collab::chord::format (owner.current)),
                     juce::Rectangle<float> (inner * 1.8f, 24.0f).withCentre (centre), juce::Justification::centred);
     }
@@ -254,7 +254,7 @@ ChordEditor::ChordEditor (const juce::String& initialText, std::optional<collab:
     textEditor.onEscapeKey = [this] { close(); };
     addAndMakeVisible (textEditor);
 
-    preview.setFont (juce::FontOptions (13.0f));
+    preview.setFont (juce::FontOptions (14.5f));
     addAndMakeVisible (preview);
 
     // ディグリーのボタン（キーが決まっているとき）: 音階の四和音
@@ -549,7 +549,7 @@ void ChordEditor::paint (juce::Graphics& g)
     if (! degreeButtons.isEmpty())
     {
         g.setColour (Theme::textDim);
-        g.setFont (juce::FontOptions (13.5f));
+        g.setFont (juce::FontOptions (15.0f));
         g.drawText ("ディグリー"_ju, 10, degreeButtons[0]->getY(), 80, degreeButtons[0]->getHeight(), juce::Justification::centredLeft);
     }
 
@@ -557,7 +557,7 @@ void ChordEditor::paint (juce::Graphics& g)
     if (! showCircle && ! rootButtons.isEmpty())
     {
         g.setColour (Theme::textDim);
-        g.setFont (juce::FontOptions (12.5f));
+        g.setFont (juce::FontOptions (14.0f));
         const int y = rootButtons[0]->getY() - 16;
         const juce::String titles[] = { "ルート"_ju, "タイプ"_ju, "テンション"_ju, "ベース"_ju };
         juce::Component* firsts[] = { rootButtons[0], typeButtons[0], tensionButtons[0], bassButtons[0] };

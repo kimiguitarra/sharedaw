@@ -953,8 +953,19 @@
               "type": "number",
               "minimum": -24,
               "maximum": 24
+            },
+            "sidechainHpHz": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1000
             }
           }
+        },
+        "order": {
+          "enum": [
+            "eqComp",
+            "compEq"
+          ]
         }
       }
     },

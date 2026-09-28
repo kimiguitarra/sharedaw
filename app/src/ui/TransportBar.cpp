@@ -1,7 +1,10 @@
 #include "TransportBar.h"
 
 #include "Theme.h"
+#include "KeyLane.h"
 #include "TempoMeterLanes.h"
+
+#include <collab/ChordPlayback.h>
 
 namespace
 {
@@ -23,10 +26,9 @@ namespace
     }
 }
 
-//==============================================================================
 ToolBar::ToolBar (AppContext& c) : ctx (c)
 {
-    // ツール（Cubase と同じ番号。テンキーでも切り替えられる）
+    // ツール（Cubase と同じ番号）
     selectTool.setTooltip ("選択ツール（1）: 選択・移動・長さの変更。Ctrl/Shift+クリックで追加、空いている所をドラッグで範囲選択"_ju);
     pencilTool.setTooltip ("鉛筆ツール（2）: テンポ・拍子・コード・マーカー・クリップ・ノートを置く"_ju);
     splitTool.setTooltip ("はさみツール（3）: クリックした位置でクリップ・ノートを分割"_ju);
@@ -73,10 +75,7 @@ ToolBar::ToolBar (AppContext& c) : ctx (c)
         ctx.state.changed();
     };
 
-    settingsButton.setButtonText ("オーディオ設定"_ju);
-    settingsButton.onClick = [this] { if (onAudioSettings) onAudioSettings(); };
-
-    for (auto* b : std::initializer_list<juce::TextButton*> { &snapButton, &autoScrollButton, &metronomeButton, &settingsButton })
+    for (auto* b : std::initializer_list<juce::TextButton*> { &snapButton, &autoScrollButton, &metronomeButton })
     {
         b->setClickingTogglesState (false);
         addAndMakeVisible (b);
@@ -92,16 +91,86 @@ ToolBar::ToolBar (AppContext& c) : ctx (c)
     };
     addAndMakeVisible (metronomeVolume);
 
-    midiLight.setTooltip ("MIDI 入力（キーボードを弾くと動きます。機器の設定はオーディオ設定）"_ju);
-    addAndMakeVisible (midiLight);
+    // 右: 曲のテンポ・拍子・キー（再生位置のもの）
+    styleValue (bpmLabel, 16.0f, false, true);
+    styleValue (meterLabel, 16.0f, false, true);
+    styleValue (keyLabel, 16.0f, false, false);
+
+    for (auto* l : { static_cast<juce::Label*> (&bpmLabel), static_cast<juce::Label*> (&meterLabel), &keyLabel })
+        addAndMakeVisible (l);
+
+    // テンポと拍子: 再生位置で有効な値を表示し、クリックで入力・ホイールで増減できる（テンポ・拍子トラックのイベントを書き換える）
+    bpmLabel.setTooltip ("テンポ（クリックで入力、ホイールで ±1）。再生位置のテンポを変えます"_ju);
+    meterLabel.setTooltip ("拍子（クリックで入力、ホイールで分子を ±1）。再生位置の拍子を変えます"_ju);
+
+    bpmLabel.onEditorShow = [this]
+    {
+        if (auto* ed = bpmLabel.getCurrentTextEditor())
+        {
+            ed->setText (bpmLabel.getText().upToFirstOccurrenceOf (" ", false, false), false);
+            ed->setInputRestrictions (7, "0123456789.");
+            ed->selectAll();
+        }
+    };
+    bpmLabel.onTextChange = [this]
+    {
+        const double bpm = bpmLabel.getText().getDoubleValue();
+
+        if (bpm >= 10.0 && bpm <= 999.0)
+            setTempoAtPlayhead (bpm);
+        else
+            refreshTempo();
+    };
+    bpmLabel.onWheel = [this] (int dir)
+    {
+        // 続けて回した分は 1 つの「元に戻す」にまとめる
+        const auto now = juce::Time::getMillisecondCounter();
+
+        if (wheelMergeId.isEmpty() || now - lastWheelTime > 800)
+            wheelMergeId = juce::Uuid().toString();
+
+        lastWheelTime = now;
+        const double bpm = std::round (ctx.document.getTempoMap().bpmAtTick (playheadTick())) + dir;
+        setTempoAtPlayhead (juce::jlimit (10.0, 999.0, bpm), wheelMergeId);
+    };
+
+    meterLabel.onEditorShow = [this]
+    {
+        if (auto* ed = meterLabel.getCurrentTextEditor())
+        {
+            ed->setInputRestrictions (5, "0123456789/");
+            ed->selectAll();
+        }
+    };
+    meterLabel.onTextChange = [this]
+    {
+        if (auto m = MeterLane::parseMeter (meterLabel.getText()))
+            setMeterAtPlayhead (m->first, m->second);
+        else
+            refreshTempo();
+    };
+    meterLabel.onWheel = [this] (int dir)
+    {
+        const auto sig = ctx.document.getTempoMap().timeSignatureAtTick (playheadTick());
+        setMeterAtPlayhead (juce::jlimit (1, 64, sig.numerator + dir), sig.denominator);
+    };
+
+    keyLabel.setTooltip ("キー（クリックで選ぶ）。再生位置のキーを変えます。コードのディグリー表示・入力の基準"_ju);
+    keyLabel.setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    keyLabel.addMouseListener (this, false);
+
+    for (auto* b : { &selectTool, &pencilTool, &splitTool })
+        b->setWantsKeyboardFocus (false);
 
     ctx.state.addChangeListener (this);
+    ctx.document.addChangeListener (this);
     changeListenerCallback (nullptr);
 }
 
 ToolBar::~ToolBar()
 {
     ctx.state.removeChangeListener (this);
+    ctx.document.removeChangeListener (this);
 }
 
 void ToolBar::changeListenerCallback (juce::ChangeBroadcaster*)
@@ -114,11 +183,55 @@ void ToolBar::changeListenerCallback (juce::ChangeBroadcaster*)
     snapButton.setToggleState (ctx.state.snapEnabled(), juce::dontSendNotification);
     autoScrollButton.setToggleState (ctx.state.autoScroll, juce::dontSendNotification);
     quantiseBox.setSelectedId (ctx.state.quantisePresetIndex() + 1, juce::dontSendNotification);
+    refreshTempo();
 }
 
 void ToolBar::update()
 {
-    midiLight.setLevel (ctx.engine.getMidiActivity());
+    // 再生位置が動くとテンポ・拍子・キーが変わることがある
+    const auto tick = playheadTick();
+
+    if (tick != lastTick)
+    {
+        lastTick = tick;
+        refreshTempo();
+    }
+}
+
+void ToolBar::refreshTempo()
+{
+    const auto& map = ctx.document.getTempoMap();
+    const auto t = playheadTick();
+    const double bpm = map.bpmAtTick (t);
+    const auto sig = map.timeSignatureAtTick (t);
+
+    if (! bpmLabel.isBeingEdited())
+        bpmLabel.setText (juce::String (bpm, std::abs (bpm - std::round (bpm)) < 0.005 ? 0 : 2) + " BPM", juce::dontSendNotification);
+
+    if (! meterLabel.isBeingEdited())
+        meterLabel.setText (juce::String (sig.numerator) + "/" + juce::String (sig.denominator), juce::dontSendNotification);
+
+    const auto key = collab::keyAt (ctx.document.getProject(), map, t);
+    keyLabel.setText (key ? "Key: "_ju + toJuce (collab::chord::keyName (*key)) : "Key: -"_ju, juce::dontSendNotification);
+}
+
+void ToolBar::mouseUp (const juce::MouseEvent& e)
+{
+    if (e.eventComponent != &keyLabel)
+        return;
+
+    // 再生位置で有効なキー（その小節より前で最後のもの）を変える。なければ 1 小節目に置く
+    const auto& map = ctx.document.getTempoMap();
+    const int playBar = map.tickToBar (playheadTick());
+    int bar = 1;
+
+    for (auto& k : ctx.document.getProject().keyTrack.events)
+        if (k.bar <= playBar && k.bar > bar)
+            bar = k.bar;
+
+    const auto current = collab::keyAt (ctx.document.getProject(), map, map.barToTick (bar));
+    KeyLane::keyMenu (current, [this, bar] (collab::chord::Key k) { KeyLane::setKey (ctx, bar, k); })
+        .showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&keyLabel));
 }
 
 void ToolBar::paint (juce::Graphics& g)
@@ -158,23 +271,18 @@ void ToolBar::resized()
     metronomeVolume.setBounds (area.removeFromLeft (100));
     groups.push_back (metronomeButton.getBounds().getUnion (metronomeVolume.getBounds()).expanded (4, 1));
 
-    settingsButton.setBounds (area.removeFromRight (juce::jmin (130, area.getWidth())));
-    area.removeFromRight (8);
-
-    if (syncBadge != nullptr)
-    {
-        syncBadge->setBounds (area.removeFromRight (juce::jmin (150, area.getWidth())));
-        area.removeFromRight (8);
-    }
-
-    midiLight.setBounds (area.removeFromRight (juce::jmin (44, area.getWidth())));
+    area.removeFromLeft (18);
+    bpmLabel.setBounds (area.removeFromLeft (110));
+    area.removeFromLeft (4);
+    meterLabel.setBounds (area.removeFromLeft (60));
+    area.removeFromLeft (4);
+    keyLabel.setBounds (area.removeFromLeft (130));
+    groups.push_back (bpmLabel.getBounds().getUnion (keyLabel.getBounds()).expanded (4, 1));
 }
 
-void ToolBar::setSyncBadge (juce::Component* c)
+collab::Tick ToolBar::playheadTick() const
 {
-    syncBadge = c;
-    addAndMakeVisible (c);
-    resized();
+    return (collab::Tick) juce::jmax (0.0, ctx.engine.getPositionTick());
 }
 
 void ToolBar::ToolButton::paintButton (juce::Graphics& g, bool highlighted, bool down)
@@ -201,22 +309,17 @@ void ToolBar::ToolButton::paintButton (juce::Graphics& g, bool highlighted, bool
 //==============================================================================
 TransportBar::TransportBar (AppContext& c) : ctx (c)
 {
-    // 左: ループ範囲
-    loopStartTitle.setText ("ループ開始"_ju, juce::dontSendNotification);
-    loopEndTitle.setText ("ループ終了"_ju, juce::dontSendNotification);
+    // 左: 左右のロケーター（旗）。Cubase と同じく、サイクル再生はこの間を繰り返す
+    loopStartFlag.setTooltip ("左ロケーター（サイクルの開始）。テンキー 1 でここへ移動"_ju);
+    loopEndFlag.setTooltip ("右ロケーター（サイクルの終了）。テンキー 2 でここへ移動"_ju);
 
-    for (auto* l : { &loopStartTitle, &loopEndTitle })
-    {
-        l->setFont (juce::FontOptions (12.5f));
-        l->setColour (juce::Label::textColourId, Theme::textDim);
-        l->setJustificationType (juce::Justification::centredRight);
-        addAndMakeVisible (l);
-    }
+    for (auto* f : { &loopStartFlag, &loopEndFlag })
+        addAndMakeVisible (f);
 
     for (auto* l : { &loopStartLabel, &loopEndLabel })
     {
-        styleValue (*l, 16.0f, true, true);
-        l->setTooltip ("クリックで入力（例: 5 または 5.3.0 = 小節.拍.tick）、ホイールで 1 小節ずつ。"_ju
+        styleValue (*l, 17.0f, true, true);
+        l->setTooltip ("クリックで入力（例: 5 または 5.3.0 = 小節.拍.tick）、ホイールで 1 小節ずつ。テンキー 1 / 2 でそこへ移動。"_ju
                        "クリップやノートを選んで P でも設定できます"_ju);
         addAndMakeVisible (l);
 
@@ -246,12 +349,11 @@ TransportBar::TransportBar (AppContext& c) : ctx (c)
         };
     }
 
-    // 中央: ループ・停止・再生・録音
-
-    loopButton.setTooltip ("ループ再生（L / テンキー /）"_ju);
+    // 中央: サイクル・停止・再生・録音、その右に現在の位置
+    loopButton.setTooltip ("サイクル再生（L / テンキー /）。左右のロケーター（旗）の間を繰り返す"_ju);
     stopButton.setTooltip ("停止（テンキー 0）。停止中に押すと先頭へ"_ju);
     playButton.setTooltip ("再生／一時停止（Space）"_ju);
-    recordButton.setTooltip ("録音（R / テンキー *）。録音待機（●）のオーディオトラックと、選択中の MIDI トラックに録音します"_ju);
+    recordButton.setTooltip ("録音（* / テンキー *）。録音待機（●）のトラックに録音します"_ju);
 
     loopButton.setClickingTogglesState (false);
     loopButton.onClick = [this]
@@ -277,73 +379,13 @@ TransportBar::TransportBar (AppContext& c) : ctx (c)
     for (auto* b : { &loopButton, &stopButton, &playButton, &recordButton })
         addAndMakeVisible (b);
 
-    // 右: 現在の位置とテンポ・拍子
-    styleValue (barBeatLabel, 20.0f, true, false);
-    barBeatLabel.setFont (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 20.0f, juce::Font::bold));
-    barBeatLabel.setTooltip ("現在の位置（小節.拍.tick）"_ju);
-    styleValue (timeLabel, 15.0f, true, false);
-    timeLabel.setTooltip ("現在の位置（分:秒）"_ju);
-    styleValue (bpmLabel, 16.0f, false, true);
-    styleValue (meterLabel, 16.0f, false, true);
+    for (auto* b : { &loopButton, &stopButton, &playButton, &recordButton })
+        addAndMakeVisible (b);
 
-    for (auto* l : { &barBeatLabel, &timeLabel, static_cast<juce::Label*> (&bpmLabel), static_cast<juce::Label*> (&meterLabel) })
-        addAndMakeVisible (l);
-
-    // テンポと拍子: 再生位置で有効な値を表示し、クリックで入力・ホイールで増減できる（テンポ・拍子トラックのイベントを書き換える）
-    bpmLabel.setTooltip ("テンポ（クリックで入力、ホイールで ±1）。再生位置のテンポを変えます"_ju);
-    meterLabel.setTooltip ("拍子（クリックで入力、ホイールで分子を ±1）。再生位置の拍子を変えます"_ju);
-
-    bpmLabel.onEditorShow = [this]
-    {
-        if (auto* ed = bpmLabel.getCurrentTextEditor())
-        {
-            ed->setText (bpmLabel.getText().upToFirstOccurrenceOf (" ", false, false), false);
-            ed->setInputRestrictions (7, "0123456789.");
-            ed->selectAll();
-        }
-    };
-    bpmLabel.onTextChange = [this]
-    {
-        const double bpm = bpmLabel.getText().getDoubleValue();
-
-        if (bpm >= 10.0 && bpm <= 999.0)
-            setTempoAtPlayhead (bpm);
-        else
-            updatePosition (ctx.engine.getPositionTick(), ctx.engine.getPositionSeconds(), ctx.engine.isPlaying());
-    };
-    bpmLabel.onWheel = [this] (int dir)
-    {
-        // 続けて回した分は 1 つの「元に戻す」にまとめる
-        const auto now = juce::Time::getMillisecondCounter();
-
-        if (wheelMergeId.isEmpty() || now - lastWheelTime > 800)
-            wheelMergeId = juce::Uuid().toString();
-
-        lastWheelTime = now;
-        const double bpm = std::round (ctx.document.getTempoMap().bpmAtTick (playheadTick())) + dir;
-        setTempoAtPlayhead (juce::jlimit (10.0, 999.0, bpm), wheelMergeId);
-    };
-
-    meterLabel.onEditorShow = [this]
-    {
-        if (auto* ed = meterLabel.getCurrentTextEditor())
-        {
-            ed->setInputRestrictions (5, "0123456789/");
-            ed->selectAll();
-        }
-    };
-    meterLabel.onTextChange = [this]
-    {
-        if (auto m = MeterLane::parseMeter (meterLabel.getText()))
-            setMeterAtPlayhead (m->first, m->second);
-        else
-            updatePosition (ctx.engine.getPositionTick(), ctx.engine.getPositionSeconds(), ctx.engine.isPlaying());
-    };
-    meterLabel.onWheel = [this] (int dir)
-    {
-        const auto sig = ctx.document.getTempoMap().timeSignatureAtTick (playheadTick());
-        setMeterAtPlayhead (juce::jlimit (1, 64, sig.numerator + dir), sig.denominator);
-    };
+    styleValue (barBeatLabel, 22.0f, true, false);
+    barBeatLabel.setFont (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 22.0f, juce::Font::bold));
+    barBeatLabel.setTooltip ("現在の位置（小節. 拍. tick）"_ju);
+    addAndMakeVisible (barBeatLabel);
 
     ctx.state.addChangeListener (this);
     ctx.document.addChangeListener (this);
@@ -420,29 +462,15 @@ void TransportBar::refreshLoop()
         loopEndLabel.setText (formatPosition (ctx.state.loopEnd), juce::dontSendNotification);
 }
 
-void TransportBar::updatePosition (double tick, double seconds, bool playing)
+void TransportBar::updatePosition (double tick, double, bool playing)
 {
     const auto& map = ctx.document.getTempoMap();
     const auto t = (collab::Tick) juce::jmax (0.0, tick);
     const auto bb = map.tickToBarBeat (t);
-    const auto sig = map.timeSignatureAtTick (t);
 
     barBeatLabel.setText (juce::String (bb.bar).paddedLeft (' ', 3) + ". " + juce::String (bb.beat) + ". "
                             + juce::String (bb.tickInBeat).paddedLeft ('0', 3),
                           juce::dontSendNotification);
-
-    const auto s = juce::jmax (0.0, seconds);
-    const int minutes = (int) (s / 60.0);
-    timeLabel.setText (juce::String (minutes).paddedLeft ('0', 2) + ":" + juce::String (s - minutes * 60.0, 3).paddedLeft ('0', 6),
-                       juce::dontSendNotification);
-
-    const double bpm = map.bpmAtTick (t);
-
-    if (! bpmLabel.isBeingEdited())
-        bpmLabel.setText (juce::String (bpm, std::abs (bpm - std::round (bpm)) < 0.005 ? 0 : 2) + " BPM", juce::dontSendNotification);
-
-    if (! meterLabel.isBeingEdited())
-        meterLabel.setText (juce::String (sig.numerator) + "/" + juce::String (sig.denominator), juce::dontSendNotification);
 
     recordButton.setToggleState (ctx.engine.isRecording(), juce::dontSendNotification);
 
@@ -469,10 +497,10 @@ void TransportBar::resized()
 {
     auto area = getLocalBounds().reduced (10, 6);
 
-    // 中央のボタン
-    constexpr int buttonWidth = 48, gap = 4;
-    const int centreWidth = 4 * buttonWidth + 3 * gap;
-    auto centre = area.withSizeKeepingCentre (centreWidth, area.getHeight());
+    // 中央: ボタンと現在の位置（ボタンの並びを画面の中央に）
+    constexpr int buttonWidth = 48, gap = 4, positionWidth = 170;
+    const int buttonsWidth = 4 * buttonWidth + 3 * gap;
+    auto centre = area.withSizeKeepingCentre (buttonsWidth, area.getHeight());
     groups.clear();
     groups.push_back (centre.expanded (6, 3));
     loopButton.setBounds (centre.removeFromLeft (buttonWidth));
@@ -483,36 +511,23 @@ void TransportBar::resized()
         b->setBounds (centre.removeFromLeft (buttonWidth));
     }
 
-    // 左: ループ範囲
-    auto left = area.withRight (loopButton.getX() - 20);
-    loopStartTitle.setBounds (left.removeFromLeft (70));
-    left.removeFromLeft (4);
-    loopStartLabel.setBounds (left.removeFromLeft (120));
-    left.removeFromLeft (10);
-    loopEndTitle.setBounds (left.removeFromLeft (70));
-    left.removeFromLeft (4);
-    loopEndLabel.setBounds (left.removeFromLeft (120));
-    groups.push_back (loopStartTitle.getBounds().getUnion (loopEndLabel.getBounds()).expanded (6, 3));
+    barBeatLabel.setBounds (recordButton.getRight() + 18, area.getY(), positionWidth, area.getHeight());
+    groups.push_back (barBeatLabel.getBounds().expanded (6, 3));
 
-    // 右: 位置とテンポ・拍子
-    auto right = area.withLeft (recordButton.getRight() + 20);
-    meterLabel.setBounds (right.removeFromRight (56));
-    right.removeFromRight (4);
-    bpmLabel.setBounds (right.removeFromRight (100));
-    right.removeFromRight (10);
-    timeLabel.setBounds (right.removeFromRight (110));
-    right.removeFromRight (4);
-    barBeatLabel.setBounds (right.removeFromRight (150));
-    groups.push_back (barBeatLabel.getBounds().getUnion (meterLabel.getBounds()).expanded (6, 3));
+    // 左: 左右のロケーター
+    auto left = area.withRight (loopButton.getX() - 20);
+    loopStartFlag.setBounds (left.removeFromLeft (28));
+    left.removeFromLeft (2);
+    loopStartLabel.setBounds (left.removeFromLeft (120));
+    left.removeFromLeft (12);
+    loopEndFlag.setBounds (left.removeFromLeft (28));
+    left.removeFromLeft (2);
+    loopEndLabel.setBounds (left.removeFromLeft (120));
+    groups.push_back (loopStartFlag.getBounds().getUnion (loopEndLabel.getBounds()).expanded (6, 3));
 }
 
 //==============================================================================
-collab::Tick TransportBar::playheadTick() const
-{
-    return (collab::Tick) juce::jmax (0.0, ctx.engine.getPositionTick());
-}
-
-void TransportBar::setTempoAtPlayhead (double bpm, const juce::String& mergeId)
+void ToolBar::setTempoAtPlayhead (double bpm, const juce::String& mergeId)
 {
     // 再生位置で有効なテンポ変更（直前のイベント）を書き換える
     const auto tick = playheadTick();
@@ -533,7 +548,7 @@ void TransportBar::setTempoAtPlayhead (double bpm, const juce::String& mergeId)
     }, mergeId);
 }
 
-void TransportBar::setMeterAtPlayhead (int numerator, int denominator)
+void ToolBar::setMeterAtPlayhead (int numerator, int denominator)
 {
     const int bar = ctx.document.getTempoMap().tickToBar (playheadTick());
 

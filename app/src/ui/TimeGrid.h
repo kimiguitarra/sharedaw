@@ -94,7 +94,7 @@ namespace TimeGrid
     {
         g.setColour (Theme::selection.withAlpha (0.8f));
         g.fillRect (juce::Rectangle<float> (x - 1.0f, 0.0f, 2.0f, (float) height));
-        g.setFont (juce::FontOptions (13.5f, juce::Font::bold));
+        g.setFont (juce::FontOptions (15.0f, juce::Font::bold));
         g.drawText ("+", juce::Rectangle<float> (x + 3.0f, 0.0f, 12.0f, (float) height), juce::Justification::centredLeft);
     }
 

@@ -32,6 +32,9 @@ public:
     /** キーを選ぶメニュー（current に印を付ける）。 */
     static juce::PopupMenu keyMenu (std::optional<collab::chord::Key> current, std::function<void (collab::chord::Key)> onPick);
 
+    /** bar 小節目にキーを置く（あれば書き換える）。 */
+    static void setKey (AppContext&, int bar, collab::chord::Key);
+
 private:
     AppContext& ctx;
     std::string dragId;

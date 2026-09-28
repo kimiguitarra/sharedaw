@@ -37,6 +37,7 @@ private:
     juce::TextButton instrumentButton, muteButton { "M" }, soloButton { "S" }, armButton;
     juce::Slider volumeSlider { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     juce::Slider panSlider { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
+    juce::Label volumeValue, panValue;   // 数字（クリックで入力）
     juce::String dragMergeId;
     juce::String problem;
     juce::Rectangle<int> badgeArea;   // 同期中のロックの印（名前の右）

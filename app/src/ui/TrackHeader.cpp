@@ -3,6 +3,7 @@
 #include "Dialogs.h"
 #include "InstrumentPanel.h"
 #include "Theme.h"
+#include "ValueText.h"
 #include "sync/SyncManager.h"
 #include "collab/Render.h"
 #include "plugins/PluginHost.h"
@@ -11,7 +12,7 @@ TrackHeader::TrackHeader (AppContext& c, const std::string& id)
     : ctx (c), trackId (id)
 {
     nameLabel.setEditable (false, true);
-    nameLabel.setFont (juce::FontOptions (14.0f, juce::Font::bold));
+    nameLabel.setFont (juce::FontOptions (15.5f, juce::Font::bold));
     nameLabel.setColour (juce::Label::textColourId, Theme::text);
     nameLabel.onTextChange = [this]
     {
@@ -36,9 +37,9 @@ TrackHeader::TrackHeader (AppContext& c, const std::string& id)
             showInstrumentMenu();
     };
 
-    // 録音待機（オーディオトラックのみ）
+    // 録音待機（オーディオトラックと MIDI トラック）
     armButton.setButtonText ("●"_ju);
-    armButton.setTooltip ("録音待機（入力はその下のボタンで選ぶ）"_ju);
+    armButton.setWantsKeyboardFocus (false);
     armButton.setClickingTogglesState (false);
     armButton.setColour (juce::TextButton::textColourOffId, juce::Colour (0xffe57373));
     armButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffc62828));
@@ -46,6 +47,22 @@ TrackHeader::TrackHeader (AppContext& c, const std::string& id)
     armButton.onClick = [this]
     {
         select();
+
+        // MIDI トラック: MIDI キーボードで弾いたものを録音する（録音待機にできる MIDI トラックは 1 つ）
+        if (! isAudioTrack())
+        {
+            const bool arm = ctx.state.midiArmedTrackId != trackId;
+            ctx.state.midiArmedTrackId = arm ? trackId : std::string();
+            ctx.state.changed();
+
+            const auto inputs = ctx.engine.getMidiInputs();
+
+            if (arm && std::none_of (inputs.begin(), inputs.end(), [] (auto& m) { return m.enabled; }))
+                Dialogs::showInfo ("録音待機"_ju, "MIDI キーボードが見つかりません。つないでから、設定 → オーディオ・MIDI の設定で有効にしてください。"_ju);
+
+            return;
+        }
+
         auto in = ctx.engine.getTrackInput (trackId);
 
         if (in.device.isEmpty())
@@ -68,6 +85,7 @@ TrackHeader::TrackHeader (AppContext& c, const std::string& id)
     for (auto* b : { &muteButton, &soloButton })
     {
         b->setClickingTogglesState (false);
+        b->setWantsKeyboardFocus (false);
         addAndMakeVisible (b);
     }
 
@@ -81,14 +99,42 @@ TrackHeader::TrackHeader (AppContext& c, const std::string& id)
     volumeSlider.setRange (-60.0, 6.0, 0.1);
     volumeSlider.setSkewFactorFromMidPoint (-12.0);
     volumeSlider.setDoubleClickReturnValue (true, 0.0);
-    volumeSlider.setTextValueSuffix (" dB");
-    volumeSlider.setPopupDisplayEnabled (true, true, nullptr);
     volumeSlider.setTooltip ("音量（ダブルクリックで 0 dB）"_ju);
 
     panSlider.setRange (-1.0, 1.0, 0.01);
     panSlider.setDoubleClickReturnValue (true, 0.0);
-    panSlider.setPopupDisplayEnabled (true, true, nullptr);
     panSlider.setTooltip ("パン（ダブルクリックで中央）"_ju);
+
+    // 値は横に数字で出す（クリックで打ち込める）
+    for (auto* l : { &volumeValue, &panValue })
+    {
+        l->setEditable (true, true, true);
+        l->setJustificationType (juce::Justification::centred);
+        l->setFont (juce::FontOptions (15.0f));
+        l->setColour (juce::Label::textColourId, Theme::text);
+        l->setColour (juce::Label::backgroundColourId, juce::Colours::black.withAlpha (0.25f));
+        l->setColour (juce::Label::backgroundWhenEditingColourId, juce::Colour (0xff0e0f12));
+        l->setColour (juce::Label::textWhenEditingColourId, Theme::text);
+        l->setColour (juce::Label::outlineWhenEditingColourId, Theme::accent);
+        addAndMakeVisible (l);
+    }
+
+    volumeValue.setTooltip ("音量（dB）。クリックして数値を入力"_ju);
+    panValue.setTooltip ("パン。クリックして入力（L30・C・R20）"_ju);
+    volumeValue.onTextChange = [this]
+    {
+        if (auto db = ValueText::parseDb (volumeValue.getText(), -60.0, 6.0))
+            editTrack ("音量"_ju, [v = *db] (collab::Track& t) { t.volumeDb = v; });
+
+        update();
+    };
+    panValue.onTextChange = [this]
+    {
+        if (auto v = ValueText::parsePan (panValue.getText()))
+            editTrack ("パン"_ju, [v = *v] (collab::Track& t) { t.pan = v; });
+
+        update();
+    };
 
     for (auto* s : { &volumeSlider, &panSlider })
     {
@@ -138,6 +184,12 @@ void TrackHeader::update()
     volumeSlider.setValue (t->volumeDb, juce::dontSendNotification);
     panSlider.setValue (t->pan, juce::dontSendNotification);
 
+    if (! volumeValue.isBeingEdited())
+        volumeValue.setText (ValueText::formatDb (t->volumeDb), juce::dontSendNotification);
+
+    if (! panValue.isBeingEdited())
+        panValue.setText (ValueText::formatPan (t->pan), juce::dontSendNotification);
+
     juce::String instName = t->type == collab::TrackType::audio ? "オーディオ"_ju
                           : t->type == collab::TrackType::bus ? "バス（出力: "_ju + ctx.outputName (*t) + "）"_ju
                                                               : "音源なし"_ju;
@@ -160,11 +212,19 @@ void TrackHeader::update()
         const auto in = ctx.engine.getTrackInput (trackId);
         instName = in.device.isEmpty() ? "入力: なし"_ju : "入力: "_ju + in.device + (in.monitor ? "（モニター）"_ju : juce::String());
         armButton.setToggleState (in.armed, juce::dontSendNotification);
+        armButton.setTooltip ("録音待機（入力はその下のボタンで選ぶ）"_ju);
+    }
+    else if (t->type == collab::TrackType::midi)
+    {
+        armButton.setToggleState (ctx.state.midiArmedTrackId == trackId, juce::dontSendNotification);
+        armButton.setTooltip ("録音待機（MIDI キーボードで弾いたものをこのトラックに録音）"_ju);
     }
 
-    if (armButton.isVisible() != (t->type == collab::TrackType::audio))
+    const bool canArm = t->type == collab::TrackType::audio || t->type == collab::TrackType::midi;
+
+    if (armButton.isVisible() != canArm)
     {
-        armButton.setVisible (t->type == collab::TrackType::audio);
+        armButton.setVisible (canArm);
         resized();
     }
     instrumentButton.setButtonText (instName);
@@ -223,7 +283,7 @@ void TrackHeader::paint (juce::Graphics& g)
             Theme::drawStatusDot (g, r.removeFromLeft (8.0f).withSizeKeepingCentre (7.0f, 7.0f), colour);
             r.removeFromLeft (4.0f);
             g.setColour (colour);
-            g.setFont (juce::FontOptions (13.5f));
+            g.setFont (juce::FontOptions (15.0f));
             g.drawText (label, r, juce::Justification::centredLeft, true);
         }
     }
@@ -247,22 +307,12 @@ void TrackHeader::paint (juce::Graphics& g)
         if (renderBadge.isNotEmpty())
         {
             g.setColour (Theme::warning);
-            g.setFont (juce::FontOptions (12.0f));
+            g.setFont (juce::FontOptions (13.5f));
             g.drawText (renderBadge, getLocalBounds().withTrimmedLeft (10).withTrimmedRight (10).removeFromBottom (32).removeFromTop (12),
                         juce::Justification::centredRight, true);
         }
     }
 
-    if (! volumeSlider.isVisible())
-        return;
-
-    g.setColour (Theme::textDim);
-    g.setFont (juce::FontOptions (12.5f));
-    auto area = getLocalBounds().reduced (10, 4);
-    auto sliderRow = area.removeFromBottom (18);
-    g.drawText ("Vol", sliderRow.removeFromLeft (26), juce::Justification::centredLeft);
-    sliderRow.removeFromLeft ((int) (sliderRow.getWidth() * 0.62f));
-    g.drawText ("Pan", sliderRow.removeFromLeft (28), juce::Justification::centredLeft);
 }
 
 void TrackHeader::resized()
@@ -294,8 +344,8 @@ void TrackHeader::resized()
     nameLabel.setBounds (top);
 
     instrumentButton.setVisible (showInstrument);
-    volumeSlider.setVisible (showSliders);
-    panSlider.setVisible (showSliders);
+    for (auto* c : std::initializer_list<juce::Component*> { &volumeSlider, &panSlider, &volumeValue, &panValue })
+        c->setVisible (showSliders);
 
     area.removeFromTop (3);
 
@@ -304,12 +354,14 @@ void TrackHeader::resized()
 
     if (showSliders)
     {
-        auto sliderRow = area.removeFromBottom (18);
-        sliderRow.removeFromLeft (26);
-        auto volArea = sliderRow.removeFromLeft ((int) (sliderRow.getWidth() * 0.62f));
-        volumeSlider.setBounds (volArea);
-        sliderRow.removeFromLeft (28);
-        panSlider.setBounds (sliderRow);
+        // 音量 [スライダー][-6.0]  パン [スライダー][L30]
+        auto sliderRow = area.removeFromBottom (20);
+        auto volArea = sliderRow.removeFromLeft ((int) (sliderRow.getWidth() * 0.6f));
+        volumeValue.setBounds (volArea.removeFromRight (44));
+        volumeSlider.setBounds (volArea.withTrimmedRight (2));
+        sliderRow.removeFromLeft (6);
+        panValue.setBounds (sliderRow.removeFromRight (38));
+        panSlider.setBounds (sliderRow.withTrimmedRight (2));
     }
 }
 
@@ -536,7 +588,8 @@ void TrackHeader::showMenu()
         fx.addSeparator();
         fx.addSubMenu ("追加"_ju, ctx.addEffectMenu (trackId));
         m.addSeparator();
-        m.addItem ("EQ / Compressor…"_ju, [this] { if (ctx.openChannelStrip) ctx.openChannelStrip (trackId); });
+        m.addItem ("EQ…"_ju, [this] { if (ctx.openChannelStrip) ctx.openChannelStrip (trackId, false); });
+        m.addItem ("Compressor…"_ju, [this] { if (ctx.openChannelStrip) ctx.openChannelStrip (trackId, true); });
 
         m.addSubMenu ("出力先・センド"_ju, ctx.routingMenu (trackId));
         m.addSubMenu ("エフェクト"_ju, fx);

@@ -32,7 +32,7 @@ namespace
         cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
         cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9,
         cmdToolSplit, cmdCopy, cmdCut, cmdPaste, cmdNudgeLeft, cmdNudgeRight,
-        cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate
+        cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate, cmdToLoopStart, cmdToLoopEnd
     };
 
     constexpr float fontScales[] = { 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
@@ -52,10 +52,8 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     addAndMakeVisible (statusBar);
     addChildComponent (syncPanel);
     addChildComponent (toast);
-    toolbar.setSyncBadge (&syncBadge);
-    syncBadge.onClick = [this] { toggleSyncPanel(); };
 
-    syncPanel.onClose = [this] { toggleSyncPanel(); };
+    syncPanel.onToggle = [this] { toggleSyncPanel(); };
     syncPanel.onRegister = [this] { registerProject(); };
     syncPanel.onServerSettings = [this] { showServerSettings(); };
     syncPanel.onOpenPicker = [this] { showProjectPicker(); };
@@ -64,7 +62,7 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
                                  const std::map<std::string, collab::Resolution>& choices) { uploadFromPanel (excluded, message, choices); };
     syncPanel.onJump = [this] (const collab::Change& c) { jumpTo (c); };
     sync.onIncomingRevisions = [this] (const std::vector<SyncManager::RevisionInfo>& revs) { onIncomingRevisions (revs); };
-    syncPanel.setVisible (settings.getBoolValue ("syncPanelVisible", true));
+    syncPanel.setVisible (true);   // 畳むと右端の細い帯になる
 
     resizer = std::make_unique<juce::StretchableLayoutResizerBar> (&layout, 1, false);
     addAndMakeVisible (*resizer);
@@ -73,11 +71,10 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     layout.setItemLayout (1, 6, 6, 6);            // 仕切り
     layout.setItemLayout (2, 150, -1.0, -0.45);   // ピアノロール
 
-    statusBar.setFont (juce::FontOptions (13.5f));
+    statusBar.setFont (juce::FontOptions (15.0f));
     statusBar.setColour (juce::Label::textColourId, Theme::textDim);
     statusBar.setColour (juce::Label::backgroundColourId, Theme::panel);
 
-    toolbar.onAudioSettings = [this] { showAudioSettings(); };
     audioCache.onThumbnailChanged = [this] { timeline.repaint(); };
 
     // 外部プラグインのエディタ
@@ -107,7 +104,7 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     bridge.setMasterVolumeDb (state.masterVolumeDb);
     commandManager.getKeyMappings()->resetToDefaultMappings();
     ctx.addTrackMenu = [this] { return addTrackMenu(); };
-    ctx.openChannelStrip = [this] (const std::string& id) { openChannelStrip (id); };
+    ctx.openChannelStrip = [this] (const std::string& id, bool compressor) { openChannelStrip (id, compressor); };
     ctx.openMaster = [this] { openMaster(); };
     bridge.onRecordingFinished = [this] (std::vector<EngineBridge::RecordedTake> takes) { importTakes (std::move (takes)); };
     bridge.onMidiRecorded = [this] (std::vector<EngineBridge::RecordedMidi> recs) { importMidiRecording (std::move (recs)); };
@@ -137,7 +134,8 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
 
 MainComponent::~MainComponent()
 {
-    stripWindow = nullptr;
+    eqWindow = nullptr;
+    compWindow = nullptr;
     mixerWindow = nullptr;
     bridge.onPluginRemoved = nullptr;
     bridge.onRecordingFinished = nullptr;
@@ -163,8 +161,7 @@ void MainComponent::resized()
     statusBar.setBounds (area.removeFromBottom (statusHeight));
     transport.setBounds (area.removeFromBottom (transportHeight));
 
-    if (syncPanel.isVisible())
-        syncPanel.setBounds (area.removeFromRight (juce::jmin (SyncPanel::preferredWidth, area.getWidth() / 2)));
+    syncPanel.setBounds (area.removeFromRight (juce::jmin (syncPanel.getPreferredWidth(), area.getWidth() / 2)));
 
     toast.setTopLeftPosition (area.getRight() - toast.getWidth() - 12, area.getBottom() - toast.getHeight() - 12);
 
@@ -234,10 +231,10 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
         bridge.setMetronome (state.metronomeEnabled, state.metronomeVolumeDb);
     }
 
-    // MIDI キーボードは選択中の MIDI トラックで鳴らす
+    // MIDI キーボードは録音待機の MIDI トラック（なければ選択中の MIDI トラック）で鳴らす
     {
-        auto* t = ctx.selectedTrack();
-        bridge.setMidiTarget (t != nullptr && t->type == collab::TrackType::midi ? t->id : std::string());
+        auto* t = midiRecordTarget();
+        bridge.setMidiTarget (t != nullptr ? t->id : std::string());
     }
 
     if (! juce::exactlyEqual (state.masterVolumeDb, bridge.getMasterVolumeDb()))
@@ -590,7 +587,7 @@ void MainComponent::showAudioSettings()
     note->setText ("プロジェクトのサンプルレートは 48kHz 固定です。可能ならデバイスも 48000 Hz に設定してください。"_ju
                    "（Windows で ASIO を使うには ASIO SDK 付きでビルドする必要があります）"_ju,
                    juce::dontSendNotification);
-    note->setFont (juce::FontOptions (13.5f));
+    note->setFont (juce::FontOptions (15.0f));
     note->setColour (juce::Label::textColourId, Theme::textDim);
 
     selector->setBounds (0, 0, 560, 420);
@@ -603,7 +600,7 @@ void MainComponent::showAudioSettings()
         Latency (MainComponent& o) : owner (o)
         {
             title.setText ("録音のレイテンシ補正（手動、サンプル）"_ju, juce::dontSendNotification);
-            title.setFont (juce::FontOptions (13.0f));
+            title.setFont (juce::FontOptions (14.5f));
             addAndMakeVisible (title);
 
             offset.setRange (-2000, 2000, 1);
@@ -618,7 +615,7 @@ void MainComponent::showAudioSettings()
             };
             addAndMakeVisible (offset);
 
-            info.setFont (juce::FontOptions (13.5f));
+            info.setFont (juce::FontOptions (15.0f));
             info.setColour (juce::Label::textColourId, Theme::textDim);
             addAndMakeVisible (info);
 
@@ -711,12 +708,13 @@ void MainComponent::toggleRecord()
     // MIDI キーボードがつながっていれば、選択中の MIDI トラックにも録音する
     const auto midiInputs = bridge.getMidiInputs();
     const bool midiAvailable = std::any_of (midiInputs.begin(), midiInputs.end(), [] (auto& m) { return m.enabled; });
-    auto* selected = ctx.selectedTrack();
-    const bool midiTarget = midiAvailable && selected != nullptr && selected->type == collab::TrackType::midi;
+    auto* selected = midiRecordTarget();
+    const bool midiTarget = midiAvailable && selected != nullptr;
 
     if (armed.empty() && ! midiTarget)
         return Dialogs::showInfo ("録音"_ju, "オーディオ: 録音するオーディオトラックの録音待機ボタン（●）をオンにしてください。\n"_ju
-                                             "MIDI: MIDI キーボードをつないで（オーディオ設定で有効に）、録音する MIDI トラックを選んでください。"_ju);
+                                             "MIDI: MIDI キーボードをつないで（設定 → オーディオ・MIDI の設定で有効に）、"_ju
+                                             "録音する MIDI トラックの録音待機ボタン（●）をオンにしてください。"_ju);
 
     if (! armed.empty() && ! document.hasLocation())
         return Dialogs::showInfo ("録音"_ju, "録音した音はプロジェクトのフォルダに保存するので、先にプロジェクトを保存してください。"_ju);
@@ -729,6 +727,17 @@ void MainComponent::toggleRecord()
 
     setStatus ("録音中（停止で確定）"_ju);
     commandManager.commandStatusChanged();
+}
+
+const collab::Track* MainComponent::midiRecordTarget() const
+{
+    const auto& p = document.getProject();
+
+    if (auto* armed = p.findTrack (state.midiArmedTrackId); armed != nullptr && armed->type == collab::TrackType::midi)
+        return armed;
+
+    auto* t = p.findTrack (state.selectedTrackId);
+    return t != nullptr && t->type == collab::TrackType::midi ? t : nullptr;
 }
 
 void MainComponent::importMidiRecording (std::vector<EngineBridge::RecordedMidi> recs)
@@ -935,23 +944,25 @@ void MainComponent::toggleMixer()
     commandManager.commandStatusChanged();
 }
 
-void MainComponent::openChannelStrip (const std::string& trackId)
+void MainComponent::openChannelStrip (const std::string& trackId, bool compressor)
 {
     if (document.getProject().findTrack (trackId) == nullptr)
         return;
 
-    // 1 つのウィンドウを使い回し、開くトラックを切り替える
-    if (stripWindow == nullptr)
+    // EQ と Compressor で 1 つずつウィンドウを使い回し、開くトラックを切り替える
+    auto& slot = compressor ? compWindow : eqWindow;
+
+    if (slot == nullptr)
     {
         struct Window  : public juce::DocumentWindow
         {
-            Window() : DocumentWindow ("EQ / Compressor"_ju, Theme::panel, DocumentWindow::closeButton) {}
+            Window() : DocumentWindow ("EQ", Theme::panel, DocumentWindow::closeButton) {}
             void closeButtonPressed() override      { setVisible (false); }
         };
 
         auto window = std::make_unique<Window>();
         window->setUsingNativeTitleBar (true);
-        auto* editor = new ChannelStripEditor (ctx, trackId);
+        auto* editor = new ChannelStripEditor (ctx, trackId, compressor ? ChannelStripEditor::Section::comp : ChannelStripEditor::Section::eq);
         auto* w = window.get();
         editor->onTitleChanged = [w, editor] { w->setName (editor->getTitle()); };
         window->setContentOwned (editor, true);
@@ -959,19 +970,19 @@ void MainComponent::openChannelStrip (const std::string& trackId)
         window->addKeyListener (commandManager.getKeyMappings());
 
         if (auto* top = getTopLevelComponent())
-            window->setTopLeftPosition (top->getX() + 120, top->getY() + 120);
+            window->setTopLeftPosition (top->getX() + (compressor ? 160 : 120), top->getY() + (compressor ? 160 : 120));
 
-        stripWindow = std::move (window);
+        slot = std::move (window);
     }
 
-    if (auto* editor = dynamic_cast<ChannelStripEditor*> (stripWindow->getContentComponent()))
+    if (auto* editor = dynamic_cast<ChannelStripEditor*> (slot->getContentComponent()))
     {
         editor->setTrack (trackId);
-        stripWindow->setName (editor->getTitle());
+        slot->setName (editor->getTitle());
     }
 
-    stripWindow->setVisible (true);
-    stripWindow->toFront (true);
+    slot->setVisible (true);
+    slot->toFront (true);
 }
 
 void MainComponent::openMaster()
@@ -1051,7 +1062,7 @@ void MainComponent::showShortcuts()
     editor->setMultiLine (true);
     editor->setReadOnly (true);
     editor->setScrollbarsShown (true);
-    editor->setFont (juce::FontOptions (14.0f));
+    editor->setFont (juce::FontOptions (15.5f));
     editor->setColour (juce::TextEditor::backgroundColourId, Theme::background);
     editor->setColour (juce::TextEditor::textColourId, Theme::text);
     editor->setText (text, false);
@@ -1134,7 +1145,7 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
                          cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
                          cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9,
                          cmdToolSplit, cmdCopy, cmdCut, cmdPaste, cmdNudgeLeft, cmdNudgeRight,
-                         cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate });
+                         cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate, cmdToLoopStart, cmdToLoopEnd });
 }
 
 void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommandInfo& info)
@@ -1175,10 +1186,11 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdForward:    info.setInfo ("1 小節進む"_ju, {}, "Transport", 0); info.addDefaultKeypress (KP::numberPadAdd, 0); break;
         case cmdRewind:     info.setInfo ("1 小節戻る"_ju, {}, "Transport", 0); info.addDefaultKeypress (KP::numberPadSubtract, 0); break;
         case cmdShortcuts:  info.setInfo ("操作とショートカットの一覧…"_ju, {}, "Help", 0); info.addDefaultKeypress (KP::F1Key, 0); break;
+        case cmdToLoopStart: info.setInfo ("左ロケーターへ移動"_ju, {}, "Transport", 0); info.addDefaultKeypress (KP::numberPad1, 0); break;
+        case cmdToLoopEnd:   info.setInfo ("右ロケーターへ移動"_ju, {}, "Transport", 0); info.addDefaultKeypress (KP::numberPad2, 0); break;
         case cmdToolSplit:
             info.setInfo ("はさみツール"_ju, {}, "Edit", 0);
             info.defaultKeypresses.add (state.behaviour().splitToolKey);
-            info.defaultKeypresses.add (KP (KP::numberPad3));
             info.setTicked (state.tool == EditTool::split);
             break;
         case cmdQuantise:   info.setInfo ("クオンタイズ"_ju, {}, "Edit", 0); info.addDefaultKeypress ('q', 0); break;
@@ -1236,8 +1248,9 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
             break;
         case cmdRecord:
             info.setInfo ("録音"_ju, {}, "Transport", 0);
-            info.addDefaultKeypress ('r', 0);
             info.defaultKeypresses.add (state.behaviour().recordKey);
+            info.addDefaultKeypress ('*', 0);                              // キーボードの * も（配列によって Shift が付く）
+            info.addDefaultKeypress ('*', shift);
             info.setTicked (bridge.isRecording());
             break;
         case cmdCountIn0:
@@ -1267,13 +1280,11 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdToolSelect:
             info.setInfo ("選択ツール"_ju, {}, "Edit", 0);
             info.defaultKeypresses.add (state.behaviour().selectToolKey);
-            info.defaultKeypresses.add (state.behaviour().selectToolKey2);
             info.setTicked (state.tool == EditTool::select);
             break;
         case cmdToolPencil:
             info.setInfo ("鉛筆ツール"_ju, {}, "Edit", 0);
             info.defaultKeypresses.add (state.behaviour().pencilToolKey);
-            info.defaultKeypresses.add (state.behaviour().pencilToolKey2);
             info.setTicked (state.tool == EditTool::pencil);
             break;
         case cmdModeCubase:
@@ -1316,7 +1327,7 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
             info.addDefaultKeypress ('s', 0);
             info.setActive (ctx.selectedTrack() != nullptr);
             break;
-        case cmdAudioSettings: info.setInfo ("オーディオ設定…"_ju, {}, "Options", 0); break;
+        case cmdAudioSettings: info.setInfo ("オーディオ・MIDI の設定…"_ju, {}, "Options", 0); break;
         case cmdSyncSettings:  info.setInfo ("サーバー設定…"_ju, {}, "Sync", 0); break;
         case cmdSyncRegister:  info.setInfo ("このプロジェクトをサーバーに登録…"_ju, {}, "Sync", 0); info.setActive (! sync.isLinked()); break;
         case cmdSyncOpen:
@@ -1329,7 +1340,7 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdSyncPanel:
             info.setInfo ("同期パネル"_ju, {}, "Sync", 0);
             info.addDefaultKeypress (juce::KeyPress::F7Key, 0);
-            info.setTicked (syncPanel.isVisible());
+            info.setTicked (! syncPanel.isCollapsed());
             break;
         case cmdSyncCreate:    info.setInfo ("サーバーに新しい曲を作る…"_ju, {}, "Sync", 0); break;
         case cmdCredits:    info.setInfo ("クレジット…"_ju, {}, "Help", 0); break;
@@ -1445,6 +1456,8 @@ bool MainComponent::perform (const InvocationInfo& info)
             ctx.nudgeClips (state.clipSelection(), info.commandID == cmdNudgeLeft ? -step : step);
             break;
         }
+        case cmdToLoopStart:   bridge.setPositionTick ((double) state.loopStart); break;
+        case cmdToLoopEnd:     bridge.setPositionTick ((double) state.loopEnd); break;
         case cmdForward:
         case cmdRewind:
         {
@@ -1485,7 +1498,7 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdSyncRegister:  registerProject(); break;
         case cmdSyncOpen:      showProjectPicker(); break;
         case cmdSyncPull:      downloadWithChoices ({}, false); break;
-        case cmdSyncPush:      if (! syncPanel.isVisible()) toggleSyncPanel(); break;
+        case cmdSyncPush:      if (syncPanel.isCollapsed()) toggleSyncPanel(); break;
         case cmdSyncHistory:   showHistory(); break;
         case cmdSyncPanel:     toggleSyncPanel(); break;
         case cmdSyncCreate:    createProjectOnServer(); break;
@@ -1514,7 +1527,7 @@ bool MainComponent::perform (const InvocationInfo& info)
 
 juce::StringArray MainComponent::getMenuBarNames()
 {
-    return { "ファイル"_ju, "編集"_ju, "トランスポート"_ju, "トラック"_ju, "同期"_ju, "表示"_ju, "ヘルプ"_ju };
+    return { "ファイル"_ju, "編集"_ju, "トランスポート"_ju, "トラック"_ju, "同期"_ju, "表示"_ju, "設定"_ju, "ヘルプ"_ju };
 }
 
 juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
@@ -1533,9 +1546,6 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addCommandItem (cm, cmdImportAudio);
             m.addCommandItem (cm, cmdImportMidi);
             m.addCommandItem (cm, cmdExportMixdown);
-            m.addSeparator();
-            m.addCommandItem (cm, cmdAudioSettings);
-            m.addCommandItem (cm, cmdPlugins);
            #if ! JUCE_MAC
             m.addSeparator();
             m.addCommandItem (cm, juce::StandardApplicationCommandIDs::quit);
@@ -1566,6 +1576,8 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addCommandItem (cm, cmdStop);
             m.addCommandItem (cm, cmdRecord);
             m.addCommandItem (cm, cmdToStart);
+            m.addCommandItem (cm, cmdToLoopStart);
+            m.addCommandItem (cm, cmdToLoopEnd);
             m.addCommandItem (cm, cmdLoop);
             m.addCommandItem (cm, cmdLoopToSelection);
             m.addSeparator();
@@ -1618,15 +1630,24 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addCommandItem (cm, cmdZoomOut);
             m.addCommandItem (cm, cmdAutoScroll);
             m.addSeparator();
+            m.addSubMenu ("文字サイズ（画面共有用）"_ju, sizes);
+            break;
+        }
+        case 6:
+        {
+            // 設定: オーディオ（MIDI 入力もここ）・プラグイン・サーバー・操作モード
+            m.addCommandItem (cm, cmdAudioSettings);
+            m.addCommandItem (cm, cmdPlugins);
+            m.addCommandItem (cm, cmdSyncSettings);
+            m.addSeparator();
 
             juce::PopupMenu modes;
             modes.addCommandItem (cm, cmdModeCubase);
             modes.addCommandItem (cm, cmdModeStudioOne);
             m.addSubMenu ("操作モード"_ju, modes);
-            m.addSubMenu ("文字サイズ（画面共有用）"_ju, sizes);
             break;
         }
-        case 6:
+        case 7:
             m.addCommandItem (cm, cmdCredits);
             m.addCommandItem (cm, cmdShortcuts);
             m.addCommandItem (cm, cmdCheckUpdate);

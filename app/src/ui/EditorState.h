@@ -47,8 +47,7 @@ enum class OperationMode
 /** 操作モードごとの振る舞い（各部品はモードを直接見ずにここを参照する）。 */
 struct EditBehaviour
 {
-    juce::KeyPress selectToolKey, pencilToolKey;   // ツールの切り替え（テンキー）
-    juce::KeyPress selectToolKey2, pencilToolKey2; // 同（キーボード上段の数字）
+    juce::KeyPress selectToolKey, pencilToolKey;   // ツールの切り替え（キーボード上段の数字。テンキー 1 / 2 はロケーターへの移動）
     juce::KeyPress splitToolKey;                   // 3（Cubase と同じ番号）
     juce::KeyPress mixerKey;                       // ミキサーの表示
     juce::KeyPress loopToSelectionKey;             // 選択範囲をループ範囲にする
@@ -61,10 +60,8 @@ struct EditBehaviour
     static EditBehaviour forMode (OperationMode mode)
     {
         EditBehaviour b;
-        b.selectToolKey = juce::KeyPress (juce::KeyPress::numberPad1);
-        b.pencilToolKey = juce::KeyPress (juce::KeyPress::numberPad2);
-        b.selectToolKey2 = juce::KeyPress ('1');
-        b.pencilToolKey2 = juce::KeyPress ('2');
+        b.selectToolKey = juce::KeyPress ('1');
+        b.pencilToolKey = juce::KeyPress ('2');
         b.splitToolKey = juce::KeyPress ('3');
         b.mixerKey = juce::KeyPress (juce::KeyPress::F3Key);
         b.loopToSelectionKey = juce::KeyPress ('p');
@@ -93,6 +90,7 @@ struct EditorState  : public juce::ChangeBroadcaster
 {
     EditTool tool = EditTool::select;
     OperationMode mode = OperationMode::cubase;
+    std::string midiArmedTrackId;   // 録音待機の MIDI トラック（MIDI キーボードの録音先。1 つだけ）
     EditBehaviour behaviour() const        { return EditBehaviour::forMode (mode); }
     bool pencil() const noexcept           { return tool == EditTool::pencil; }
 

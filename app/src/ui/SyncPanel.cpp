@@ -5,6 +5,10 @@
 namespace
 {
     const juce::Colour primaryButton = Theme::accent.darker (0.45f);
+    const juce::Colour downloadColour = Theme::accent, uploadColour = Theme::ok;
+
+    constexpr int columnWidth = 64;    // ダウンロード・アップロードの欄
+    constexpr int rowHeight = 34;
 
     juce::Colour scopeColour (const collab::Project& p, const collab::ScopeSyncState& st)
     {
@@ -23,21 +27,41 @@ namespace
                 return Theme::textDim;
         }
     }
+
+    void drawCheckbox (juce::Graphics& g, juce::Rectangle<float> box, bool enabled, bool checked, juce::Colour colour)
+    {
+        if (! enabled)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.08f));
+            g.drawRoundedRectangle (box.reduced (0.5f), 4.0f, 1.0f);
+            return;
+        }
+
+        g.setColour (checked ? colour : juce::Colours::white.withAlpha (0.06f));
+        g.fillRoundedRectangle (box, 4.0f);
+        g.setColour (checked ? colour.brighter (0.3f) : juce::Colours::white.withAlpha (0.45f));
+        g.drawRoundedRectangle (box.reduced (0.5f), 4.0f, 1.2f);
+
+        if (checked)
+        {
+            juce::Path tick;
+            tick.startNewSubPath (box.getX() + box.getWidth() * 0.22f, box.getCentreY());
+            tick.lineTo (box.getX() + box.getWidth() * 0.42f, box.getBottom() - box.getHeight() * 0.25f);
+            tick.lineTo (box.getRight() - box.getWidth() * 0.2f, box.getY() + box.getHeight() * 0.25f);
+            g.setColour (Theme::background);
+            g.strokePath (tick, juce::PathStrokeType (2.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+    }
+
+    juce::String arrow (bool down)   { return juce::String::fromUTF8 (down ? "\xE2\x86\x93" : "\xE2\x86\x91"); }   // ↓ ↑
 }
 
 //==============================================================================
-/** トラックの一覧（行を自前で描いて、チェック・選択・展開を受け付ける）。 */
+/** 表の行（名前 | ダウンロード | アップロード）。行をクリックで中身を開く、チェックの欄をクリックで切り替え。 */
 class SyncPanel::List  : public juce::Component
 {
 public:
     explicit List (SyncPanel& o) : owner (o) {}
-
-    struct Segment
-    {
-        juce::Rectangle<int> r;
-        collab::Resolution value;
-        juce::String label;
-    };
 
     struct Detail
     {
@@ -51,10 +75,8 @@ public:
     {
         collab::ScopeSyncState st;
         juce::Colour colour;
-        juce::Rectangle<int> r, checkbox, nameArea;
-        bool checkable = false, checked = false;
-        std::vector<Segment> segments;
-        std::optional<collab::Resolution> choice;
+        juce::Rectangle<int> r, downloadCell, uploadCell;
+        Checks checks;
         std::vector<Detail> details;
     };
 
@@ -64,55 +86,19 @@ public:
                   const collab::ProjectDiff* serverDiff, const collab::Project& local)
     {
         rows.clear();
-        const int width = juce::jmax (220, getWidth());
-        int y = 4;
+        const int width = juce::jmax (200, getWidth());
+        int y = 0;
 
         for (auto& st : states)
         {
             Row row;
             row.st = st;
             row.colour = scopeColour (local, st);
-
-            const bool mineOnly = st.mine && ! st.theirs;
-            const bool theirsOnly = st.theirs && ! st.mine;
-            const bool bothSame = st.mine && st.theirs && ! st.conflict;   // 同じ変更（そのままでよい）
-
-            row.checkable = mineOnly;
-            row.checked = mineOnly && owner.excluded.count (st.id) == 0;
-
-            if (auto it = owner.choices.find (st.id); it != owner.choices.end())
-                row.choice = it->second;
-
-            const int h = 46;
-            row.r = { 6, y, width - 12, h };
-            row.checkbox = { row.r.getX() + 8, row.r.getY() + 14, 18, 18 };
-            row.nameArea = row.r.withTrimmedLeft (34);
-
-            // 右側の選択（サーバーの変更・競合）
-            auto seg = row.r.reduced (8, 11).removeFromRight (st.conflict ? (st.kind == collab::ScopeKind::track ? 168 : 114) : 128);
-
-            if (st.conflict)
-            {
-                const int n = st.kind == collab::ScopeKind::track ? 3 : 2;
-                const int w = seg.getWidth() / n;
-                row.segments.push_back ({ seg.removeFromLeft (w), collab::Resolution::mine, "自分"_ju });
-                row.segments.push_back ({ seg.removeFromLeft (w), collab::Resolution::theirs, "サーバー"_ju });
-
-                if (n == 3)
-                    row.segments.push_back ({ seg, collab::Resolution::both, "両方"_ju });
-            }
-            else if (theirsOnly)
-            {
-                const int w = seg.getWidth() / 2;
-                row.segments.push_back ({ seg.removeFromLeft (w), collab::Resolution::theirs, "取り込む"_ju });
-                row.segments.push_back ({ seg, collab::Resolution::mine, "今のまま"_ju });
-
-                if (! row.choice)
-                    row.choice = collab::Resolution::theirs;
-            }
-
-            juce::ignoreUnused (bothSame);
-            y += h;
+            row.checks = owner.checksFor (st);
+            row.r = { 0, y, width, rowHeight };
+            row.uploadCell = row.r.withLeft (width - columnWidth);
+            row.downloadCell = row.r.withLeft (width - 2 * columnWidth).withWidth (columnWidth);
+            y += rowHeight;
 
             // 開いている行: 自分の変更とサーバーの変更の中身
             if (owner.expandedId == st.id)
@@ -122,13 +108,13 @@ public:
                     if (changes.empty())
                         return;
 
-                    row.details.push_back ({ { 40, y, width - 52, 22 }, {}, true, title });
-                    y += 22;
+                    row.details.push_back ({ { 26, y, width - 34, 24 }, {}, true, title });
+                    y += 24;
 
                     for (auto& c : changes)
                     {
-                        row.details.push_back ({ { 48, y, width - 60, 21 }, c, false, toJuce (c.summary) });
-                        y += 21;
+                        row.details.push_back ({ { 34, y, width - 42, 24 }, c, false, toJuce (c.summary) });
+                        y += 24;
                     }
                 };
 
@@ -139,8 +125,8 @@ public:
 
                 if (row.details.empty())
                 {
-                    row.details.push_back ({ { 40, y, width - 52, 22 }, {}, true, "変更はありません"_ju });
-                    y += 22;
+                    row.details.push_back ({ { 26, y, width - 34, 24 }, {}, true, "変更はありません"_ju });
+                    y += 24;
                 }
 
                 y += 6;
@@ -149,7 +135,7 @@ public:
             rows.push_back (std::move (row));
         }
 
-        setSize (width, y + 8);
+        setSize (width, juce::jmax (y + 4, 40));
         repaint();
     }
 
@@ -158,93 +144,63 @@ public:
         for (auto& row : rows)
         {
             const auto& st = row.st;
-            auto r = row.r.toFloat();
             const bool expanded = owner.expandedId == st.id;
 
-            // 行の面: サーバーで新しくなったものは青、競合は橙をうっすら混ぜたガラス
-            juce::Colour tint;
+            // 行の色: 競合は橙、サーバーで新しくなったものは青をうっすら
+            if (st.conflict)
+                g.setColour (Theme::warning.withAlpha (0.16f));
+            else if (row.checks.canDownload)
+                g.setColour (downloadColour.withAlpha (0.13f));
+            else if (expanded)
+                g.setColour (juce::Colours::white.withAlpha (0.05f));
+            else
+                g.setColour (juce::Colours::transparentBlack);
 
-            if (st.conflict)                 tint = Theme::warning.withAlpha (0.2f);
-            else if (st.theirs && ! st.mine) tint = Theme::accent.withAlpha (0.18f);
-            else if (expanded)               tint = juce::Colours::white.withAlpha (0.05f);
+            g.fillRect (row.r);
+            g.setColour (juce::Colours::white.withAlpha (0.06f));
+            g.drawHorizontalLine (row.r.getBottom() - 1, 0.0f, (float) getWidth());
 
-            if (st.mine || st.theirs || expanded)
-                Theme::drawGlass (g, r.reduced (0.0f, 2.0f), 8.0f, tint);
+            // 名前（競合・新着は名前の後ろに）
+            auto name = row.r.withRight (row.downloadCell.getX()).reduced (8, 0).toFloat();
+            Theme::drawStatusDot (g, name.removeFromLeft (10.0f).withSizeKeepingCentre (10.0f, 10.0f), row.colour);
+            name.removeFromLeft (8.0f);
 
-            // チェック
-            if (row.checkable)
+            juce::String tag;
+            juce::Colour tagColour;
+
+            if (st.conflict)                        { tag = "競合"_ju; tagColour = Theme::warning; }
+            else if (row.checks.canDownload)        { tag = "新着"_ju; tagColour = downloadColour; }
+
+            if (tag.isNotEmpty())
             {
-                auto cb = row.checkbox.toFloat();
-                g.setColour (row.checked ? Theme::accent : juce::Colours::white.withAlpha (0.12f));
-                g.fillRoundedRectangle (cb, 4.0f);
-                g.setColour (juce::Colours::white.withAlpha (0.3f));
-                g.drawRoundedRectangle (cb.reduced (0.5f), 4.0f, 1.0f);
-
-                if (row.checked)
-                {
-                    juce::Path tick;
-                    tick.startNewSubPath (cb.getX() + 4.0f, cb.getCentreY());
-                    tick.lineTo (cb.getX() + 7.5f, cb.getBottom() - 4.5f);
-                    tick.lineTo (cb.getRight() - 4.0f, cb.getY() + 4.5f);
-                    g.setColour (Theme::background);
-                    g.strokePath (tick, juce::PathStrokeType (2.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-                }
+                g.setFont (juce::FontOptions (14.5f, juce::Font::bold));
+                const float w = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), tag) + 6.0f;
+                g.setColour (tagColour);
+                g.drawText (tag, name.removeFromRight (w), juce::Justification::centredRight);
             }
-
-            // 色の丸と名前
-            auto text = row.nameArea.toFloat().withTrimmedRight (row.segments.empty() ? 8.0f : 8.0f + (float) (row.r.getRight() - row.segments.front().r.getX()));
-            Theme::drawStatusDot (g, text.removeFromLeft (12.0f).withSizeKeepingCentre (10.0f, 10.0f).translated (0.0f, -8.0f), row.colour);
-            text.removeFromLeft (8.0f);
 
             const bool quiet = ! st.mine && ! st.theirs;
             g.setColour (quiet ? Theme::textDim : Theme::text);
-            g.setFont (juce::FontOptions (15.0f, quiet ? juce::Font::plain : juce::Font::bold));
-            g.drawText (toJuce (st.name), text.removeFromTop (24.0f).translated (0.0f, 3.0f), juce::Justification::centredLeft, true);
+            g.setFont (juce::FontOptions (16.5f, quiet ? juce::Font::plain : juce::Font::bold));
+            g.drawText (toJuce (st.name), name, juce::Justification::centredLeft, true);
 
-            juce::String status;
-            auto statusColour = Theme::textDim;
-
-            if (st.conflict)                    { status = "競合（両方で変更）"_ju; statusColour = Theme::warning; }
-            else if (st.theirs && ! st.mine)    { status = "サーバーで更新されました"_ju;       statusColour = Theme::accent; }
-            else if (st.mine && st.theirs)      { status = "サーバーと同じ変更"_ju; }
-            else if (st.mine)                   { status = row.checked ? "この PC で変更（アップする）"_ju : "この PC で変更（今回はアップしない）"_ju;
-                                                  statusColour = row.checked ? Theme::text : Theme::textDim; }
-            else                                { status = "変更なし"_ju; }
-
-            if (st.conflict && ! row.choice)
-                status = "競合: 採用する版を選択"_ju;
-
-            g.setColour (statusColour);
-            g.setFont (juce::FontOptions (13.0f));
-            g.drawText (status, text.translated (0.0f, -1.0f), juce::Justification::centredLeft, true);
-
-            // 選択（セグメント）
-            for (auto& s : row.segments)
-            {
-                auto sr = s.r.toFloat().reduced (1.0f, 0.0f);
-                const bool on = row.choice && *row.choice == s.value;
-                g.setColour (on ? Theme::accent : juce::Colours::white.withAlpha (0.08f));
-                g.fillRoundedRectangle (sr, 6.0f);
-                g.setColour (juce::Colours::white.withAlpha (on ? 0.0f : 0.2f));
-                g.drawRoundedRectangle (sr.reduced (0.5f), 6.0f, 1.0f);
-                g.setColour (on ? Theme::background : Theme::text);
-                g.setFont (juce::FontOptions (13.0f, on ? juce::Font::bold : juce::Font::plain));
-                g.drawText (s.label, sr, juce::Justification::centred, true);
-            }
+            // チェック
+            drawCheckbox (g, row.downloadCell.toFloat().withSizeKeepingCentre (20.0f, 20.0f),
+                          row.checks.canDownload, row.checks.download, downloadColour);
+            drawCheckbox (g, row.uploadCell.toFloat().withSizeKeepingCentre (20.0f, 20.0f),
+                          row.checks.canUpload, row.checks.upload, uploadColour);
 
             // 中身
             for (auto& d : row.details)
             {
-                const bool hover = ! d.header && hovered == &d;
-
-                if (hover)
+                if (! d.header && hovered == &d)
                 {
                     g.setColour (Theme::accent.withAlpha (0.15f));
                     g.fillRoundedRectangle (d.r.toFloat().expanded (4.0f, 0.0f), 4.0f);
                 }
 
                 g.setColour (d.header ? Theme::textDim : Theme::text);
-                g.setFont (juce::FontOptions (d.header ? 12.5f : 13.5f, d.header ? juce::Font::bold : juce::Font::plain));
+                g.setFont (juce::FontOptions (d.header ? 13.5f : 14.5f, d.header ? juce::Font::bold : juce::Font::plain));
                 g.drawText (d.text, d.r, juce::Justification::centredLeft, true);
             }
         }
@@ -252,8 +208,8 @@ public:
         if (rows.empty())
         {
             g.setColour (Theme::textDim);
-            g.setFont (juce::FontOptions (14.0f));
-            g.drawText ("トラックがありません"_ju, getLocalBounds().reduced (12).removeFromTop (30), juce::Justification::centredLeft);
+            g.setFont (juce::FontOptions (16.5f));
+            g.drawText ("トラックがありません"_ju, getLocalBounds().reduced (10, 0).removeFromTop (34), juce::Justification::centredLeft);
         }
     }
 
@@ -299,22 +255,11 @@ public:
             if (! row.r.contains (pos))
                 continue;
 
-            if (row.checkable && row.checkbox.expanded (6).contains (pos))
-            {
-                if (owner.excluded.count (row.st.id) > 0)
-                    owner.excluded.erase (row.st.id);
-                else
-                    owner.excluded.insert (row.st.id);
+            if (row.checks.canDownload && row.downloadCell.contains (pos))
+                return owner.toggleCheck (row.st, true);
 
-                return owner.rebuild();
-            }
-
-            for (auto& s : row.segments)
-                if (s.r.contains (pos))
-                {
-                    owner.choices[row.st.id] = s.value;
-                    return owner.rebuild();
-                }
+            if (row.checks.canUpload && row.uploadCell.contains (pos))
+                return owner.toggleCheck (row.st, false);
 
             // それ以外: 中身を開く・閉じる
             owner.expandedId = owner.expandedId == row.st.id ? std::string() : row.st.id;
@@ -331,32 +276,23 @@ private:
 SyncPanel::SyncPanel (SyncManager& s, ProjectDocument& d, juce::PropertiesFile& p)
     : sync (s), document (d), settings (p)
 {
+    collapsed = settings.getBoolValue ("syncPanelCollapsed", false);
+
     list = std::make_unique<List> (*this);
     viewport.setViewedComponent (list.get(), false);
     viewport.setScrollBarsShown (true, false);
     viewport.setScrollBarThickness (8);
     addAndMakeVisible (viewport);
 
-    closeButton.setButtonText (juce::String::fromUTF8 ("\xC3\x97"));
-    closeButton.setTooltip ("同期パネルを閉じる（F7）"_ju);
-    closeButton.onClick = [this] { if (onClose) onClose(); };
-    addAndMakeVisible (closeButton);
+    toggleButton.onClick = [this] { if (onToggle) onToggle(); };
+    addAndMakeVisible (toggleButton);
 
-    statusLabel.setFont (juce::FontOptions (14.0f));
+    statusLabel.setFont (juce::FontOptions (16.0f));
     statusLabel.setMinimumHorizontalScale (0.8f);
     addAndMakeVisible (statusLabel);
 
-    hintLabel.setFont (juce::FontOptions (13.0f));
-    hintLabel.setColour (juce::Label::textColourId, Theme::textDim);
-    hintLabel.setText ("行をクリックすると、何が変わったかを表示します"_ju, juce::dontSendNotification);
-    addAndMakeVisible (hintLabel);
-
-    comment.setTextToShowWhenEmpty ("コメント（何を変えたか。任意）"_ju, Theme::textDim);
-    comment.setFont (juce::FontOptions (15.0f));
-    comment.onReturnKey = [this] { uploadButton.triggerClick(); };
-    addAndMakeVisible (comment);
-
-    autoPull.setButtonText ("他の人の変更を自動でダウンロード（競合がないとき）"_ju);
+    autoPull.setButtonText ("他の人の変更を自動でダウンロード"_ju);
+    autoPull.setTooltip ("競合がなく、再生・録音中でなければ、他の人がアップした変更をすぐに取り込む"_ju);
     autoPull.setToggleState (autoPullEnabled(), juce::dontSendNotification);
     autoPull.onClick = [this]
     {
@@ -368,40 +304,40 @@ SyncPanel::SyncPanel (SyncManager& s, ProjectDocument& d, juce::PropertiesFile& 
     for (auto* b : { &downloadButton, &uploadButton, &registerButton })
         b->setColour (juce::TextButton::buttonColourId, primaryButton);
 
+    downloadButton.setTooltip ("ダウンロードの欄にチェックの入ったものを取り込む（外したものは今のまま）"_ju);
     downloadButton.onClick = [this]
     {
-        // 競合は選んでもらってから
-        for (auto& st : sync.scopeStates())
-            if (st.conflict && choices.count (st.id) == 0)
-            {
-                expandedId = st.id;
-                rebuild();
-                statusLabel.setText ("「"_ju + toJuce (st.name) + "」は両方で変更されています。採用する版を選んでください"_ju,
-                                     juce::dontSendNotification);
-                statusLabel.setColour (juce::Label::textColourId, Theme::warning);
-                return;
-            }
+        juce::String unresolved;
+        const auto choices = currentChoices (&unresolved);
+
+        if (unresolved.isNotEmpty())
+        {
+            statusLabel.setText ("「"_ju + unresolved + "」はどちらを使うか、ダウンロードかアップロードにチェックしてください"_ju,
+                                 juce::dontSendNotification);
+            statusLabel.setColour (juce::Label::textColourId, Theme::warning);
+            return;
+        }
 
         if (onDownload)
             onDownload (choices);
     };
 
+    uploadButton.setTooltip ("アップロードの欄にチェックの入ったものをサーバーに上げる（サーバーに新しい変更があれば先に取り込む）"_ju);
     uploadButton.onClick = [this]
     {
-        if (sync.headPreview() != nullptr)
-            for (auto& st : sync.scopeStates())
-                if (st.conflict && choices.count (st.id) == 0)
-                {
-                    expandedId = st.id;
-                    rebuild();
-                    statusLabel.setText ("先にダウンロードします。「"_ju + toJuce (st.name) + "」の採用する版を選んでください"_ju,
-                                         juce::dontSendNotification);
-                    statusLabel.setColour (juce::Label::textColourId, Theme::warning);
-                    return;
-                }
+        juce::String unresolved;
+        const auto choices = currentChoices (&unresolved);
+
+        if (sync.headPreview() != nullptr && unresolved.isNotEmpty())
+        {
+            statusLabel.setText ("「"_ju + unresolved + "」はどちらを使うか、ダウンロードかアップロードにチェックしてください"_ju,
+                                 juce::dontSendNotification);
+            statusLabel.setColour (juce::Label::textColourId, Theme::warning);
+            return;
+        }
 
         if (onUpload)
-            onUpload (excluded, comment.getText().trim(), choices);
+            onUpload (currentExcluded(), {}, choices);
     };
 
     registerButton.setButtonText ("サーバーにアップして共有"_ju);
@@ -414,6 +350,7 @@ SyncPanel::SyncPanel (SyncManager& s, ProjectDocument& d, juce::PropertiesFile& 
 
     sync.addChangeListener (this);
     document.addChangeListener (this);
+    setCollapsed (collapsed);
     startTimer (500);
 }
 
@@ -423,11 +360,30 @@ SyncPanel::~SyncPanel()
     document.removeChangeListener (this);
 }
 
+void SyncPanel::setCollapsed (bool c)
+{
+    collapsed = c;
+    settings.setValue ("syncPanelCollapsed", collapsed);
+
+    // 畳むと «（開く）、開くと »（畳む）
+    toggleButton.setButtonText (juce::String::fromUTF8 (collapsed ? "\xC2\xAB" : "\xC2\xBB"));
+    toggleButton.setTooltip (collapsed ? "同期パネルを開く（F7）"_ju : "同期パネルを畳む（F7）"_ju);
+    setTooltip (collapsed ? "同期（クリックで開く）。↓ ダウンロードできる数、↑ アップロードできる数"_ju : juce::String());
+
+    for (auto* c2 : std::initializer_list<juce::Component*> { &viewport, &statusLabel, &autoPull, &downloadButton, &uploadButton,
+                                                                &registerButton, &settingsButton })
+        if (collapsed)
+            c2->setVisible (false);
+
+    laidOutLinked = ! sync.isLinked();   // 次の rebuild で並べ直す
+    dirty = true;
+    resized();
+}
+
 void SyncPanel::clearAfterSync()
 {
-    comment.clear();
-    choices.clear();
-    excluded.clear();
+    downloadChecks.clear();
+    uploadChecks.clear();
     expandedId.clear();
     dirty = true;
 }
@@ -437,52 +393,243 @@ bool SyncPanel::autoPullEnabled() const
     return settings.getBoolValue ("syncAutoPull", false);
 }
 
+//==============================================================================
+SyncPanel::Checks SyncPanel::checksFor (const collab::ScopeSyncState& st) const
+{
+    Checks c;
+    const bool sameChange = st.mine && st.theirs && ! st.conflict;   // 両方で同じ変更（そのままでよい）
+    c.canDownload = st.theirs && ! sameChange;
+    c.canUpload = st.mine && ! sameChange;
+
+    // 既定: 必要なほうにチェック。トラックの競合は両方（サーバーの版を使い、自分の版を別トラックで残す）、
+    // トラック以外の競合は選んでもらう
+    const bool pick = st.conflict && st.kind != collab::ScopeKind::track;
+    c.download = c.canDownload && ! pick;
+    c.upload = c.canUpload && ! pick;
+
+    if (auto it = downloadChecks.find (st.id); it != downloadChecks.end() && c.canDownload)
+        c.download = it->second;
+
+    if (auto it = uploadChecks.find (st.id); it != uploadChecks.end() && c.canUpload)
+        c.upload = it->second;
+
+    return c;
+}
+
+void SyncPanel::toggleCheck (const collab::ScopeSyncState& st, bool downloadColumn)
+{
+    const auto c = checksFor (st);
+    const bool on = ! (downloadColumn ? c.download : c.upload);
+    (downloadColumn ? downloadChecks : uploadChecks)[st.id] = on;
+
+    // トラック以外の競合は、どちらか一方だけ
+    if (on && st.conflict && st.kind != collab::ScopeKind::track)
+        (downloadColumn ? uploadChecks : downloadChecks)[st.id] = false;
+
+    rebuild();
+}
+
+std::map<std::string, collab::Resolution> SyncPanel::currentChoices (juce::String* unresolved) const
+{
+    std::map<std::string, collab::Resolution> choices;
+
+    for (auto& st : sync.scopeStates())
+    {
+        const auto c = checksFor (st);
+
+        if (! c.canDownload)
+            continue;
+
+        if (! st.conflict)
+        {
+            choices[st.id] = c.download ? collab::Resolution::theirs : collab::Resolution::mine;
+            continue;
+        }
+
+        if (c.download && c.upload && st.kind == collab::ScopeKind::track)
+            choices[st.id] = collab::Resolution::both;
+        else if (c.download)
+            choices[st.id] = collab::Resolution::theirs;
+        else if (c.upload || st.kind == collab::ScopeKind::track)
+            choices[st.id] = collab::Resolution::mine;
+        else if (unresolved != nullptr && unresolved->isEmpty())
+            *unresolved = toJuce (st.name);
+    }
+
+    return choices;
+}
+
+std::set<std::string> SyncPanel::currentExcluded() const
+{
+    std::set<std::string> excluded;
+
+    for (auto& st : sync.scopeStates())
+        if (const auto c = checksFor (st); c.canUpload && ! c.upload)
+            excluded.insert (st.id);
+
+    return excluded;
+}
+
+//==============================================================================
+void SyncPanel::paintCounts (juce::Graphics& g, juce::Rectangle<int> area, bool vertical) const
+{
+    struct Item { juce::String text; juce::Colour colour; };
+    std::vector<Item> items;
+
+    if (! sync.hasCredentials())
+        items.push_back ({ "未設定"_ju, Theme::textDim });
+    else if (! sync.isLinked())
+        items.push_back ({ "未登録"_ju, Theme::textDim });
+    else if (offline)
+        items.push_back ({ "オフライン"_ju, Theme::danger });
+    else
+    {
+        if (conflictCount > 0)   items.push_back ({ "!" + juce::String (conflictCount), Theme::warning });
+        if (downloadCount > 0)   items.push_back ({ arrow (true) + juce::String (downloadCount), downloadColour });
+        if (uploadCount > 0)     items.push_back ({ arrow (false) + juce::String (uploadCount), uploadColour });
+
+        if (items.empty())
+            items.push_back ({ juce::String::fromUTF8 ("\xE2\x9C\x93"), Theme::ok });   // ✓ 最新
+    }
+
+    g.setFont (juce::FontOptions (vertical ? 15.0f : 15.5f, juce::Font::bold));
+
+    for (auto& it : items)
+    {
+        const bool word = it.text.length() > 3;
+        juce::Rectangle<int> r;
+
+        if (vertical)
+        {
+            // 縦の帯: 1 つずつ下へ（長い言葉は 1 文字ずつ縦に）
+            const int h = word ? it.text.length() * 18 + 6 : 28;
+            r = area.removeFromTop (h);
+
+            if (word)
+            {
+                g.setColour (it.colour);
+                g.setFont (juce::FontOptions (15.5f));
+
+                for (int i = 0; i < it.text.length(); ++i)
+                    g.drawText (it.text.substring (i, i + 1), r.getX(), r.getY() + 3 + i * 18, r.getWidth(), 18, juce::Justification::centred);
+
+                continue;
+            }
+        }
+        else
+        {
+            const int w = (int) juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), it.text) + 16;
+            r = area.removeFromRight (w);
+        }
+
+        g.setColour (it.colour.withAlpha (0.18f));
+        g.fillRoundedRectangle (r.toFloat().reduced (2.0f, 3.0f), 6.0f);
+        g.setColour (it.colour);
+        g.drawText (it.text, r, juce::Justification::centred);
+
+        if (! vertical)
+            area.removeFromRight (2);
+    }
+}
+
 void SyncPanel::paint (juce::Graphics& g)
 {
     g.fillAll (Theme::panel);
     g.setColour (Theme::background);
     g.fillRect (0, 0, 2, getHeight());
 
-    g.setColour (Theme::text);
-    g.setFont (juce::FontOptions (16.0f, juce::Font::bold));
-    g.drawText ("同期"_ju, 14, 0, 200, 34, juce::Justification::centredLeft);
+    if (collapsed)
+    {
+        // 縦の帯: «・「同期」・件数
+        auto r = getLocalBounds().withTrimmedLeft (2).withTrimmedTop (toggleButton.getBottom() + 8);
+        g.setColour (Theme::text);
+        g.setFont (juce::FontOptions (17.5f, juce::Font::bold));
+        g.drawText (juce::String::fromUTF8 ("\xE5\x90\x8C"), r.removeFromTop (22), juce::Justification::centred);   // 同
+        g.drawText (juce::String::fromUTF8 ("\xE6\x9C\x9F"), r.removeFromTop (22), juce::Justification::centred);   // 期
+        r.removeFromTop (10);
+        paintCounts (g, r.reduced (4, 0), true);
+        return;
+    }
 
-    // 下の操作の場所はガラスの面にする
+    auto header = getLocalBounds().withTrimmedLeft (2).removeFromTop (40);
+    header.removeFromLeft (toggleButton.getRight() + 6);
+    g.setColour (Theme::text);
+    g.setFont (juce::FontOptions (17.0f, juce::Font::bold));
+    g.drawText ("同期"_ju, header.removeFromLeft (60), juce::Justification::centredLeft);
+    paintCounts (g, header.reduced (6, 5), false);
+
     if (sync.isLinked())
-        Theme::drawGlass (g, juce::Rectangle<float> (8.0f, (float) getHeight() - 150.0f, (float) getWidth() - 16.0f, 142.0f), 12.0f);
+    {
+        // 表の見出し
+        auto columns = viewport.getBounds().withHeight (26).translated (0, -26);
+        const int listWidth = list->getWidth();
+        auto cols = columns.withWidth (listWidth);
+        g.setColour (Theme::background.withAlpha (0.6f));
+        g.fillRect (columns);
+        g.setFont (juce::FontOptions (15.0f, juce::Font::bold));
+        g.setColour (Theme::textDim);
+        g.drawText ("トラック"_ju, cols.withTrimmedLeft (10), juce::Justification::centredLeft);
+        g.setColour (downloadColour);
+        g.drawText (arrow (true) + " DL", cols.withLeft (cols.getRight() - 2 * columnWidth).withWidth (columnWidth), juce::Justification::centred);
+        g.setColour (uploadColour);
+        g.drawText (arrow (false) + " UP", cols.withLeft (cols.getRight() - columnWidth), juce::Justification::centred);
+    }
+}
+
+void SyncPanel::mouseUp (const juce::MouseEvent&)
+{
+    // 畳んだ帯はどこをクリックしても開く
+    if (collapsed && onToggle)
+        onToggle();
 }
 
 void SyncPanel::resized()
 {
     laidOutLinked = sync.isLinked();
     auto area = getLocalBounds().withTrimmedLeft (2);
-    auto top = area.removeFromTop (34);
-    closeButton.setBounds (top.removeFromRight (34).reduced (4));
 
-    statusLabel.setBounds (area.removeFromTop (26).reduced (10, 0));
-    hintLabel.setBounds (area.removeFromTop (20).reduced (10, 0));
-
-    if (sync.isLinked())
+    if (collapsed)
     {
-        auto bottom = area.removeFromBottom (150).reduced (18, 14);
-        auto buttons = bottom.removeFromBottom (34);
+        toggleButton.setBounds (area.removeFromTop (40).reduced (5, 5));
+        repaint();
+        return;
+    }
+
+    auto top = area.removeFromTop (40);
+    toggleButton.setBounds (top.removeFromLeft (40).reduced (5, 5));
+    statusLabel.setBounds (area.removeFromTop (28).reduced (10, 0));
+    statusLabel.setVisible (true);
+
+    const bool linked = sync.isLinked();
+    const bool configured = sync.hasCredentials();
+
+    for (auto* c : std::initializer_list<juce::Component*> { &downloadButton, &uploadButton, &autoPull, &viewport })
+        c->setVisible (linked);
+
+    registerButton.setVisible (! linked && configured);
+    settingsButton.setVisible (! configured);
+
+    if (linked)
+    {
+        auto bottom = area.removeFromBottom (92).reduced (10, 8);
+        auto buttons = bottom.removeFromBottom (36);
         downloadButton.setBounds (buttons.removeFromLeft (buttons.getWidth() / 2 - 4));
         buttons.removeFromLeft (8);
         uploadButton.setBounds (buttons);
-        bottom.removeFromBottom (8);
-        autoPull.setBounds (bottom.removeFromBottom (24));
         bottom.removeFromBottom (6);
-        comment.setBounds (bottom.removeFromBottom (32));
+        autoPull.setBounds (bottom.removeFromBottom (26));
+
+        area.removeFromTop (26);   // 表の見出し（paint で描く）
+        viewport.setBounds (area);
     }
     else
     {
-        auto bottom = area.removeFromTop (90).reduced (14, 8);
-        registerButton.setBounds (bottom.removeFromTop (34));
+        auto bottom = area.removeFromTop (90).reduced (12, 8);
+        registerButton.setBounds (bottom.removeFromTop (36));
         bottom.removeFromTop (8);
-        settingsButton.setBounds (bottom.removeFromTop (30));
+        settingsButton.setBounds (bottom.removeFromTop (32));
     }
 
-    viewport.setBounds (area.reduced (4, 4));
     rebuild();
 }
 
@@ -512,58 +659,57 @@ void SyncPanel::rebuild()
         return;   // 隠れている間は計算しない（見えたときに作り直す）
 
     const bool linked = sync.isLinked();
-    const bool configured = sync.hasCredentials();
 
     // 曲を開いた・登録したときは並びが変わる
-    if (linked != laidOutLinked)
+    if (! collapsed && linked != laidOutLinked)
         return resized();
 
-    // 登録していない・設定していない
-    for (auto* c : std::initializer_list<juce::Component*> { &downloadButton, &uploadButton, &comment, &autoPull })
-        c->setVisible (linked);
-
-    registerButton.setVisible (! linked && configured);
-    settingsButton.setVisible (! configured);
-    hintLabel.setVisible (linked);
+    const auto st = sync.getServerStatus();
+    offline = st.checked && ! st.online;
+    downloadCount = uploadCount = conflictCount = 0;
 
     if (! linked)
     {
-        statusLabel.setText (configured ? "この曲はまだサーバーにありません"_ju : "サーバーが設定されていません"_ju, juce::dontSendNotification);
-        statusLabel.setColour (juce::Label::textColourId, Theme::text);
-        list->rows.clear();
-        list->setSize (viewport.getWidth(), 10);
-        list->repaint();
+        if (! collapsed)
+        {
+            statusLabel.setText (sync.hasCredentials() ? "この曲はまだサーバーにありません"_ju : "サーバーが設定されていません"_ju,
+                                 juce::dontSendNotification);
+            statusLabel.setColour (juce::Label::textColourId, Theme::text);
+            list->rows.clear();
+            list->setSize (viewport.getWidth(), 10);
+        }
+
+        repaint();
         return;
     }
 
-    const auto st = sync.getServerStatus();
-    const auto preview = sync.headPreview();
     auto states = sync.scopeStates();
+    int checkedDownloads = 0, checkedUploads = 0;
+
+    for (auto& s : states)
+    {
+        const auto c = checksFor (s);
+        downloadCount += c.canDownload ? 1 : 0;
+        uploadCount += c.canUpload && ! s.conflict ? 1 : 0;
+        conflictCount += s.conflict ? 1 : 0;
+        checkedDownloads += c.canDownload && c.download ? 1 : 0;
+        checkedUploads += c.canUpload && c.upload ? 1 : 0;
+    }
+
+    if (collapsed)
+    {
+        repaint();
+        return;
+    }
+
+    const auto preview = sync.headPreview();
 
     // トラックを先に、テンポ・拍子などは後ろに
     std::stable_partition (states.begin(), states.end(), [] (const collab::ScopeSyncState& s) { return s.kind == collab::ScopeKind::track; });
     const auto& local = document.getProject();
     const auto localDiff = sync.getBase() != nullptr ? collab::diffProjects (*sync.getBase(), local) : collab::ProjectDiff();
 
-    // 使われなくなった選択を消す
-    for (auto it = choices.begin(); it != choices.end();)
-    {
-        const bool used = std::any_of (states.begin(), states.end(), [&] (auto& s) { return s.id == it->first && s.theirs; });
-        it = used ? std::next (it) : choices.erase (it);
-    }
-
-    // 上の状況の行
-    int mine = 0, theirs = 0, conflicts = 0, changedHere = 0;
-
-    for (auto& s : states)
-    {
-        changedHere += s.mine ? 1 : 0;
-        mine += s.mine && ! s.theirs && excluded.count (s.id) == 0 ? 1 : 0;
-        theirs += s.theirs ? 1 : 0;
-        conflicts += s.conflict ? 1 : 0;
-    }
-
-    if (st.checked && ! st.online)
+    if (offline)
     {
         statusLabel.setText ("オフライン（"_ju + st.error + "）"_ju, juce::dontSendNotification);
         statusLabel.setColour (juce::Label::textColourId, Theme::danger);
@@ -574,20 +720,18 @@ void SyncPanel::rebuild()
         for (auto& r : st.incoming)
             authors.addIfNotAlreadyThere (r.author);
 
-        statusLabel.setText (authors.joinIntoString ("・"_ju) + " さんの新しい変更があります"_ju
-                               + (conflicts > 0 ? "（競合 "_ju + juce::String (conflicts) + " 件）"_ju : juce::String()),
-                             juce::dontSendNotification);
-        statusLabel.setColour (juce::Label::textColourId, conflicts > 0 ? Theme::warning : Theme::accent);
+        statusLabel.setText (authors.joinIntoString ("・"_ju) + " さんの新しい変更があります"_ju, juce::dontSendNotification);
+        statusLabel.setColour (juce::Label::textColourId, conflictCount > 0 ? Theme::warning : downloadColour);
     }
-    else if (changedHere > 0)
+    else if (uploadCount + conflictCount > 0)
     {
-        statusLabel.setText ("この PC に、まだアップしていない変更が "_ju + juce::String (changedHere) + " 件あります"_ju, juce::dontSendNotification);
+        statusLabel.setText ("まだアップしていない変更があります"_ju, juce::dontSendNotification);
         statusLabel.setColour (juce::Label::textColourId, Theme::text);
     }
     else
     {
-        statusLabel.setText (st.checked ? "サーバーと同じ状態です"_ju : "サーバーを確認しています…"_ju, juce::dontSendNotification);
-        statusLabel.setColour (juce::Label::textColourId, Theme::text);
+        statusLabel.setText (st.checked ? "サーバーと同じです"_ju : "サーバーを確認しています…"_ju, juce::dontSendNotification);
+        statusLabel.setColour (juce::Label::textColourId, Theme::textDim);
     }
 
     const int scrollY = viewport.getViewPositionY();
@@ -595,86 +739,11 @@ void SyncPanel::rebuild()
     list->rebuild (states, localDiff, preview != nullptr ? &preview->diff : nullptr, local);
     viewport.setViewPosition (0, scrollY);
 
-    downloadButton.setButtonText (theirs > 0 ? "ダウンロード（"_ju + juce::String (theirs) + "）"_ju : "ダウンロード"_ju);
+    downloadButton.setButtonText (arrow (true) + " "_ju + "ダウンロード"_ju + (checkedDownloads > 0 ? "（"_ju + juce::String (checkedDownloads) + "）"_ju : juce::String()));
     downloadButton.setEnabled (preview != nullptr);
-    uploadButton.setButtonText (preview != nullptr && mine > 0 ? "取り込んでアップ（"_ju + juce::String (mine) + "）"_ju
-                                : mine > 0 ? "アップ（"_ju + juce::String (mine) + "）"_ju : "アップ"_ju);
-    uploadButton.setEnabled (mine > 0 || (preview != nullptr && conflicts > 0));
+    uploadButton.setButtonText (arrow (false) + " "_ju + "アップロード"_ju + (checkedUploads > 0 ? "（"_ju + juce::String (checkedUploads) + "）"_ju : juce::String()));
+    uploadButton.setEnabled (checkedUploads > 0);
     repaint();
-}
-
-//==============================================================================
-SyncBadge::SyncBadge (SyncManager& s, ProjectDocument& d)
-    : juce::Button ("sync"), sync (s), document (d)
-{
-    setTooltip ("サーバーとの同期の状況（クリックで同期パネル。F7）"_ju);
-    sync.addChangeListener (this);
-    document.addChangeListener (this);
-    startTimer (700);
-}
-
-SyncBadge::~SyncBadge()
-{
-    sync.removeChangeListener (this);
-    document.removeChangeListener (this);
-}
-
-void SyncBadge::changeListenerCallback (juce::ChangeBroadcaster*)
-{
-    dirty = true;
-}
-
-void SyncBadge::timerCallback()
-{
-    if (! dirty)
-        return;
-
-    dirty = false;
-    mine = theirs = conflicts = 0;
-
-    for (auto& st : sync.scopeStates())
-    {
-        mine += st.mine && ! st.theirs ? 1 : 0;
-        theirs += st.theirs ? 1 : 0;
-        conflicts += st.conflict ? 1 : 0;
-    }
-
-    repaint();
-}
-
-void SyncBadge::paintButton (juce::Graphics& g, bool highlighted, bool down)
-{
-    getLookAndFeel().drawButtonBackground (g, *this, findColour (juce::TextButton::buttonColourId), highlighted, down);
-
-    auto r = getLocalBounds().toFloat().reduced (10.0f, 0.0f);
-    juce::Colour dot;
-    juce::String label;
-    const auto st = sync.getServerStatus();
-
-    if (! sync.hasCredentials())                 { dot = Theme::textDim; label = "同期: 未設定"_ju; }
-    else if (! sync.isLinked())                  { dot = Theme::textDim; label = "同期: 未登録"_ju; }
-    else if (st.checked && ! st.online)          { dot = Theme::danger;  label = "同期: オフライン"_ju; }
-    else if (conflicts > 0)                      { dot = Theme::warning; label = "競合 "_ju + juce::String (conflicts); }
-    else if (theirs > 0 || mine > 0)
-    {
-        dot = theirs > 0 ? Theme::accent : Theme::warning;
-        juce::StringArray parts;
-
-        if (theirs > 0)
-            parts.add (juce::String::fromUTF8 ("\xE2\x86\x93") + juce::String (theirs) + " 新着"_ju);   // ↓
-
-        if (mine > 0)
-            parts.add (juce::String::fromUTF8 ("\xE2\x86\x91") + juce::String (mine) + " 変更"_ju);     // ↑
-
-        label = parts.joinIntoString ("  ");
-    }
-    else                                         { dot = Theme::ok; label = st.checked ? "同期: 最新"_ju : "同期: 確認中"_ju; }
-
-    Theme::drawStatusDot (g, r.removeFromLeft (10.0f).withSizeKeepingCentre (9.0f, 9.0f), dot);
-    r.removeFromLeft (7.0f);
-    g.setColour (Theme::text);
-    g.setFont (juce::FontOptions (14.0f));
-    g.drawText (label, r, juce::Justification::centredLeft, true);
 }
 
 //==============================================================================
@@ -736,10 +805,10 @@ void SyncToast::paint (juce::Graphics& g)
     Theme::drawStatusDot (g, titleRow.removeFromLeft (10.0f).withSizeKeepingCentre (9.0f, 9.0f), colour);
     titleRow.removeFromLeft (8.0f);
     g.setColour (Theme::text);
-    g.setFont (juce::FontOptions (15.5f, juce::Font::bold));
+    g.setFont (juce::FontOptions (17.0f, juce::Font::bold));
     g.drawText (title, titleRow, juce::Justification::centredLeft, true);
 
-    g.setFont (juce::FontOptions (14.0f));
+    g.setFont (juce::FontOptions (15.5f));
     g.drawFittedText (body, area.withHeight (38.0f).toNearestInt(), juce::Justification::topLeft, 2, 0.9f);
 }
 

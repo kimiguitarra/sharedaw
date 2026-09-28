@@ -68,9 +68,9 @@ private:
     std::unique_ptr<juce::StretchableLayoutResizerBar> resizer;
     PianoRollView pianoRoll { ctx };
     SyncPanel syncPanel { sync, document, settings };
-    SyncBadge syncBadge { sync, document };
     SyncToast toast;
     juce::Label statusBar;
+    juce::TooltipWindow tooltips { nullptr, 700 };   // マウスを少し止めるとボタンの説明を出す
     std::unique_ptr<juce::FileChooser> chooser;
 
     bool lastLoop = false;
@@ -100,8 +100,11 @@ private:
     void installUpdate (const Updater::Info&);
     std::atomic<bool> updateCheckRunning { false };
     std::unique_ptr<juce::DocumentWindow> mixerWindow;
-    void openChannelStrip (const std::string& trackId);
-    std::unique_ptr<juce::DocumentWindow> stripWindow;
+    void openChannelStrip (const std::string& trackId, bool compressor);
+
+    /** MIDI キーボードの録音先（録音待機の MIDI トラック、なければ選択中の MIDI トラック）。 */
+    const collab::Track* midiRecordTarget() const;
+    std::unique_ptr<juce::DocumentWindow> eqWindow, compWindow;
     void openMaster();
     void exportMixdown();
     std::unique_ptr<juce::DocumentWindow> masterWindow;

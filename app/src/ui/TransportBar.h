@@ -1,7 +1,6 @@
 #pragma once
 
 #include "ui/AppContext.h"
-#include "ui/MidiInputPanel.h"
 #include "ui/Theme.h"
 
 /** クリックで入力、ホイールで増減できる値（テンポ・拍子・ループ範囲）。 */
@@ -18,9 +17,24 @@ struct ValueLabel  : public juce::Label
     }
 };
 
+/** 旗のアイコン（左右のロケーター）。 */
+struct FlagIcon  : public juce::Component,
+                   public juce::SettableTooltipClient
+{
+    explicit FlagIcon (bool isLeft) : left (isLeft) {}
+
+    void paint (juce::Graphics& g) override
+    {
+        g.setColour (Theme::accent);
+        g.fillPath (Theme::iconPath (left ? "flagL" : "flagR", getLocalBounds().toFloat().reduced (2.0f)));
+    }
+
+    bool left;
+};
+
 /**
     画面上部のツールバー（Cubase のプロジェクトウィンドウのツールバー）:
-    ツール、クオンタイズ値、スナップ、自動スクロール、メトロノーム、MIDI 入力、オーディオ設定。
+    ツール、クオンタイズ値・スナップ・自動スクロール、メトロノーム、曲のテンポ・拍子・キー。
 */
 class ToolBar  : public juce::Component,
                  private juce::ChangeListener
@@ -29,16 +43,12 @@ public:
     explicit ToolBar (AppContext&);
     ~ToolBar() override;
 
-    std::function<void()> onAudioSettings;
-
-    /** 同期の状態のバッジ（右側に置く）。 */
-    void setSyncBadge (juce::Component*);
-
-    /** 定期的に呼ぶ（MIDI 入力のランプ）。 */
+    /** 定期的に呼ぶ（再生位置のテンポ・拍子・キー）。 */
     void update();
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    void mouseUp (const juce::MouseEvent&) override;
 
 private:
     /** ツール（選択・鉛筆・はさみ）のボタン。アイコンだけを描く。 */
@@ -53,18 +63,25 @@ private:
     ToolButton selectTool { EditTool::select }, pencilTool { EditTool::pencil }, splitTool { EditTool::split };
     juce::ComboBox quantiseBox;
     Theme::IconButton snapButton { "snap" }, autoScrollButton { "follow" }, metronomeButton { "metronome" };
-    juce::TextButton settingsButton;
     std::vector<juce::Rectangle<int>> groups;   // ガラスのまとまり（ツール、クオンタイズ、メトロノーム…）
     juce::Slider metronomeVolume { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
-    MidiActivityLight midiLight;
-    juce::Component* syncBadge = nullptr;
+    ValueLabel bpmLabel, meterLabel;
+    juce::Label keyLabel;
+    juce::String wheelMergeId;
+    juce::uint32 lastWheelTime = 0;
+    collab::Tick lastTick = -1;
+
+    collab::Tick playheadTick() const;
+    void setTempoAtPlayhead (double bpm, const juce::String& mergeId = {});
+    void setMeterAtPlayhead (int numerator, int denominator);
+    void refreshTempo();
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
 };
 
 /**
     画面下部のトランスポート（Cubase と同じ並び）:
-    左にループ範囲（開始・終了）、中央にループ・停止・再生・録音、右に現在の位置とテンポ・拍子。
+    左に左右のロケーター（旗）、中央にサイクル・停止・再生・録音、その右に現在の位置（小節. 拍. tick）。
 */
 class TransportBar  : public juce::Component,
                       private juce::ChangeListener
@@ -81,19 +98,12 @@ public:
 
 private:
     AppContext& ctx;
-    juce::Label loopStartTitle, loopEndTitle;
+    FlagIcon loopStartFlag { true }, loopEndFlag { false };
     ValueLabel loopStartLabel, loopEndLabel;
     Theme::IconButton loopButton { "loop" }, stopButton { "stop" }, playButton { "play" }, recordButton { "record" };
     std::vector<juce::Rectangle<int>> groups;
-    juce::Label barBeatLabel, timeLabel;
-    ValueLabel bpmLabel, meterLabel;
-    juce::String wheelMergeId;
-    juce::uint32 lastWheelTime = 0;
+    juce::Label barBeatLabel;
     bool wasPlaying = false;
-
-    collab::Tick playheadTick() const;
-    void setTempoAtPlayhead (double bpm, const juce::String& mergeId = {});
-    void setMeterAtPlayhead (int numerator, int denominator);
 
     juce::String formatPosition (collab::Tick) const;
     std::optional<collab::Tick> parsePosition (const juce::String&) const;

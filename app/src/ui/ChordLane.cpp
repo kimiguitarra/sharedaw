@@ -3,6 +3,7 @@
 #include "ChordEditor.h"
 #include "TimeGrid.h"
 #include "collab/ChordPlayback.h"
+#include "collab/chord/Degree.h"
 #include "collab/Uuid.h"
 
 namespace
@@ -52,8 +53,8 @@ std::vector<ChordLane::Box> ChordLane::layoutBoxes() const
     auto events = project.chordTrack.events;
     std::stable_sort (events.begin(), events.end(), [] (auto& a, auto& b) { return a.tick < b.tick; });
 
-    const juce::Font nameFont (juce::FontOptions (14.0f, juce::Font::bold));
-    const juce::Font degreeFont (juce::FontOptions (13.0f));
+    const juce::Font nameFont (juce::FontOptions (15.5f, juce::Font::bold));
+    const juce::Font degreeFont (juce::FontOptions (14.5f));
     std::vector<Box> boxes;
 
     for (size_t i = 0; i < events.size(); ++i)
@@ -125,16 +126,16 @@ void ChordLane::paint (juce::Graphics& g)
         if (b.degree.isNotEmpty())
         {
             g.setColour (Theme::text);
-            g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
+            g.setFont (juce::FontOptions (15.5f, juce::Font::bold));
             g.drawText (b.name, textArea.removeFromTop (textArea.getHeight() * 0.55f), juce::Justification::bottomLeft, true);
             g.setColour (chordColour.brighter (0.3f));
-            g.setFont (juce::FontOptions (13.0f));
+            g.setFont (juce::FontOptions (14.5f));
             g.drawText (b.degree, textArea, juce::Justification::topLeft, true);
         }
         else
         {
             g.setColour (b.noChord || b.empty ? Theme::textDim : Theme::text);
-            g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
+            g.setFont (juce::FontOptions (15.5f, juce::Font::bold));
             g.drawText (b.empty ? juce::String ("?") : b.name, textArea, juce::Justification::centredLeft, true);
         }
     }
@@ -200,7 +201,9 @@ void ChordLane::mouseDown (const juce::MouseEvent& e)
             m.addItem ("ここにコードを入力…"_ju, [this, tick] { addAt (tick); });
             m.addItem ("ここに空のコードを置く"_ju, [this, tick] { addEmptyAt (tick); });
             m.addItem ("ここに貼り付け"_ju, hasClipboard(), false, [this, tick] { paste ((double) tick); });
-            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this));
+            m.addSeparator();
+            m.addItem ("コードを一括入力…"_ju, [this, tick] { showBulkDialog (ctx.document.getTempoMap().tickToBar (tick)); });
+            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
         }
 
         return;
@@ -236,7 +239,12 @@ void ChordLane::mouseDown (const juce::MouseEvent& e)
         m.addItem ("コピー（Ctrl+C）"_ju, [this] { copySelected (false); });
         m.addItem ("切り取り（Ctrl+X）"_ju, [this] { copySelected (true); });
         m.addItem ("削除"_ju, [this] { deleteSelected(); });
-        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this));
+        m.addSeparator();
+        m.addItem ("コードを一括入力…"_ju, [this, x = e.position.x]
+        {
+            showBulkDialog (ctx.document.getTempoMap().tickToBar ((collab::Tick) ctx.state.timeline.xToTick (x)));
+        });
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
     }
 }
 
@@ -284,7 +292,194 @@ bool ChordLane::keyPressed (const juce::KeyPress& key)
         return true;
     }
 
+    // 数字 1〜7: 選んでいるコードにディグリーのコードを入れて、次のコードへ（「1625」と続けて打てる）
+    if (const auto c = key.getTextCharacter(); c >= '1' && c <= '7' && ! ctx.state.selectedChordId.empty()
+                                               && ! key.getModifiers().isAnyModifierKeyDown())
+    {
+        auto events = ctx.document.getProject().chordTrack.events;
+        std::sort (events.begin(), events.end(), [] (auto& x, auto& y) { return x.tick < y.tick; });
+
+        for (size_t i = 0; i < events.size(); ++i)
+        {
+            if (events[i].id != ctx.state.selectedChordId)
+                continue;
+
+            if (auto filled = chordForDegree (c, events[i].tick))
+            {
+                filled->id = events[i].id;
+                ctx.document.perform ("コードの入力"_ju, [e = *filled] (collab::Project& p)
+                {
+                    for (auto& x : p.chordTrack.events)
+                        if (x.id == e.id)
+                            x = e;
+                });
+            }
+
+            if (i + 1 < events.size())
+                ctx.state.selectedChordId = events[i + 1].id;
+
+            ctx.state.changed();
+            return true;
+        }
+    }
+
     return false;
+}
+
+std::optional<collab::ChordEvent> ChordLane::chordForDegree (juce::juce_wchar digit, collab::Tick tick) const
+{
+    // キーがなければ C メジャーとして扱う
+    const auto key = collab::keyAt (ctx.document.getProject(), ctx.document.getTempoMap(), tick)
+                         .value_or (collab::chord::Key { 0, false });
+    const auto text = collab::chord::degreeToChordText (juce::String::charToString (digit).toStdString(), key);
+
+    if (! text)
+        return std::nullopt;
+
+    const auto parsed = collab::chord::parse (*text);
+
+    if (! parsed.chord)
+        return std::nullopt;
+
+    collab::ChordEvent e;
+    e.tick = tick;
+    e.chord = collab::toChordSymbol (*parsed.chord);
+    e.text = *text;
+    return e;
+}
+
+void ChordLane::showBulkDialog (int bar)
+{
+    // 既定の終了: 曲の最後のクリップのある小節まで（なければ 8 小節）
+    collab::Tick end = 0;
+
+    for (auto& t : ctx.document.getProject().tracks)
+    {
+        for (auto& c : t.midiClips)
+            end = std::max (end, c.endTick());
+    }
+
+    const int lastBar = juce::jmax (bar, ctx.document.getTempoMap().tickToBar (juce::jmax<collab::Tick> (0, end - 1)));
+    auto* w = new juce::AlertWindow ("コードの一括入力"_ju,
+                                     "範囲と間隔を決めて、空のコードをまとめて置きます。\n"_ju
+                                     "「コード」に 1625 のようにディグリーの数字を並べると、前から順に入ります（空欄なら空のコードだけ）。"_ju,
+                                     juce::MessageBoxIconType::NoIcon, this);
+    w->addTextEditor ("from", juce::String (bar), "開始小節"_ju);
+    w->addTextEditor ("to", juce::String (juce::jmax (bar + 7, juce::jmin (lastBar, bar + 15))), "終了小節（この小節まで）"_ju);
+    w->addComboBox ("step", { "1 小節ごと"_ju, "2 拍ごと"_ju, "1 拍ごと"_ju, "2 小節ごと"_ju }, "間隔"_ju);
+    w->addTextEditor ("degrees", {}, "コード（例: 1625）"_ju);
+    w->addButton ("置く"_ju, 1, juce::KeyPress (juce::KeyPress::returnKey));
+    w->addButton ("キャンセル"_ju, 0, juce::KeyPress (juce::KeyPress::escapeKey));
+
+    for (auto* name : { "from", "to" })
+        if (auto* ed = w->getTextEditor (name))
+            ed->setInputRestrictions (4, "0123456789");
+
+    w->enterModalState (true, juce::ModalCallbackFunction::create ([this, w, safe = juce::Component::SafePointer<ChordLane> (this)] (int result)
+    {
+        if (result != 1 || safe == nullptr)
+            return;
+
+        const int from = juce::jmax (1, w->getTextEditorContents ("from").getIntValue());
+        const int to = juce::jmax (from, w->getTextEditorContents ("to").getIntValue());
+        const int step = w->getComboBoxComponent ("step")->getSelectedItemIndex();
+        const int beats = step == 1 ? 2 : step == 2 ? 1 : 0;
+        const int bars = step == 3 ? 2 : 1;
+        bulkFill (from, to, beats, bars, w->getTextEditorContents ("degrees"));
+    }), true);
+}
+
+void ChordLane::bulkFill (int fromBar, int toBar, int beatsPerStep, int barsPerStep, const juce::String& degrees)
+{
+    const auto& map = ctx.document.getTempoMap();
+    std::vector<collab::Tick> ticks;
+
+    for (int bar = fromBar; bar <= toBar; bar += (beatsPerStep > 0 ? 1 : barsPerStep))
+    {
+        const auto start = map.barToTick (bar);
+
+        if (beatsPerStep <= 0)
+        {
+            ticks.push_back (start);
+            continue;
+        }
+
+        const auto sig = map.timeSignatureAtBar (bar);
+
+        for (int beat = 0; beat < sig.numerator; beat += beatsPerStep)
+            ticks.push_back (start + (collab::Tick) beat * sig.ticksPerBeat());
+    }
+
+    // 数字（1〜7、全角も）だけを順に使う
+    std::vector<juce::juce_wchar> digits;
+
+    for (auto c : degrees)
+    {
+        if (c >= 0xFF11 && c <= 0xFF17)
+            c = '1' + (c - 0xFF11);
+
+        if (c >= '1' && c <= '7')
+            digits.push_back (c);
+    }
+
+    // すでにコードがある拍はそのまま（空のコードなら数字で埋める）
+    std::vector<collab::ChordEvent> toAdd, toFill;
+    size_t next = 0;
+    const auto& existing = ctx.document.getProject().chordTrack.events;
+
+    for (auto t : ticks)
+    {
+        auto it = std::find_if (existing.begin(), existing.end(), [t] (auto& x) { return x.tick == t; });
+        const bool isEmpty = it == existing.end() || (! it->noChord && ! it->chord && it->text.empty());
+
+        if (it != existing.end() && ! isEmpty)
+            continue;
+
+        collab::ChordEvent e;
+        e.tick = t;
+
+        if (next < digits.size())
+            if (auto filled = chordForDegree (digits[next++], t))
+                e = *filled;
+
+        e.id = it != existing.end() ? it->id : collab::generateUuid();
+        (it != existing.end() ? toFill : toAdd).push_back (e);
+    }
+
+    if (toAdd.empty() && toFill.empty())
+        return;
+
+    ctx.document.perform ("コードの一括入力"_ju, [toAdd, toFill] (collab::Project& p)
+    {
+        for (auto& e : toFill)
+            for (auto& x : p.chordTrack.events)
+                if (x.id == e.id)
+                    x = e;
+
+        for (auto& e : toAdd)
+            p.chordTrack.events.push_back (e);
+    });
+
+    // 最初の空のコードを選んでおく（続けて数字で入れられる）
+    std::string firstEmpty;
+    collab::Tick firstTick = std::numeric_limits<collab::Tick>::max();
+
+    for (auto& e : ctx.document.getProject().chordTrack.events)
+        if (e.tick >= map.barToTick (fromBar) && e.tick < firstTick && ! e.noChord && ! e.chord && e.text.empty())
+        {
+            firstTick = e.tick;
+            firstEmpty = e.id;
+        }
+
+    ctx.state.selectedChordId = firstEmpty;
+    ctx.state.changed();
+
+    // ダイアログが閉じた後にフォーカスを取り戻す（続けて数字を打てるように）
+    juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<ChordLane> (this)]
+    {
+        if (safe != nullptr)
+            safe->grabKeyboardFocus();
+    });
 }
 
 bool ChordLane::copySelected (bool cut)

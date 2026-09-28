@@ -36,12 +36,17 @@ private:
     AppContext& ctx;
     collab::ChannelEq eq;
 
-    static constexpr int fftOrder = 11, fftSize = 1 << fftOrder;
+    static constexpr int fftOrder = 12, fftSize = 1 << fftOrder;
+    static constexpr int numPoints = 200;       // 表示する点（20 Hz〜20 kHz を対数で等分）
     juce::dsp::FFT fft { fftOrder };
     juce::dsp::WindowingFunction<float> window { (size_t) fftSize, juce::dsp::WindowingFunction<float>::hann };
-    std::vector<float> fftData, spectrumDb;   // spectrumDb はビンごとの平滑化したレベル
+    std::vector<float> fftData;
+    std::vector<double> binPower;               // ビンごとの平滑化したパワー（時間方向）
+    std::vector<float> shownDb;                 // 表示する点ごとのレベル（傾き補正・周波数方向の平滑化の後）
     double spectrumRate = 48000.0;
     bool hasSpectrum = false;
+
+    void updateShownSpectrum();
 
     int hoverBand = -1, dragBand = -1;
     bool merging = false;

@@ -57,14 +57,15 @@ namespace Theme
     /** 状態の小さな丸（接続中・オフラインなど）。 */
     void drawStatusDot (juce::Graphics&, juce::Rectangle<float> area, juce::Colour);
 
-    /** アイコンの形（塗りつぶし用）。name: snap / follow / loop / metronome / stop / play / pause / record */
+    /** アイコンの形（塗りつぶし用）。name: snap / flagL / flagR / follow / loop / metronome / stop / play / pause / record */
     juce::Path iconPath (const juce::String& name, juce::Rectangle<float> area);
 
     /** アイコンだけのボタン（TextButton と同じように使える。文字は描かず、ツールチップで説明する）。 */
     class IconButton  : public juce::TextButton
     {
     public:
-        explicit IconButton (juce::String iconName) : icon (std::move (iconName)) {}
+        // キーボードのフォーカスを取らない（Space が再生ではなくボタンを押してしまうので）
+        explicit IconButton (juce::String iconName) : icon (std::move (iconName)) { setWantsKeyboardFocus (false); }
 
         void setIcon (const juce::String& name)     { icon = name; repaint(); }
         void paintButton (juce::Graphics&, bool highlighted, bool down) override;
@@ -81,6 +82,11 @@ namespace Theme
 
         void drawButtonBackground (juce::Graphics&, juce::Button&, const juce::Colour& backgroundColour,
                                    bool highlighted, bool down) override;
+        juce::Font getTextButtonFont (juce::TextButton&, int buttonHeight) override;
+        juce::Font getPopupMenuFont() override;
+        juce::Rectangle<int> getTooltipBounds (const juce::String& tipText, juce::Point<int> screenPos, juce::Rectangle<int> parentArea) override;
+        void drawTooltip (juce::Graphics&, const juce::String& text, int width, int height) override;
+        juce::Font getMenuBarFont (juce::MenuBarComponent&, int itemIndex, const juce::String& itemText) override;
         void drawComboBox (juce::Graphics&, int width, int height, bool down, int buttonX, int buttonY, int buttonW, int buttonH,
                            juce::ComboBox&) override;
         void fillTextEditorBackground (juce::Graphics&, int width, int height, juce::TextEditor&) override;

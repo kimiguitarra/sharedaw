@@ -45,7 +45,7 @@ void PianoKeyboard::paint (juce::Graphics& g)
 {
     const bool drums = owner.isDrumTrack();
     g.fillAll (Theme::panel);
-    g.setFont (juce::FontOptions (12.5f));
+    g.setFont (juce::FontOptions (14.0f));
 
     for (int p = 0; p < 128; ++p)
     {
@@ -65,11 +65,11 @@ void PianoKeyboard::paint (juce::Graphics& g)
             g.setColour (name.isEmpty() ? Theme::panel : (rowIndex % 2 == 0 ? Theme::panelLight : Theme::panelLight.darker (0.12f)));
             g.fillRect (row.reduced (0.0f, 0.5f));
             g.setColour (name.isNotEmpty() ? Theme::text : Theme::textDim.withAlpha (0.7f));
-            g.setFont (juce::FontOptions (14.5f, name.isNotEmpty() ? juce::Font::bold : juce::Font::plain));
+            g.setFont (juce::FontOptions (16.0f, name.isNotEmpty() ? juce::Font::bold : juce::Font::plain));
             g.drawText (name.isNotEmpty() ? name : (gmName.isNotEmpty() ? gmName : juce::String (p)) + "（音なし）"_ju,
                         row.withTrimmedLeft (10.0f).withTrimmedRight (40.0f), juce::Justification::centredLeft, true);
             g.setColour (Theme::textDim);
-            g.setFont (juce::FontOptions (12.0f));
+            g.setFont (juce::FontOptions (13.5f));
             g.drawText (toJuce (collab::midiNoteName (p)), row.withTrimmedRight (6.0f), juce::Justification::centredRight, false);
 
             // 仲間（キック・スネア・ハイハット…）の境目
@@ -189,7 +189,7 @@ void NoteGrid::paint (juce::Graphics& g)
     if (clip == nullptr)
     {
         g.setColour (Theme::textDim);
-        g.setFont (juce::FontOptions (15.0f));
+        g.setFont (juce::FontOptions (16.5f));
         g.drawText ("タイムラインで MIDI クリップを選択すると、ここで編集できます"_ju, getLocalBounds(), juce::Justification::centred);
         return;
     }
@@ -247,7 +247,7 @@ void NoteGrid::paint (juce::Graphics& g)
         if (r.getWidth() >= 20.0f)
         {
             g.setColour (juce::Colours::black.withAlpha (0.8f));
-            g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
+            g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
             g.drawText (toJuce (collab::midiNoteName (n.pitch)), r.withTrimmedLeft (3.0f), juce::Justification::centredLeft, false);
         }
     }
@@ -748,7 +748,7 @@ void AudioClipGrid::paint (juce::Graphics& g)
     else
     {
         g.setColour (Theme::warning);
-        g.setFont (juce::FontOptions (14.0f));
+        g.setFont (juce::FontOptions (15.5f));
         g.drawText ("オーディオが見つかりません"_ju, getLocalBounds(), juce::Justification::centred);
     }
 
@@ -766,7 +766,7 @@ void AudioClipGrid::paint (juce::Graphics& g)
     g.drawRect (r, 1.0f);
 
     g.setColour (Theme::text);
-    g.setFont (juce::FontOptions (13.5f));
+    g.setFont (juce::FontOptions (15.0f));
     auto label = toJuce (clip->displayName);
     if (std::abs (clip->gainDb) > 0.05)
         label << "  " << juce::String (clip->gainDb, 1) << " dB";
@@ -792,7 +792,7 @@ PianoRollView::PianoRollView (AppContext& c)
       playhead (c.state.pianoRoll)
 {
     addAndMakeVisible (titleLabel);
-    titleLabel.setFont (juce::FontOptions (14.0f, juce::Font::bold));
+    titleLabel.setFont (juce::FontOptions (15.5f, juce::Font::bold));
 
     int id = 1;
     for (auto& g : collab::Grid::presets())
@@ -824,7 +824,7 @@ PianoRollView::PianoRollView (AppContext& c)
     hintLabel.setText ("鉛筆: クリックでノート追加（ドラッグで長さ）・ノートをクリックで削除　選択: ドラッグで移動・範囲選択、右端で長さ　↑↓: 移調　Del: 削除"_ju,
                        juce::dontSendNotification);
     hintLabel.setColour (juce::Label::textColourId, Theme::textDim);
-    hintLabel.setFont (juce::FontOptions (13.5f));
+    hintLabel.setFont (juce::FontOptions (15.0f));
     hintLabel.setMinimumHorizontalScale (0.5f);
     addAndMakeVisible (hintLabel);
 

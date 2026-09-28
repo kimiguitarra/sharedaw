@@ -6,6 +6,7 @@
     Compressor の操作パネル。種類に合わせて見た目を切り替える。
     - FET: 1176 風（黒いパネル、INPUT / OUTPUT / ATTACK / RELEASE、レシオのボタン 4・8・12・20）
     - Optical: LA-2A 風（明るいパネル、GAIN / PEAK REDUCTION、COMPRESS / LIMIT の切り替え）
+    どちらにも LOW THRU（この周波数より下をかかり具合の検出に使わない。OFF〜500 Hz）がある。
     どちらもゲインリダクションを針の VU メーターで見せる。
 */
 class CompressorPanel  : public juce::Component,
@@ -59,6 +60,7 @@ private:
     VuMeter meter;
     Knob input { "INPUT", false }, output { "OUTPUT", false }, attack { "ATTACK", false }, release { "RELEASE", false };
     Knob gain { "GAIN", true }, peakReduction { "PEAK REDUCTION", true };
+    Knob lowThru { "LOW THRU", false };   // 低域のスルー（両方の種類）
     juce::TextButton ratioButtons[4];
     juce::TextButton compressButton { "COMPRESS" }, limitButton { "LIMIT" };
     static constexpr double ratios[4] = { 4.0, 8.0, 12.0, 20.0 };

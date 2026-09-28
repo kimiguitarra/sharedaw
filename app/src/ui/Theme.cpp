@@ -37,12 +37,12 @@ void drawSectionHeader (juce::Graphics& g, juce::Rectangle<int> area, const juce
     g.drawHorizontalLine (area.getBottom() - 1, (float) area.getX(), (float) area.getRight());
 
     g.setColour (text);
-    g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
+    g.setFont (juce::FontOptions (15.5f, juce::Font::bold));
     g.drawText (title, area.reduced (10, 0), juce::Justification::centredLeft, true);
 
     if (right.isNotEmpty())
     {
-        g.setFont (juce::FontOptions (13.0f));
+        g.setFont (juce::FontOptions (14.5f));
         g.drawText (right, area.reduced (10, 0), juce::Justification::centredRight, true);
     }
 }
@@ -100,10 +100,66 @@ LookAndFeel::LookAndFeel()
     setColour (juce::Slider::trackColourId, accent.withAlpha (0.5f));
     setColour (juce::Slider::backgroundColourId, background);
     setColour (juce::ScrollBar::thumbColourId, gridBar);
-    setColour (juce::TooltipWindow::backgroundColourId, panelLight);
+    // ツールチップとスライダーの値の吹き出し: 明るい文字にする（黒い吹き出しに黒い文字にならないように）
+    setColour (juce::TooltipWindow::backgroundColourId, juce::Colour (0xff2b2f36));
+    setColour (juce::TooltipWindow::textColourId, text);
+    setColour (juce::TooltipWindow::outlineColourId, juce::Colours::white.withAlpha (0.25f));
+    setColour (juce::BubbleComponent::backgroundColourId, juce::Colour (0xff2b2f36));
+    setColour (juce::BubbleComponent::outlineColourId, juce::Colours::white.withAlpha (0.25f));
     setColour (juce::TextEditor::backgroundColourId, juce::Colours::black.withAlpha (0.25f));
     setColour (juce::TextEditor::outlineColourId, juce::Colours::white.withAlpha (0.14f));
     setColour (juce::TextEditor::focusedOutlineColourId, accent);
+}
+
+namespace
+{
+    // ツールチップ（読みやすいように少し大きく、長い説明は折り返す）
+    juce::TextLayout tooltipLayout (const juce::String& text, juce::Colour colour)
+    {
+        juce::AttributedString s;
+        s.setJustification (juce::Justification::centredLeft);
+        s.append (text, juce::FontOptions (15.0f), colour);
+
+        juce::TextLayout tl;
+        tl.createLayoutWithBalancedLineLengths (s, 420.0f);
+        return tl;
+    }
+}
+
+juce::Rectangle<int> LookAndFeel::getTooltipBounds (const juce::String& tipText, juce::Point<int> screenPos, juce::Rectangle<int> parentArea)
+{
+    const auto tl = tooltipLayout (tipText, juce::Colours::black);
+    const int w = (int) (tl.getWidth() + 18.0f), h = (int) (tl.getHeight() + 12.0f);
+
+    return juce::Rectangle<int> (screenPos.x > parentArea.getCentreX() ? screenPos.x - (w + 12) : screenPos.x + 24,
+                                 screenPos.y > parentArea.getCentreY() ? screenPos.y - (h + 6) : screenPos.y + 6, w, h)
+        .constrainedWithin (parentArea);
+}
+
+void LookAndFeel::drawTooltip (juce::Graphics& g, const juce::String& text, int width, int height)
+{
+    const juce::Rectangle<int> bounds (width, height);
+    g.setColour (findColour (juce::TooltipWindow::backgroundColourId));
+    g.fillRoundedRectangle (bounds.toFloat(), 6.0f);
+    g.setColour (findColour (juce::TooltipWindow::outlineColourId));
+    g.drawRoundedRectangle (bounds.toFloat().reduced (0.5f), 6.0f, 1.0f);
+    tooltipLayout (text, findColour (juce::TooltipWindow::textColourId)).draw (g, bounds.reduced (9, 6).toFloat());
+}
+
+juce::Font LookAndFeel::getPopupMenuFont()
+{
+    return juce::FontOptions (17.0f);
+}
+
+juce::Font LookAndFeel::getMenuBarFont (juce::MenuBarComponent& bar, int, const juce::String&)
+{
+    return juce::FontOptions (juce::jmin (16.5f, (float) bar.getHeight() * 0.72f));
+}
+
+juce::Font LookAndFeel::getTextButtonFont (juce::TextButton&, int buttonHeight)
+{
+    // ボタンの文字は少し大きめ（読みやすさ優先）
+    return juce::FontOptions (juce::jmin (16.5f, (float) buttonHeight * 0.68f));
 }
 
 void LookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& b, const juce::Colour& backgroundColour,
@@ -237,16 +293,40 @@ juce::Path iconPath (const juce::String& name, juce::Rectangle<float> area)
 
     if (name == "snap")
     {
-        // 磁石（U 字）
-        juce::Path u;
-        u.startNewSubPath (6.0f, 4.0f);
-        u.lineTo (6.0f, 12.0f);
-        // 左（9 時）から下（6 時）を通って右（3 時）へ
-        u.addCentredArc (12.0f, 12.0f, 6.0f, 6.0f, 0.0f, 1.5f * juce::MathConstants<float>::pi, 0.5f * juce::MathConstants<float>::pi, false);
-        u.lineTo (18.0f, 4.0f);
-        stroke (u, 3.6f);
-        p.addRectangle (3.8f, 2.0f, 4.4f, 2.4f);
-        p.addRectangle (15.8f, 2.0f, 4.4f, 2.4f);
+        // Cubase のスナップ: 真ん中の線に左右から矢印が吸い付く（→|←）
+        juce::Path line;
+        line.startNewSubPath (12.0f, 3.0f);
+        line.lineTo (12.0f, 21.0f);
+        stroke (line, 2.0f);
+
+        juce::Path arrows;
+        arrows.startNewSubPath (2.5f, 12.0f);
+        arrows.lineTo (9.0f, 12.0f);
+        arrows.startNewSubPath (5.5f, 8.0f);
+        arrows.lineTo (9.5f, 12.0f);
+        arrows.lineTo (5.5f, 16.0f);
+        arrows.startNewSubPath (21.5f, 12.0f);
+        arrows.lineTo (15.0f, 12.0f);
+        arrows.startNewSubPath (18.5f, 8.0f);
+        arrows.lineTo (14.5f, 12.0f);
+        arrows.lineTo (18.5f, 16.0f);
+        stroke (arrows, 2.2f);
+    }
+    else if (name == "flagL" || name == "flagR")
+    {
+        // ロケーターの旗（L = 開始は右向き、R = 終了は左向き）。Cubase の左右ロケーターと同じ考え方
+        const bool left = name == "flagL";
+        const float pole = left ? 6.0f : 18.0f;
+        juce::Path stick;
+        stick.startNewSubPath (pole, 3.0f);
+        stick.lineTo (pole, 21.0f);
+        stroke (stick, 2.0f);
+        juce::Path flag;
+        flag.startNewSubPath (pole, 3.5f);
+        flag.lineTo (left ? 19.0f : 5.0f, 7.5f);
+        flag.lineTo (pole, 11.5f);
+        flag.closeSubPath();
+        p.addPath (flag);
     }
     else if (name == "follow")
     {
