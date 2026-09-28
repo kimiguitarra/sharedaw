@@ -90,8 +90,9 @@ jobs:
           LINUX: ${{ inputs.linux }}
         run: |
           # どの OS も Ninja + コンパイルキャッシュ（ccache / sccache）。変わったファイルだけをコンパイルし直す
+          # （sccache は共有 PDB の /Zi を扱えないので、Windows はデバッグ情報を /Z7 = オブジェクトに埋め込む形にする）
           entries=()
-          [ "$WINDOWS" = "true" ] && entries+=('{"name":"windows","platform":"windows","os":"windows-2022","configure":"-G Ninja -DCMAKE_BUILD_TYPE=Release"}')
+          [ "$WINDOWS" = "true" ] && entries+=('{"name":"windows","platform":"windows","os":"windows-2022","configure":"-G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_DEFAULT_CMP0141=NEW -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded"}')
           if [ "$MACOS" = "true" ]; then
             if [ "$MAC_UNIVERSAL" = "true" ]; then
               entries+=('{"name":"macos-universal","platform":"mac","os":"macos-14","configure":"-G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=\"arm64;x86_64\""}')

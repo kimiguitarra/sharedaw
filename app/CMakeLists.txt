@@ -16,7 +16,27 @@ add_subdirectory(external/sfizz EXCLUDE_FROM_ALL)
 set(CMAKE_CXX_STANDARD 20)
 
 # --- JUCE / Tracktion Engine ------------------------------------------------
+# JUCE は構成のときに juceaide を Debug（/Zi = 共有 PDB）でビルドする。sccache は /Zi を扱えず失敗するので、
+# MSVC では juceaide にだけコンパイルキャッシュを渡さない（このアプリ本体のターゲットには後で戻す）
+if(MSVC)
+    set(SHAREDAW_SAVED_C_LAUNCHER "${CMAKE_C_COMPILER_LAUNCHER}")
+    set(SHAREDAW_SAVED_CXX_LAUNCHER "${CMAKE_CXX_COMPILER_LAUNCHER}")
+    set(SHAREDAW_SAVED_ENV_C_LAUNCHER "$ENV{CMAKE_C_COMPILER_LAUNCHER}")
+    set(SHAREDAW_SAVED_ENV_CXX_LAUNCHER "$ENV{CMAKE_CXX_COMPILER_LAUNCHER}")
+    set(CMAKE_C_COMPILER_LAUNCHER "")
+    set(CMAKE_CXX_COMPILER_LAUNCHER "")
+    unset(ENV{CMAKE_C_COMPILER_LAUNCHER})   # juceaide の CMake は環境変数からも読む
+    unset(ENV{CMAKE_CXX_COMPILER_LAUNCHER})
+endif()
+
 add_subdirectory(external/tracktion_engine/modules/juce)
+
+if(MSVC)
+    set(CMAKE_C_COMPILER_LAUNCHER "${SHAREDAW_SAVED_C_LAUNCHER}")
+    set(CMAKE_CXX_COMPILER_LAUNCHER "${SHAREDAW_SAVED_CXX_LAUNCHER}")
+    set(ENV{CMAKE_C_COMPILER_LAUNCHER} "${SHAREDAW_SAVED_ENV_C_LAUNCHER}")
+    set(ENV{CMAKE_CXX_COMPILER_LAUNCHER} "${SHAREDAW_SAVED_ENV_CXX_LAUNCHER}")
+endif()
 add_subdirectory(external/tracktion_engine/modules)
 
 # ASIO（Windows）: Steinberg の ASIO SDK のパスを渡したときだけ有効にする（§3.5, M2）
