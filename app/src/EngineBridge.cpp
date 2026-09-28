@@ -81,7 +81,8 @@ EngineBridge::EngineBridge (te::Engine& e, ProjectDocument& doc, const Instrumen
     if (mixTrack != nullptr)
     {
         mixTrack->setName ("Mix Bus");
-        mixTrack->setSoloIsolate (true);   // ソロで消えないように
+        // ソロ・アイソレートにはしない（Tracktion では出力先のアイソレートが送り元の全トラックに伝わり、ソロが効かなくなる）。
+        // ミックスバスは、ソロのトラックが入ってくれば鳴る（AudioTrack::isTrackAudible）
 
         if (auto plugin = edit->getPluginCache().createNewPlugin (MasterLimiterPlugin::xmlTypeName, {}))
         {
@@ -391,6 +392,7 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
         return;
 
     b.clipsKey = key;
+    b.clipsRebuiltAt = juce::Time::getMillisecondCounter();
 
     for (auto c : track.getClips())
         c->removeFromParent();
@@ -1785,6 +1787,25 @@ void EngineBridge::previewNote (const std::string& trackId, int pitch, int veloc
 
     if (it == bindings.end() || it->second.track == nullptr || it->second.renderMode || isPlaying())
         return;
+
+    // ノートを置いた直後はクリップを作り直していて、音の経路が組み直される間に送った MIDI は消えてしまう。
+    // 作り直してから少し待ってから鳴らす（ピアノロールで続けて打ち込んだとき、2 音目から鳴らなかった）
+    constexpr juce::uint32 settleMs = 120;
+    const auto elapsed = juce::Time::getMillisecondCounter() - it->second.clipsRebuiltAt;
+
+    if (elapsed < settleMs)
+    {
+        juce::Timer::callAfterDelay ((int) (settleMs - elapsed), [this, alive = std::weak_ptr<bool> (aliveFlag), trackId, pitch, velocity]
+        {
+            if (! alive.expired())
+                if (auto b = bindings.find (trackId); b != bindings.end())
+                {
+                    b->second.clipsRebuiltAt = 0;   // もう待たない
+                    previewNote (trackId, pitch, velocity);
+                }
+        });
+        return;
+    }
 
     it->second.track->injectLiveMidiMessage (juce::MidiMessage::noteOn (1, pitch, (juce::uint8) juce::jlimit (1, 127, velocity)),
                                              te::MPESourceID());

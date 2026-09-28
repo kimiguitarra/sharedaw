@@ -118,4 +118,24 @@ namespace TimeGrid
             g.drawText ("+", r.reduced (4.0f, 0.0f), juce::Justification::centredLeft);
         }
     }
+
+    /**
+        クオンタイズ値の一覧を ComboBox に入れる（ID = Grid::presets() の番号 + 1）。
+        5連符・7連符はめったに使わないので「その他連符」の中にまとめる。
+    */
+    inline void fillQuantiseBox (juce::ComboBox& box)
+    {
+        juce::PopupMenu others;
+        int id = 1;
+
+        for (auto& g : collab::Grid::presets())
+        {
+            if (g.tuplet == 5 || g.tuplet == 7)
+                others.addItem (id++, toJuce (g.label()));
+            else
+                box.addItem (toJuce (g.label()), id++);
+        }
+
+        box.getRootMenu()->addSubMenu ("その他連符"_ju, others);
+    }
 }

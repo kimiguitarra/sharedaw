@@ -1,0 +1,24 @@
+// ジャズベース（ピック弾き）: 弦の物理モデルで作ったサンプル（tools/make-bass-samples.py）。E1〜A#3 を 3 半音ごと・強さ 2 段
+<group> lokey=0 hikey=127 note_polyphony=1 amp_veltrack=60 ampeg_attack=0.001 ampeg_release=0.06
+<region> sample=jazz-pick/28_v0.flac pitch_keycenter=28 lokey=0 hikey=29 lovel=0 hivel=80
+<region> sample=jazz-pick/28_v81.flac pitch_keycenter=28 lokey=0 hikey=29 lovel=81 hivel=127
+<region> sample=jazz-pick/31_v0.flac pitch_keycenter=31 lokey=30 hikey=32 lovel=0 hivel=80
+<region> sample=jazz-pick/31_v81.flac pitch_keycenter=31 lokey=30 hikey=32 lovel=81 hivel=127
+<region> sample=jazz-pick/34_v0.flac pitch_keycenter=34 lokey=33 hikey=35 lovel=0 hivel=80
+<region> sample=jazz-pick/34_v81.flac pitch_keycenter=34 lokey=33 hikey=35 lovel=81 hivel=127
+<region> sample=jazz-pick/37_v0.flac pitch_keycenter=37 lokey=36 hikey=38 lovel=0 hivel=80
+<region> sample=jazz-pick/37_v81.flac pitch_keycenter=37 lokey=36 hikey=38 lovel=81 hivel=127
+<region> sample=jazz-pick/40_v0.flac pitch_keycenter=40 lokey=39 hikey=41 lovel=0 hivel=80
+<region> sample=jazz-pick/40_v81.flac pitch_keycenter=40 lokey=39 hikey=41 lovel=81 hivel=127
+<region> sample=jazz-pick/43_v0.flac pitch_keycenter=43 lokey=42 hikey=44 lovel=0 hivel=80
+<region> sample=jazz-pick/43_v81.flac pitch_keycenter=43 lokey=42 hikey=44 lovel=81 hivel=127
+<region> sample=jazz-pick/46_v0.flac pitch_keycenter=46 lokey=45 hikey=47 lovel=0 hivel=80
+<region> sample=jazz-pick/46_v81.flac pitch_keycenter=46 lokey=45 hikey=47 lovel=81 hivel=127
+<region> sample=jazz-pick/49_v0.flac pitch_keycenter=49 lokey=48 hikey=50 lovel=0 hivel=80
+<region> sample=jazz-pick/49_v81.flac pitch_keycenter=49 lokey=48 hikey=50 lovel=81 hivel=127
+<region> sample=jazz-pick/52_v0.flac pitch_keycenter=52 lokey=51 hikey=53 lovel=0 hivel=80
+<region> sample=jazz-pick/52_v81.flac pitch_keycenter=52 lokey=51 hikey=53 lovel=81 hivel=127
+<region> sample=jazz-pick/55_v0.flac pitch_keycenter=55 lokey=54 hikey=56 lovel=0 hivel=80
+<region> sample=jazz-pick/55_v81.flac pitch_keycenter=55 lokey=54 hikey=56 lovel=81 hivel=127
+<region> sample=jazz-pick/58_v0.flac pitch_keycenter=58 lokey=57 hikey=127 lovel=0 hivel=80
+<region> sample=jazz-pick/58_v81.flac pitch_keycenter=58 lokey=57 hikey=127 lovel=81 hivel=127

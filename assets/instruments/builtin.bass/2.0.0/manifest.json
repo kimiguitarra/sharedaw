@@ -1,0 +1,30 @@
+{
+  "id": "builtin.bass",
+  "version": "2.0.0",
+  "displayName": "ベース",
+  "type": "melodic",
+  "credits": [],
+  "presets": [
+    {
+      "key": "jazz-finger",
+      "name": "ジャズベース（指弾き）",
+      "sfz": "jazz-finger.sfz"
+    },
+    {
+      "key": "jazz-pick",
+      "name": "ジャズベース（ピック弾き）",
+      "sfz": "jazz-pick.sfz"
+    },
+    {
+      "key": "upright",
+      "name": "ダブルベース",
+      "sfz": "upright.sfz"
+    }
+  ],
+  "defaultParams": {
+    "preset": "jazz-finger",
+    "volumeDb": 0.0,
+    "pan": 0.0,
+    "tone": 0.0
+  }
+}

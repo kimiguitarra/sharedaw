@@ -19,7 +19,7 @@ ChannelStripEditor::ChannelStripEditor (AppContext& c, std::string id, Section s
     };
     addAndMakeVisible (enabled);
 
-    orderButton.setTooltip ("かける順番（クリックで入れ替え）"_ju);
+    orderButton.setTooltip ("順番"_ju);
     orderButton.onClick = [this]
     {
         edit ("EQ と Compressor の順番"_ju, [] (collab::ChannelStrip& st) { st.compFirst = ! st.compFirst; }, false);

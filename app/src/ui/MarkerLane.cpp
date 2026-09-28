@@ -17,8 +17,7 @@ namespace
 MarkerLane::MarkerLane (AppContext& c) : ctx (c)
 {
     setWantsKeyboardFocus (true);
-    setTooltip ("マーカー: 鉛筆ツールでクリックして追加（再生位置には Insert キー）。左から順に番号が付き、Shift + 数字キーでジャンプ。"_ju
-                "選択ツールでドラッグして移動、ダブルクリックで名前を変更、Delete で削除"_ju);
+    setTooltip ({});
     ctx.document.addChangeListener (this);
     ctx.state.addChangeListener (this);
 }
@@ -76,7 +75,7 @@ void MarkerLane::paint (juce::Graphics& g)
         if (r.getRight() < 0 || r.getX() > (float) getWidth())
             continue;
 
-        const bool selected = m.id == ctx.state.selectedMarkerId;
+        const bool selected = m.id == ctx.state.selectedMarkerId || ctx.state.rangeMarkerIds.count (m.id) > 0;
         g.setColour (markerColour.withAlpha (0.25f));
         g.fillRoundedRectangle (r, 3.0f);
         g.setColour (selected ? Theme::selection : markerColour);

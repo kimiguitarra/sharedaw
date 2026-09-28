@@ -35,7 +35,7 @@ TempoLane::TempoLane (ProjectDocument& d, EditorState& s) : document (d), state 
     document.addChangeListener (this);
     state.addChangeListener (this);
     setWantsKeyboardFocus (true);
-    setTooltip ("テンポ: 鉛筆ツールでクリックして追加。選択ツールでドラッグして移動、ダブルクリックで編集、Delete で削除"_ju);
+    setTooltip ({});
 }
 
 TempoLane::~TempoLane()
@@ -265,7 +265,7 @@ MeterLane::MeterLane (ProjectDocument& d, EditorState& s) : document (d), state 
     document.addChangeListener (this);
     state.addChangeListener (this);
     setWantsKeyboardFocus (true);
-    setTooltip ("拍子: 鉛筆ツールでクリックして追加。選択ツールでドラッグして移動、ダブルクリックで編集、Delete で削除"_ju);
+    setTooltip ({});
 }
 
 MeterLane::~MeterLane()

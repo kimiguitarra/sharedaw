@@ -17,6 +17,7 @@ public:
     explicit TrackLanes (AppContext&);
 
     int scrollY = 0;
+    int topInset = 0;   // 上の段（拍子〜マーカー）の高さ。トラックの行はその下から始まり、一緒にスクロールする
 
     /** トラックの行の上端（スクロール前）と高さ（トラックごとに変えられる）。 */
     int rowTop (int index) const;
@@ -102,6 +103,20 @@ public:
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
 
+    /**
+        上の段の何もない所を選択ツールでクリックしたら、そこへ再生位置を移す（ルーラーまで行かなくてよい）。
+        ドラッグしたら矩形の範囲選択（かかった段のコード・マーカーを選ぶ。まとめてコピー・貼り付け・削除できる）。
+    */
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+
+    /** 範囲選択したコード・マーカーのコピー（cut なら消す）と、再生位置への貼り付け。処理したら true。 */
+    bool copyRange (bool cut);
+    bool pasteRange (double playheadTick);
+    static bool hasRangeClipboard();
+    bool deleteRange();
+
     /** マーカー〜コードのレーンの上のホイール（レーンから親へ渡ってくる）: Ctrl でズーム、Shift で横スクロール。 */
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
     void setPlayheadTick (double tick);
@@ -118,6 +133,9 @@ public:
 
     static constexpr int headerWidth = 240;
 
+    /** 上の段の並びを変えたとき（この PC の設定として保存する）。 */
+    std::function<void()> onLaneOrderChanged;
+
 private:
     AppContext& ctx;
     Ruler ruler;
@@ -126,9 +144,41 @@ private:
     KeyLane keyLane;
     ChordLane chordLane;
     MarkerLane markerLane;
-    juce::TextButton chordMute;   // コードトラックのミュート（M）
     juce::Component* hoveredLane = nullptr;
+    bool bandCandidate = false, banding = false;
+    juce::Rectangle<int> band;             // 範囲選択の矩形（TimelineView の座標）
+    juce::Point<int> bandStart;
+
+    /** 上の段（ctx.state.laneOrder の順）。 */
     std::vector<juce::Component*> topLanes() const;
+    juce::Component* laneForKey (const std::string&) const;
+    static juce::String laneTitle (const std::string& key);
+    static juce::Colour laneColour (const std::string& key);
+    void layoutTopLanes();
+    void stopFollowing();
+
+    /** 上の段の見出し（左の列）。ドラッグで段を並べ替える。コードの段にはミュート（M）。 */
+    class LaneHeaders  : public juce::Component,
+                         public juce::SettableTooltipClient
+    {
+    public:
+        explicit LaneHeaders (TimelineView&);
+        void paint (juce::Graphics&) override;
+        void resized() override;
+        void mouseMove (const juce::MouseEvent&) override;
+        void mouseDown (const juce::MouseEvent&) override;
+        void mouseDrag (const juce::MouseEvent&) override;
+        void mouseUp (const juce::MouseEvent&) override;
+
+        juce::TextButton chordMute;   // コードトラックのミュート（M）
+
+    private:
+        TimelineView& owner;
+        int dragIndex = -1, dropIndex = -1;
+        int indexAt (int y) const;
+    };
+
+    LaneHeaders laneHeaders { *this };
     TrackLanes lanes;
     /** トラックヘッダーを並べる所。空いている所を右クリックするとトラックを追加するメニュー（Cubase と同じ）。 */
     struct HeaderArea  : public juce::Component
@@ -150,6 +200,5 @@ private:
     void layoutHeaders();
     void moveTrackTo (const std::string& trackId, int y);
     void updateScrollBars();
-    void mouseDown (const juce::MouseEvent&) override;
     void updateChordControls();
 };

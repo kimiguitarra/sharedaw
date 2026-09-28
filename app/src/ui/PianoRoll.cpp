@@ -653,7 +653,7 @@ bool NoteGrid::keyPressed (const juce::KeyPress& key)
 //==============================================================================
 VelocityLane::VelocityLane (PianoRollView& o) : owner (o)
 {
-    setTooltip ("ベロシティ: ドラッグで変更（選択中のノートがあれば選択中のノートだけ）"_ju);
+    setTooltip ({});
 }
 
 void VelocityLane::paint (juce::Graphics& g)
@@ -816,11 +816,9 @@ PianoRollView::PianoRollView (AppContext& c)
     addAndMakeVisible (titleLabel);
     titleLabel.setFont (juce::FontOptions (15.5f, juce::Font::bold));
 
-    int id = 1;
-    for (auto& g : collab::Grid::presets())
-        gridBox.addItem (toJuce (g.label()), id++);
+    TimeGrid::fillQuantiseBox (gridBox);
 
-    gridBox.setTooltip ("クオンタイズ値（スナップ・クオンタイズ・再生位置の単位）"_ju);
+    gridBox.setTooltip ("クオンタイズ"_ju);
     gridBox.onChange = [this]
     {
         auto presets = collab::Grid::presets();
@@ -835,11 +833,11 @@ PianoRollView::PianoRollView (AppContext& c)
     addAndMakeVisible (gridBox);
 
     snapToggle.setToggleState (true, juce::dontSendNotification);
-    snapToggle.setTooltip ("クオンタイズ値にスナップ（J で切り替え。Alt を押しながらドラッグで一時的に解除）"_ju);
+    snapToggle.setTooltip ("スナップ（J）"_ju);
     snapToggle.onClick = [this] { ctx.state.setSnapEnabled (snapToggle.getToggleState()); };
     addAndMakeVisible (snapToggle);
 
-    quantiseButton.setTooltip ("選択中のノート（選択がなければクリップ内のすべて）の開始位置をグリッドに合わせる"_ju);
+    quantiseButton.setTooltip ("クオンタイズ（Q）"_ju);
     quantiseButton.onClick = [this] { quantiseSelection(); };
     addAndMakeVisible (quantiseButton);
 
@@ -905,7 +903,7 @@ void PianoRollView::rebuildDrumRows()
     if (! isDrumTrack())
         return;
 
-    // 叩く頻度の高い順（EZ Drummer の並びに近い）: キック → スネア → ハイハット → タム（高い順）→ シンバル
+    // 叩く頻度の高い順: キック → スネア → ハイハット → タム（高い順）→ シンバル（最後に上下を逆にする）
     const int order[] = { 36, 35, 38, 40, 37, 39, 42, 44, 46, 50, 48, 47, 45, 43, 41, 51, 59, 53, 49, 57, 55, 52 };
 
     for (int p : order)
@@ -924,6 +922,9 @@ void PianoRollView::rebuildDrumRows()
         if (! listed && (drumPieceName (p).isNotEmpty() || used))
             drumRows.push_back (p);
     }
+
+    // 画面では下からキック → スネア → ハイハット → タム → シンバル（EZ Drummer と同じく、キックがいちばん下）
+    std::reverse (drumRows.begin(), drumRows.end());
 }
 
 juce::String PianoRollView::drumPieceName (int note) const
@@ -1286,6 +1287,9 @@ void PianoRollView::handleWheel (const juce::MouseEvent& e, const juce::MouseWhe
     {
         const float d = std::abs (w.deltaX) > std::abs (w.deltaY) ? w.deltaX : w.deltaY;
         ax.scrollTick = juce::jmax (0.0, ax.scrollTick - d * 400.0 / ax.pixelsPerTick());
+
+        if (ctx.engine.isPlaying())
+            ctx.state.autoScroll = false;   // 手で動かしたら自動スクロールをやめる
     }
     else
     {
@@ -1317,6 +1321,10 @@ void PianoRollView::scrollBarMoved (juce::ScrollBar* bar, double newStart)
     if (bar == &hScroll)
     {
         axis().scrollTick = juce::jmax (0.0, newStart);
+
+        if (ctx.engine.isPlaying())
+            ctx.state.autoScroll = false;   // 手で動かしたら自動スクロールをやめる
+
         ctx.state.changed();
     }
     else
@@ -1379,7 +1387,8 @@ void PianoRollView::clipChanged()
     }
 
     resized();   // ドラムかどうか（行の高さ・並び）を先に決める
-    scrollY = isDrumTrack() ? 0 : (127 - centre) * noteHeight - grid.getHeight() / 2;
+    // ドラムは下（キック）が見えるように、いちばん下までスクロールしておく
+    scrollY = isDrumTrack() ? juce::jmax (0, numRows() * noteHeight - grid.getHeight()) : (127 - centre) * noteHeight - grid.getHeight() / 2;
     updateScrollBars();
     repaint();
 }

@@ -23,7 +23,7 @@ InstrumentPanel::InstrumentPanel (AppContext& c, const std::string& id)
     if (auto* latest = manifest != nullptr ? ctx.library.findLatest (manifest->id) : nullptr; latest != nullptr && latest != manifest)
     {
         upgradeButton.setButtonText ("新しい版 "_ju + toJuce (latest->version) + " に更新"_ju);
-        upgradeButton.setTooltip ("音源を新しい版に切り替える（音色が変わります。相手も新しいアプリが必要です）"_ju);
+        upgradeButton.setTooltip ("新しい版に更新"_ju);
         upgradeButton.onClick = [this, version = latest->version]
         {
             ctx.document.perform ("音源の版を更新"_ju, [track = trackId, version] (collab::Project& p)
@@ -41,7 +41,7 @@ InstrumentPanel::InstrumentPanel (AppContext& c, const std::string& id)
     setupSlider (volume, -30.0, 12.0, 0.1, 0.0, " dB");
     setupSlider (pan, -1.0, 1.0, 0.01, 0.0, {});
     setupSlider (tone, -12.0, 12.0, 0.1, 0.0, " dB");
-    tone.setTooltip ("高域の強さ（3kHz 以上のシェルフ）"_ju);
+    tone.setTooltip ("トーン"_ju);
 
     volume.onValueChange = [this] { auto v = volume.getValue(); setParam ("音源の音量"_ju, [v] (nlohmann::json& p) { p["volumeDb"] = v; }, true); };
     pan.onValueChange = [this] { auto v = pan.getValue(); setParam ("音源のパン"_ju, [v] (nlohmann::json& p) { p["pan"] = v; }, true); };

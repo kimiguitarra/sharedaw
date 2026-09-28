@@ -190,15 +190,15 @@ CompressorPanel::CompressorPanel() : look (std::make_unique<KnobLook>())
     bind (lowThru, 0.0, 500.0, 100.0, 0.0, "Compressor LOW THRU"_ju,
           [] (auto& c) { return c.sidechainHpHz; }, [] (auto& c, double v) { c.sidechainHpHz = v < 20.0 ? 0.0 : std::round (v); });
     lowThru.format = [] (double v) { return v < 20.0 ? juce::String ("OFF") : juce::String (juce::roundToInt (v)) + " Hz"; };
-    lowThru.slider.setTooltip ("この周波数より下の音では、かかり具合を決めない（ベースやキックで必要以上にかからないように）。左端で OFF"_ju);
+    lowThru.slider.setTooltip ("LOW THRU"_ju);
 
     input.format = peakReduction.format = [] (double v) { return "Thr "_ju + juce::String (-v, 1) + " dB"; };
     output.format = gain.format = formatDb;
     attack.format = release.format = formatMs;
-    input.slider.setTooltip ("上げるほど強くかかる（スレッショルドが下がる）"_ju);
-    peakReduction.slider.setTooltip ("上げるほど強くかかる（スレッショルドが下がる）"_ju);
-    output.slider.setTooltip ("出力の音量（メイクアップ）"_ju);
-    gain.slider.setTooltip ("出力の音量（メイクアップ）"_ju);
+    input.slider.setTooltip ({});
+    peakReduction.slider.setTooltip ({});
+    output.slider.setTooltip ({});
+    gain.slider.setTooltip ({});
 
     for (int i = 0; i < 4; ++i)
     {
@@ -221,8 +221,8 @@ CompressorPanel::CompressorPanel() : look (std::make_unique<KnobLook>())
         addChildComponent (b);
     }
 
-    compressButton.setTooltip ("COMPRESS: ゆるやかにかかる（レシオ 3:1）"_ju);
-    limitButton.setTooltip ("LIMIT: 強めにかかる（レシオ 10:1）"_ju);
+    compressButton.setTooltip ("COMPRESS"_ju);
+    limitButton.setTooltip ("LIMIT"_ju);
     compressButton.onClick = [this] { setRatio (3.0, "Compressor COMPRESS"_ju); };
     limitButton.onClick = [this] { setRatio (10.0, "Compressor LIMIT"_ju); };
 

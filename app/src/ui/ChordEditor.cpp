@@ -343,7 +343,7 @@ ChordEditor::ChordEditor (const juce::String& initialText, std::optional<collab:
     addChildComponent (*circle);
 
     noChordButton.setButtonText ("X（ノーコード）"_ju);
-    noChordButton.setTooltip ("この位置から次のコードまで鳴らさない"_ju);
+    noChordButton.setTooltip ("ノーコード"_ju);
     noChordButton.onClick = [this]
     {
         currentNoChord = true;

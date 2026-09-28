@@ -21,8 +21,7 @@ namespace
 ChordLane::ChordLane (AppContext& c) : ctx (c)
 {
     setWantsKeyboardFocus (true);
-    setTooltip ("コード: 鉛筆ツールでクリックすると空のコードを置く。ダブルクリック（または選択して Enter）でコードを入力。"_ju
-                "ドラッグで移動（1拍単位、Alt で自由）、Delete で削除。コードは置いた所で 1 回だけ鳴る（最長 1 小節）"_ju);
+    setTooltip ({});
     ctx.document.addChangeListener (this);
     ctx.state.addChangeListener (this);
 }
@@ -106,7 +105,7 @@ void ChordLane::paint (juce::Graphics& g)
         if (b.soundEndX < 0 || b.box.getX() > (float) getWidth())
             continue;
 
-        const bool selected = b.id == ctx.state.selectedChordId;
+        const bool selected = b.id == ctx.state.selectedChordId || ctx.state.rangeChordIds.count (b.id) > 0;
         const auto colour = b.noChord || b.empty ? Theme::textDim : chordColour;
 
         // 鳴っている長さ（細い線）
@@ -293,7 +292,9 @@ bool ChordLane::keyPressed (const juce::KeyPress& key)
     }
 
     // 数字 1〜7: 選んでいるコードにディグリーのコードを入れて、次のコードへ（「1625」と続けて打てる）
+    // 選択ツールのときだけ（鉛筆のときは 1 / 2 / 3 がツールの切り替えに使われる）
     if (const auto c = key.getTextCharacter(); c >= '1' && c <= '7' && ! ctx.state.selectedChordId.empty()
+                                               && ctx.state.tool == EditTool::select
                                                && ! key.getModifiers().isAnyModifierKeyDown())
     {
         auto events = ctx.document.getProject().chordTrack.events;

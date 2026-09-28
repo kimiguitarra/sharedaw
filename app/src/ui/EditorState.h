@@ -90,7 +90,14 @@ struct EditorState  : public juce::ChangeBroadcaster
 {
     EditTool tool = EditTool::select;
     OperationMode mode = OperationMode::cubase;
-    std::string midiArmedTrackId;   // 録音待機の MIDI トラック（MIDI キーボードの録音先。1 つだけ）
+    std::string midiArmedTrackId;
+
+    /** 上の段（拍子・テンポ・キー・コード・マーカー）の並び。人によって好みが違うので、この PC の設定。 */
+    std::vector<std::string> laneOrder { "meter", "tempo", "key", "marker", "chord" };
+
+    /** 上の段で範囲選択したコード・マーカー（選択ツールでドラッグ）。まとめてコピー・貼り付け・削除できる。 */
+    std::set<std::string> rangeChordIds, rangeMarkerIds;
+    bool hasRangeSelection() const noexcept    { return ! rangeChordIds.empty() || ! rangeMarkerIds.empty(); }   // 録音待機の MIDI トラック（MIDI キーボードの録音先。1 つだけ）
     EditBehaviour behaviour() const        { return EditBehaviour::forMode (mode); }
     bool pencil() const noexcept           { return tool == EditTool::pencil; }
 

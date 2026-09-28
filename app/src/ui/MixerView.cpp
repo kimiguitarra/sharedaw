@@ -325,7 +325,7 @@ public:
 class EqSection  : public MixSection
 {
 public:
-    EqSection (AppContext& c, std::string id) : MixSection (c, std::move (id), "EQ") { setTooltip ("クリックで EQ を開く。右上の丸でオン・オフ、⇅ で Compressor との順番を入れ替え"_ju); }
+    EqSection (AppContext& c, std::string id) : MixSection (c, std::move (id), "EQ") { setTooltip ("EQ"_ju); }
 
     bool opensEditor() const override       { return true; }
     bool hasOrderSwap() const override      { return true; }
@@ -389,7 +389,7 @@ public:
 class CompSection  : public MixSection
 {
 public:
-    CompSection (AppContext& c, std::string id) : MixSection (c, std::move (id), "COMP") { setTooltip ("クリックで Compressor を開く。右上の丸でオン・オフ、⇅ で EQ との順番を入れ替え"_ju); }
+    CompSection (AppContext& c, std::string id) : MixSection (c, std::move (id), "COMP") { setTooltip ("Compressor"_ju); }
 
     bool opensEditor() const override       { return true; }
     bool hasOrderSwap() const override      { return true; }
@@ -648,7 +648,7 @@ public:
         routingTitle.setColour (juce::Label::backgroundColourId, Theme::background.withAlpha (0.6f));
         addAndMakeVisible (routingTitle);
 
-        output.setTooltip ("出力先（マスターかバス）"_ju);
+        output.setTooltip ("出力先"_ju);
         output.onClick = [this] { ctx.outputMenu (trackId).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&output)); };
         output.setEnabled (isTrack());
         addAndMakeVisible (output);
@@ -666,7 +666,7 @@ public:
         pan.setRange (-1.0, 1.0, 0.01);
         pan.textFromValueFunction = [] (double v) { return ValueText::formatPan (v); };
         pan.setDoubleClickReturnValue (true, 0.0, juce::ModifierKeys::altModifier);
-        pan.setTooltip ("パン（ダブルクリックで数値を入力: L30・C・R20。Alt ＋クリックで中央）"_ju);
+        pan.setTooltip ("パン"_ju);
         pan.onType = [this]
         {
             panEdit.setBounds (pan.getBounds());
@@ -695,12 +695,12 @@ public:
         fader.setRange (-60.0, 6.0, 0.1);
         fader.setSkewFactorFromMidPoint (-12.0);
         fader.setDoubleClickReturnValue (true, isChord() || isMetronome() ? -6.0 : 0.0);
-        fader.setTooltip ("音量（ダブルクリックで既定値。下の数字をクリックすると dB を打ち込めます）"_ju);
+        fader.setTooltip ("音量"_ju);
         addAndMakeVisible (fader);
 
         styleValueLabel (value);
         value.setEditable (true, true, true);
-        value.setTooltip ("クリックして音量（dB）を入力。Enter で確定"_ju);
+        value.setTooltip ("音量"_ju);
         value.onTextChange = [this]
         {
             if (auto db = parseDb (value.getText(), -60.0, 6.0))
@@ -1045,7 +1045,7 @@ class MixerView::InputStrip  : public juce::Component,
 public:
     explicit InputStrip (AppContext& c) : ctx (c)
     {
-        setTooltip ("オーディオ機器の入力（チャンネルごと）。録音する前に、ここで音が来ているか・大きすぎないかを確かめます。数字は最大値（クリックでリセット）"_ju);
+        setTooltip ({});
     }
 
     std::function<void()> onLayoutChanged;
@@ -1226,7 +1226,7 @@ private:
 MixerView::MixerView (AppContext& c) : ctx (c)
 {
     addBusButton.setButtonText ("+ バスを追加"_ju);
-    addBusButton.setTooltip ("バストラック（グループ・FX）を追加する。トラックの出力先やセンドの送り先にできます"_ju);
+    addBusButton.setTooltip ("バスを追加"_ju);
     addBusButton.onClick = [this] { ctx.addBusTrack ("Bus"_ju); };
     addAndMakeVisible (addBusButton);
 

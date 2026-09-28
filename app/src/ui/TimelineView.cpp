@@ -13,7 +13,7 @@ namespace
     constexpr int rulerHeight = 26;
     constexpr int laneHeight = 28;
     constexpr int chordLaneHeight = 40;
-    constexpr int topHeight = rulerHeight + laneHeight * 4 + chordLaneHeight;   // ルーラー、拍子、テンポ、キー、コード、マーカー
+    constexpr int topLanesHeight = laneHeight * 4 + chordLaneHeight;   // 拍子・テンポ・キー・コード・マーカー（トラックと一緒にスクロール）
     constexpr int scrollBarSize = 12;
     constexpr float edgeGrab = 7.0f;
 }
@@ -22,7 +22,7 @@ namespace
 TrackLanes::TrackLanes (AppContext& c) : ctx (c)
 {
     setWantsKeyboardFocus (true);
-    setTooltip ("鉛筆ツール: MIDI トラックをクリック（ドラッグで長さ）してクリップを作成　選択ツール: ドラッグで移動、端で長さ・トリム、上の角でフェード、ダブルクリックでピアノロール　Alt: スナップなし　オーディオはドラッグ＆ドロップで読み込み"_ju);
+    setTooltip ({});
 }
 
 int TrackLanes::rowHeightAt (int index) const
@@ -33,7 +33,7 @@ int TrackLanes::rowHeightAt (int index) const
 
 int TrackLanes::rowTop (int index) const
 {
-    int y = 0;
+    int y = topInset;
 
     for (int i = 0; i < index; ++i)
         y += rowHeightAt (i);
@@ -49,7 +49,7 @@ int TrackLanes::getContentHeight() const
 int TrackLanes::rowAt (float y) const
 {
     const int n = (int) ctx.document.getProject().tracks.size();
-    int top = -scrollY;
+    int top = topInset - scrollY;
 
     for (int i = 0; i < n; ++i)
     {
@@ -947,30 +947,21 @@ TimelineView::TimelineView (AppContext& c)
       playhead (c.state.timeline)
 {
     addAndMakeVisible (ruler);
-    addAndMakeVisible (tempoLane);
-    addAndMakeVisible (meterLane);
-    addAndMakeVisible (keyLane);
-    addAndMakeVisible (chordLane);
-    addAndMakeVisible (markerLane);
     addAndMakeVisible (lanes);
 
-    // 上の段にマウスが乗ったら、その段（見出しも含めて）を明るくする
-    for (auto* lane : topLanes())
-        lane->addMouseListener (this, false);
+    // 上の段はトラックの行の上に置き、トラックと一緒に縦にスクロールする（固定しないので、トラックの場所を広く使える）
+    lanes.topInset = topLanesHeight;
 
-    // コードトラックのミュート（内蔵ピアノで鳴らすか。音量はミキサーのコードのストリップ）
-    chordMute.setButtonText ("M");
-    chordMute.setTooltip ("コードトラックのミュート"_ju);
-    chordMute.setWantsKeyboardFocus (false);
-    chordMute.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffe57373));
-    chordMute.onClick = [this]
+    for (auto* lane : topLanes())
     {
-        const bool mute = ctx.document.getProject().chordTrack.playback.enabled;
-        ctx.document.perform ("コードトラックのミュート"_ju, [mute] (collab::Project& p) { p.chordTrack.playback.enabled = ! mute; });
-    };
-    addAndMakeVisible (chordMute);
-    updateChordControls();
+        lanes.addAndMakeVisible (lane);
+        lane->addMouseListener (this, false);   // 乗っている段を明るくする・何もない所のクリックで再生位置
+    }
+
     addAndMakeVisible (headerHolder);
+    headerHolder.addAndMakeVisible (laneHeaders);
+    laneHeaders.addMouseListener (this, false);
+    updateChordControls();
     addAndMakeVisible (hScroll);
     addAndMakeVisible (vScroll);
     addAndMakeVisible (playhead);
@@ -1008,29 +999,65 @@ void TimelineView::paint (juce::Graphics& g)
     const int w = headerWidth - 12;
     g.drawText ("小節"_ju, 12, 0, w, rulerHeight, juce::Justification::centredLeft);
 
-    // 上から 拍子・テンポ・キー・コード・マーカー
-    g.setFont (juce::FontOptions (17.5f, juce::Font::bold));
-    auto label = [&] (const juce::String& text, juce::Colour colour, const juce::Component& lane)
-    {
-        g.setColour (colour);
-        g.drawText (text, 12, lane.getY(), w, lane.getHeight(), juce::Justification::centredLeft);
-    };
-
-    label ("拍子"_ju, Theme::meter, meterLane);
-    label ("テンポ"_ju, Theme::tempo, tempoLane);
-    label ("キー"_ju, juce::Colour (0xff9ccc65), keyLane);
-    label ("コード"_ju, juce::Colour (0xffffb74d), chordLane);
-    label ("マーカー"_ju, juce::Colour (0xff4dd0e1), markerLane);
-
     g.setColour (Theme::background);
     g.drawVerticalLine (headerWidth - 1, 0.0f, (float) getHeight());
-    g.drawHorizontalLine (topHeight - 1, 0.0f, (float) getWidth());
+    g.drawHorizontalLine (rulerHeight - 1, 0.0f, (float) getWidth());
+}
+
+juce::Component* TimelineView::laneForKey (const std::string& key) const
+{
+    if (key == "meter")  return const_cast<MeterLane*> (&meterLane);
+    if (key == "tempo")  return const_cast<TempoLane*> (&tempoLane);
+    if (key == "key")    return const_cast<KeyLane*> (&keyLane);
+    if (key == "chord")  return const_cast<ChordLane*> (&chordLane);
+    if (key == "marker") return const_cast<MarkerLane*> (&markerLane);
+    return nullptr;
+}
+
+juce::String TimelineView::laneTitle (const std::string& key)
+{
+    if (key == "meter")  return "拍子"_ju;
+    if (key == "tempo")  return "テンポ"_ju;
+    if (key == "key")    return "キー"_ju;
+    if (key == "chord")  return "コード"_ju;
+    return "マーカー"_ju;
+}
+
+juce::Colour TimelineView::laneColour (const std::string& key)
+{
+    if (key == "meter")  return Theme::meter;
+    if (key == "tempo")  return Theme::tempo;
+    if (key == "key")    return juce::Colour (0xff9ccc65);
+    if (key == "chord")  return juce::Colour (0xffffb74d);
+    return juce::Colour (0xff4dd0e1);
 }
 
 std::vector<juce::Component*> TimelineView::topLanes() const
 {
-    return { const_cast<MeterLane*> (&meterLane), const_cast<TempoLane*> (&tempoLane), const_cast<KeyLane*> (&keyLane),
-             const_cast<ChordLane*> (&chordLane), const_cast<MarkerLane*> (&markerLane) };
+    std::vector<juce::Component*> result;
+
+    for (auto& key : ctx.state.laneOrder)
+        if (auto* c = laneForKey (key))
+            result.push_back (c);
+
+    return result;
+}
+
+void TimelineView::layoutTopLanes()
+{
+    // 上の段: トラックの行と同じくスクロールに合わせて動かす
+    int y = -lanes.scrollY;
+
+    for (auto& key : ctx.state.laneOrder)
+        if (auto* c = laneForKey (key))
+        {
+            const int h = key == "chord" ? chordLaneHeight : laneHeight;
+            c->setBounds (0, y, lanes.getWidth(), h);
+            y += h;
+        }
+
+    laneHeaders.setBounds (0, -lanes.scrollY, headerHolder.getWidth(), topLanesHeight);
+    repaint();
 }
 
 void TimelineView::mouseMove (const juce::MouseEvent& e)
@@ -1039,33 +1066,35 @@ void TimelineView::mouseMove (const juce::MouseEvent& e)
     auto* over = std::find (lanes2.begin(), lanes2.end(), e.eventComponent) != lanes2.end() ? e.eventComponent : nullptr;
 
     // 見出しの列の上でも、その高さの段を明るくする
-    if (over == nullptr && e.eventComponent == this && e.x < headerWidth)
+    if (over == nullptr && e.eventComponent == &laneHeaders)
         for (auto* lane : lanes2)
-            if (e.y >= lane->getY() && e.y < lane->getBottom())
+            if (e.y >= lane->getY() + lanes.scrollY && e.y < lane->getBottom() + lanes.scrollY)
                 over = lane;
 
     if (over != hoveredLane)
     {
         hoveredLane = over;
-        repaint (0, ruler.getBottom(), getWidth(), topHeight - ruler.getBottom());
+        repaint();
     }
 }
 
 void TimelineView::mouseExit (const juce::MouseEvent& e)
 {
-    if (hoveredLane != nullptr && (e.eventComponent == hoveredLane || e.eventComponent == this))
+    if (hoveredLane != nullptr && (e.eventComponent == hoveredLane || e.eventComponent == &laneHeaders))
     {
         hoveredLane = nullptr;
-        repaint (0, ruler.getBottom(), getWidth(), topHeight - ruler.getBottom());
+        repaint();
     }
 }
 
 void TimelineView::paintOverChildren (juce::Graphics& g)
 {
-    // 上の段の区切り線と、マウスのある段の明るさ（見出しから右端まで）
+    // 上の段の区切り線と、マウスのある段の明るさ（見出しから右端まで）。トラックの場所の中だけに描く
+    g.reduceClipRegion (0, lanes.getY(), lanes.getRight(), lanes.getHeight());
+
     for (auto* lane : topLanes())
     {
-        const auto row = juce::Rectangle<int> (0, lane->getY(), lane->getRight(), lane->getHeight());
+        const auto row = juce::Rectangle<int> (0, lanes.getY() + lane->getY(), lanes.getX() + lane->getRight(), lane->getHeight());
 
         if (lane == hoveredLane)
         {
@@ -1076,29 +1105,29 @@ void TimelineView::paintOverChildren (juce::Graphics& g)
         g.setColour (Theme::background);
         g.fillRect (row.getX(), row.getBottom() - 1, row.getWidth(), 1);
     }
+
+    if (banding)
+    {
+        g.setColour (Theme::accent.withAlpha (0.15f));
+        g.fillRect (band);
+        g.setColour (Theme::accent.withAlpha (0.8f));
+        g.drawRect (band, 1);
+    }
 }
 
 void TimelineView::resized()
 {
     auto area = getLocalBounds();
     auto right = area.removeFromRight (scrollBarSize);
-    vScroll.setBounds (right.withTrimmedTop (topHeight).withTrimmedBottom (scrollBarSize));
+    vScroll.setBounds (right.withTrimmedTop (rulerHeight).withTrimmedBottom (scrollBarSize));
 
     auto left = area.removeFromLeft (headerWidth);
     auto bottom = area.removeFromBottom (scrollBarSize);
     hScroll.setBounds (bottom);
 
     ruler.setBounds (area.removeFromTop (rulerHeight));
-    meterLane.setBounds (area.removeFromTop (laneHeight));
-    tempoLane.setBounds (area.removeFromTop (laneHeight));
-    keyLane.setBounds (area.removeFromTop (laneHeight));
-    chordLane.setBounds (area.removeFromTop (chordLaneHeight));
-    markerLane.setBounds (area.removeFromTop (laneHeight));
     lanes.setBounds (area);
-
-    chordMute.setBounds (left.withTop (chordLane.getY()).withHeight (chordLaneHeight).reduced (8, 8).removeFromRight (30));
-
-    left.removeFromTop (topHeight);
+    left.removeFromTop (rulerHeight);
     headerHolder.setBounds (left.withTrimmedRight (1));
 
     playhead.setBounds (ruler.getX(), ruler.getY(), ruler.getWidth(), lanes.getBottom() - ruler.getY());
@@ -1175,6 +1204,8 @@ void TimelineView::layoutHeaders()
 {
     for (int i = 0; i < headers.size(); ++i)
         headers[i]->setBounds (0, lanes.rowTop (i) - lanes.scrollY, headerHolder.getWidth(), lanes.rowHeightAt (i));
+
+    layoutTopLanes();
 }
 
 void TimelineView::updateScrollBars()
@@ -1197,6 +1228,7 @@ void TimelineView::scrollBarMoved (juce::ScrollBar* bar, double newStart)
     if (bar == &hScroll)
     {
         ctx.state.timeline.scrollTick = juce::jmax (0.0, newStart);
+        stopFollowing();
         ctx.state.changed();
     }
     else
@@ -1224,6 +1256,7 @@ void TimelineView::handleWheel (const juce::MouseEvent& e, const juce::MouseWhee
     {
         const float d = std::abs (w.deltaX) > std::abs (w.deltaY) ? w.deltaX : w.deltaY;
         axis.scrollTick = juce::jmax (0.0, axis.scrollTick - d * 400.0 / axis.pixelsPerTick());
+        stopFollowing();
     }
     else
     {
@@ -1237,10 +1270,82 @@ void TimelineView::handleWheel (const juce::MouseEvent& e, const juce::MouseWhee
     ctx.state.changed();
 }
 
+void TimelineView::mouseUp (const juce::MouseEvent& e)
+{
+    auto lanes2 = topLanes();
+
+    if (banding)
+    {
+        // 矩形にかかった段と時間の範囲のコード・マーカーを選ぶ
+        banding = bandCandidate = false;
+        const auto& axis = ctx.state.timeline;
+        const double t0 = axis.xToTick (band.getX() - lanes.getX()), t1 = axis.xToTick (band.getRight() - lanes.getX());
+        const auto chordRow = chordLane.getBounds().translated (lanes.getX(), lanes.getY());
+        const auto markerRow = markerLane.getBounds().translated (lanes.getX(), lanes.getY());
+        auto& st = ctx.state;
+
+        if (! e.mods.isShiftDown())
+        {
+            st.rangeChordIds.clear();
+            st.rangeMarkerIds.clear();
+        }
+
+        const auto& project = ctx.document.getProject();
+
+        if (band.getY() < chordRow.getBottom() && band.getBottom() > chordRow.getY())
+            for (auto& c : project.chordTrack.events)
+                if ((double) c.tick >= t0 && (double) c.tick <= t1)
+                    st.rangeChordIds.insert (c.id);
+
+        if (band.getY() < markerRow.getBottom() && band.getBottom() > markerRow.getY())
+            for (auto& m : project.markerTrack.events)
+                if ((double) m.tick >= t0 && (double) m.tick <= t1)
+                    st.rangeMarkerIds.insert (m.id);
+
+        st.selectedChordId = {};
+        st.selectedMarkerId = {};
+        st.changed();
+        chordLane.grabKeyboardFocus();   // Ctrl+C / Delete をすぐ使えるように
+        repaint();
+        return;
+    }
+
+    bandCandidate = false;
+
+    if (std::find (lanes2.begin(), lanes2.end(), e.eventComponent) == lanes2.end()
+        || ctx.state.tool != EditTool::select || e.mods.isPopupMenu() || e.mouseWasDraggedSinceMouseDown())
+        return;
+
+    // その段で何も選ばれていない（＝何もない所をクリックした）ときだけ
+    const auto& s = ctx.state;
+    const bool nothing = (e.eventComponent == &tempoLane  && s.selectedTempoId.empty())
+                      || (e.eventComponent == &meterLane  && s.selectedMeterId.empty())
+                      || (e.eventComponent == &keyLane    && s.selectedKeyId.empty())
+                      || (e.eventComponent == &chordLane  && s.selectedChordId.empty())
+                      || (e.eventComponent == &markerLane && s.selectedMarkerId.empty());
+
+    if (nothing && ctx.state.hasRangeSelection())
+    {
+        ctx.state.rangeChordIds.clear();
+        ctx.state.rangeMarkerIds.clear();
+        ctx.state.changed();
+    }
+
+    if (nothing)
+        ctx.engine.setPositionTick (ctx.state.snapCursor (ctx.state.timeline.xToTick (e.position.x), ctx.document.getTempoMap(), e.mods));
+}
+
+void TimelineView::stopFollowing()
+{
+    // 再生中に手で横に動かしたら、自動スクロールをやめてその位置のままにする（前の小節を見たいときなど）
+    if (ctx.state.autoScroll && ctx.engine.isPlaying())
+        ctx.state.autoScroll = false;
+}
+
 void TimelineView::updateChordControls()
 {
     const auto& pb = ctx.document.getProject().chordTrack.playback;
-    chordMute.setToggleState (! pb.enabled, juce::dontSendNotification);
+    laneHeaders.chordMute.setToggleState (! pb.enabled, juce::dontSendNotification);
 }
 
 void TimelineView::changeListenerCallback (juce::ChangeBroadcaster* source)
@@ -1265,6 +1370,9 @@ void TimelineView::changeListenerCallback (juce::ChangeBroadcaster* source)
 
 bool TimelineView::deleteLaneSelection()
 {
+    if (deleteRange())
+        return true;
+
     if (tempoLane.hasKeyboardFocus (false))  return tempoLane.deleteSelected();
     if (meterLane.hasKeyboardFocus (false))  return meterLane.deleteSelected();
     if (keyLane.hasKeyboardFocus (false))    return keyLane.deleteSelected();
@@ -1292,13 +1400,354 @@ void TimelineView::followPlayhead (double tick)
 
 void TimelineView::mouseDown (const juce::MouseEvent& e)
 {
-    // 左上（テンポ・拍子・コードの見出し）を右クリックしてもトラックを追加できる
-    if (e.mods.isPopupMenu() && e.x < headerWidth && ctx.addTrackMenu)
+    // 左上を右クリックしてもトラックを追加できる
+    if (e.eventComponent == this && e.mods.isPopupMenu() && e.x < headerWidth && ctx.addTrackMenu)
         ctx.addTrackMenu().showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
+
+    // 上の段の何もない所（段が何も選ばなかった所）で押したら、範囲選択の始まりかもしれない
+    auto lanes2 = topLanes();
+    bandCandidate = false;
+
+    if (std::find (lanes2.begin(), lanes2.end(), e.eventComponent) == lanes2.end() || e.mods.isPopupMenu()
+        || ctx.state.tool != EditTool::select)
+        return;
+
+    const auto& st = ctx.state;
+    const bool nothing = (e.eventComponent == &tempoLane  && st.selectedTempoId.empty())
+                      || (e.eventComponent == &meterLane  && st.selectedMeterId.empty())
+                      || (e.eventComponent == &keyLane    && st.selectedKeyId.empty())
+                      || (e.eventComponent == &chordLane  && st.selectedChordId.empty())
+                      || (e.eventComponent == &markerLane && st.selectedMarkerId.empty());
+
+    if (! nothing)
+    {
+        // 範囲選択の中のものを押したら範囲はそのまま、外なら範囲選択をやめる
+        const bool inRange = (e.eventComponent == &chordLane && st.rangeChordIds.count (st.selectedChordId) > 0)
+                          || (e.eventComponent == &markerLane && st.rangeMarkerIds.count (st.selectedMarkerId) > 0);
+
+        if (! inRange && ctx.state.hasRangeSelection())
+        {
+            ctx.state.rangeChordIds.clear();
+            ctx.state.rangeMarkerIds.clear();
+            ctx.state.changed();
+        }
+
+        return;
+    }
+
+    bandCandidate = true;
+    bandStart = e.getEventRelativeTo (this).getPosition();
+}
+
+void TimelineView::mouseDrag (const juce::MouseEvent& e)
+{
+    if (! bandCandidate)
+        return;
+
+    const auto p = e.getEventRelativeTo (this).getPosition();
+
+    if (! banding && p.getDistanceFrom (bandStart) < 5)
+        return;
+
+    banding = true;
+    band = juce::Rectangle<int> (bandStart, p);
+    repaint();
 }
 
 void TimelineView::HeaderArea::mouseDown (const juce::MouseEvent& e)
 {
     if (e.mods.isPopupMenu() && ctx.addTrackMenu)
         ctx.addTrackMenu().showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
+}
+
+//==============================================================================
+TimelineView::LaneHeaders::LaneHeaders (TimelineView& o) : owner (o)
+{
+    setTooltip ("並べ替え"_ju);
+
+    // コードトラックのミュート（内蔵ピアノで鳴らすか。音量はミキサーのコードのストリップ）
+    chordMute.setButtonText ("M");
+    chordMute.setTooltip ("ミュート"_ju);
+    chordMute.setWantsKeyboardFocus (false);
+    chordMute.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffe57373));
+    chordMute.onClick = [this]
+    {
+        const bool mute = owner.ctx.document.getProject().chordTrack.playback.enabled;
+        owner.ctx.document.perform ("コードトラックのミュート"_ju, [mute] (collab::Project& p) { p.chordTrack.playback.enabled = ! mute; });
+    };
+    addAndMakeVisible (chordMute);
+}
+
+int TimelineView::LaneHeaders::indexAt (int y) const
+{
+    int top = 0, i = 0;
+
+    for (auto& key : owner.ctx.state.laneOrder)
+    {
+        const int h = key == "chord" ? chordLaneHeight : laneHeight;
+
+        if (y < top + h / 2)
+            return i;
+
+        top += h;
+        ++i;
+    }
+
+    return i;
+}
+
+void TimelineView::LaneHeaders::paint (juce::Graphics& g)
+{
+    g.fillAll (Theme::panel);
+    int y = 0;
+    int i = 0;
+    const int w = getWidth() - 12;
+
+    for (auto& key : owner.ctx.state.laneOrder)
+    {
+        const int h = key == "chord" ? chordLaneHeight : laneHeight;
+
+        if (i == dragIndex)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.08f));
+            g.fillRect (0, y, getWidth(), h);
+        }
+
+        g.setColour (laneColour (key));
+        g.setFont (juce::FontOptions (16.0f, juce::Font::bold));
+        g.drawText (laneTitle (key), 12, y, w, h, juce::Justification::centredLeft);
+
+        // 並べ替えのつまみ（≡）
+        g.setColour (Theme::textDim.withAlpha (0.6f));
+        for (int k = 0; k < 3; ++k)
+            g.fillRect (getWidth() - (key == "chord" ? 60 : 22), y + h / 2 - 4 + k * 4, 12, 1);
+
+        y += h;
+        ++i;
+    }
+
+    // ドラッグ中: 入る場所の線
+    if (dragIndex >= 0 && dropIndex >= 0)
+    {
+        int lineY = 0, k = 0;
+
+        for (auto& key : owner.ctx.state.laneOrder)
+        {
+            if (k++ == dropIndex)
+                break;
+
+            lineY += key == "chord" ? chordLaneHeight : laneHeight;
+        }
+
+        g.setColour (Theme::accent);
+        g.fillRect (0, juce::jlimit (0, getHeight() - 2, lineY - 1), getWidth(), 2);
+    }
+}
+
+void TimelineView::LaneHeaders::resized()
+{
+    int y = 0;
+
+    for (auto& key : owner.ctx.state.laneOrder)
+    {
+        const int h = key == "chord" ? chordLaneHeight : laneHeight;
+
+        if (key == "chord")
+            chordMute.setBounds (juce::Rectangle<int> (getWidth() - 38, y, 30, h).reduced (0, 8));
+
+        y += h;
+    }
+}
+
+void TimelineView::LaneHeaders::mouseMove (const juce::MouseEvent&)
+{
+    setMouseCursor (juce::MouseCursor::DraggingHandCursor);
+}
+
+void TimelineView::LaneHeaders::mouseDown (const juce::MouseEvent& e)
+{
+    // 押した段（見出しの行）を覚えておく
+    int top = 0, k = 0;
+    dragIndex = -1;
+
+    for (auto& key : owner.ctx.state.laneOrder)
+    {
+        top += key == "chord" ? chordLaneHeight : laneHeight;
+
+        if (e.y < top)
+        {
+            dragIndex = k;
+            break;
+        }
+
+        ++k;
+    }
+
+    if (e.mods.isPopupMenu())
+        dragIndex = -1;
+
+    dropIndex = -1;
+    repaint();
+}
+
+void TimelineView::LaneHeaders::mouseDrag (const juce::MouseEvent& e)
+{
+    if (dragIndex < 0 || e.getDistanceFromDragStart() < 4)
+        return;
+
+    dropIndex = indexAt (e.y);
+    repaint();
+}
+
+void TimelineView::LaneHeaders::mouseUp (const juce::MouseEvent&)
+{
+    auto& order = owner.ctx.state.laneOrder;
+
+    if (dragIndex >= 0 && dropIndex >= 0 && dropIndex != dragIndex && dropIndex != dragIndex + 1)
+    {
+        const auto key = order[(size_t) dragIndex];
+        order.erase (order.begin() + dragIndex);
+        const int to = dropIndex > dragIndex ? dropIndex - 1 : dropIndex;
+        order.insert (order.begin() + juce::jlimit (0, (int) order.size(), to), key);
+
+        if (owner.onLaneOrderChanged)
+            owner.onLaneOrderChanged();
+
+        resized();
+        owner.layoutTopLanes();
+        owner.ctx.state.changed();
+    }
+
+    dragIndex = dropIndex = -1;
+    repaint();
+}
+
+//==============================================================================
+namespace
+{
+    // 範囲選択のクリップボード（位置は先頭からの相対）
+    struct RangeClipboard
+    {
+        std::vector<collab::ChordEvent> chords;
+        std::vector<collab::Marker> markers;
+    };
+
+    std::optional<RangeClipboard> rangeClipboard;
+}
+
+bool TimelineView::hasRangeClipboard()
+{
+    return rangeClipboard.has_value();
+}
+
+bool TimelineView::copyRange (bool cut)
+{
+    auto& st = ctx.state;
+
+    if (! st.hasRangeSelection())
+        return false;
+
+    const auto& project = ctx.document.getProject();
+    RangeClipboard clip;
+    collab::Tick origin = std::numeric_limits<collab::Tick>::max();
+
+    for (auto& c : project.chordTrack.events)
+        if (st.rangeChordIds.count (c.id) > 0)
+        {
+            clip.chords.push_back (c);
+            origin = std::min (origin, c.tick);
+        }
+
+    for (auto& m : project.markerTrack.events)
+        if (st.rangeMarkerIds.count (m.id) > 0)
+        {
+            clip.markers.push_back (m);
+            origin = std::min (origin, m.tick);
+        }
+
+    // 小節の頭を基準にする（貼り付けた先でも小節の中の位置が同じになるように）
+    const auto& map = ctx.document.getTempoMap();
+    origin = map.barToTick (map.tickToBar (origin));
+
+    for (auto& c : clip.chords)  c.tick -= origin;
+    for (auto& m : clip.markers) m.tick -= origin;
+
+    rangeClipboard = clip;
+
+    if (cut)
+        deleteRange();
+
+    return true;
+}
+
+bool TimelineView::pasteRange (double playheadTick)
+{
+    if (! rangeClipboard)
+        return false;
+
+    // 再生位置の小節の頭に貼る
+    const auto& map = ctx.document.getTempoMap();
+    const auto at = map.barToTick (map.tickToBar ((collab::Tick) std::llround (juce::jmax (0.0, playheadTick))));
+    auto clip = *rangeClipboard;
+    auto& st = ctx.state;
+    st.rangeChordIds.clear();
+    st.rangeMarkerIds.clear();
+
+    for (auto& c : clip.chords)
+    {
+        c.tick += at;
+        c.id = collab::generateUuid();
+        st.rangeChordIds.insert (c.id);
+    }
+
+    for (auto& m : clip.markers)
+    {
+        m.tick += at;
+        m.id = collab::generateUuid();
+        st.rangeMarkerIds.insert (m.id);
+    }
+
+    ctx.document.perform ("コード・マーカーの貼り付け"_ju, [clip] (collab::Project& p)
+    {
+        // 同じ拍にあるコードは置き換える
+        for (auto& c : clip.chords)
+        {
+            auto& ev = p.chordTrack.events;
+            ev.erase (std::remove_if (ev.begin(), ev.end(), [&] (auto& x) { return x.tick == c.tick; }), ev.end());
+            ev.push_back (c);
+        }
+
+        if (! clip.markers.empty() && p.markerTrack.id.empty())
+            p.markerTrack.id = collab::markerTrackIdFor (p.projectId);
+
+        for (auto& m : clip.markers)
+            p.markerTrack.events.push_back (m);
+    });
+
+    st.changed();
+    return true;
+}
+
+bool TimelineView::deleteRange()
+{
+    auto& st = ctx.state;
+
+    if (! st.hasRangeSelection())
+        return false;
+
+    const auto chords = st.rangeChordIds;
+    const auto markers = st.rangeMarkerIds;
+
+    ctx.document.perform ("コード・マーカーの削除"_ju, [chords, markers] (collab::Project& p)
+    {
+        auto& ev = p.chordTrack.events;
+        ev.erase (std::remove_if (ev.begin(), ev.end(), [&] (auto& x) { return chords.count (x.id) > 0; }), ev.end());
+        auto& mk = p.markerTrack.events;
+        mk.erase (std::remove_if (mk.begin(), mk.end(), [&] (auto& x) { return markers.count (x.id) > 0; }), mk.end());
+    });
+
+    st.rangeChordIds.clear();
+    st.rangeMarkerIds.clear();
+    st.changed();
+    return true;
 }

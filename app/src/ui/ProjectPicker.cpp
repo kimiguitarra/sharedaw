@@ -133,12 +133,12 @@ ProjectPicker::ProjectPicker (SyncManager& s, juce::PropertiesFile& p, juce::Fil
     const auto primary = Theme::accent.darker (0.45f);
     createButton.setColour (juce::TextButton::buttonColourId, primary);
     openButton.setColour (juce::TextButton::buttonColourId, primary);
-    createButton.setTooltip ("サーバーに曲を作って、ダウンロードして開きます"_ju);
+    createButton.setTooltip ("新しい曲"_ju);
     createButton.onClick = [this] { auto fn = callbacks.createOnServer; close(); if (fn) fn(); };
 
     refreshButton.onClick = [this] { refresh(); };
     serverButton.onClick = [this] { if (callbacks.serverSettings) callbacks.serverSettings(); };
-    folderButton.setTooltip ("ダウンロードした曲を置くフォルダを変える"_ju);
+    folderButton.setTooltip ("保存先"_ju);
     folderButton.onClick = [this]
     {
         auto chooser = std::make_shared<juce::FileChooser> ("ダウンロード先のフォルダ"_ju, projectsFolder (settings));

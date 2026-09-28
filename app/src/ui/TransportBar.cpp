@@ -2,6 +2,7 @@
 
 #include "Theme.h"
 #include "KeyLane.h"
+#include "TimeGrid.h"
 #include "TempoMeterLanes.h"
 
 #include <collab/ChordPlayback.h>
@@ -31,9 +32,9 @@ namespace
 ToolBar::ToolBar (AppContext& c) : ctx (c)
 {
     // ツール（Cubase と同じ番号）
-    selectTool.setTooltip ("選択ツール（1）: 選択・移動・長さの変更。Ctrl/Shift+クリックで追加、空いている所をドラッグで範囲選択"_ju);
-    pencilTool.setTooltip ("鉛筆ツール（2）: テンポ・拍子・コード・マーカー・クリップ・ノートを置く"_ju);
-    splitTool.setTooltip ("はさみツール（3）: クリックした位置でクリップ・ノートを分割"_ju);
+    selectTool.setTooltip ("選択（1）"_ju);
+    pencilTool.setTooltip ("鉛筆（2）"_ju);
+    splitTool.setTooltip ("はさみ（3）"_ju);
 
     for (auto* b : { &selectTool, &pencilTool, &splitTool })
     {
@@ -42,11 +43,9 @@ ToolBar::ToolBar (AppContext& c) : ctx (c)
     }
 
     // クオンタイズ値（Cubase のプロジェクトウィンドウのツールバーと同じく全体で 1 つ）
-    int id = 1;
-    for (auto& g : collab::Grid::presets())
-        quantiseBox.addItem (toJuce (g.label()), id++);
+    TimeGrid::fillQuantiseBox (quantiseBox);
 
-    quantiseBox.setTooltip ("クオンタイズ値。スナップ・クオンタイズ・再生位置の移動の単位"_ju);
+    quantiseBox.setTooltip ("クオンタイズ"_ju);
     quantiseBox.onChange = [this]
     {
         const auto presets = collab::Grid::presets();
@@ -58,11 +57,11 @@ ToolBar::ToolBar (AppContext& c) : ctx (c)
     addAndMakeVisible (quantiseBox);
 
 
-    snapButton.setTooltip ("スナップ（J）: オンでクオンタイズ値に合わせる、オフでフリー"_ju);
+    snapButton.setTooltip ("スナップ（J）"_ju);
     snapButton.onClick = [this] { ctx.state.setSnapEnabled (! ctx.state.snapEnabled()); };
 
 
-    autoScrollButton.setTooltip ("自動スクロール（F）: 再生中に再生位置を追って表示を送る"_ju);
+    autoScrollButton.setTooltip ("自動スクロール（F）"_ju);
     autoScrollButton.onClick = [this]
     {
         ctx.state.autoScroll = ! ctx.state.autoScroll;
@@ -83,7 +82,7 @@ ToolBar::ToolBar (AppContext& c) : ctx (c)
         addAndMakeVisible (b);
     }
 
-    metronomeVolume.setTooltip ("メトロノームの音量"_ju);
+    metronomeVolume.setTooltip ("メトロノーム音量"_ju);
     metronomeVolume.setRange (-40.0, 6.0, 0.5);
     metronomeVolume.setValue (ctx.state.metronomeVolumeDb, juce::dontSendNotification);
     metronomeVolume.onValueChange = [this]
@@ -102,8 +101,8 @@ ToolBar::ToolBar (AppContext& c) : ctx (c)
         addAndMakeVisible (l);
 
     // テンポと拍子: 再生位置で有効な値を表示し、クリックで入力・ホイールで増減できる（テンポ・拍子トラックのイベントを書き換える）
-    bpmLabel.setTooltip ("テンポ（クリックで入力、ホイールで ±1）。再生位置のテンポを変えます"_ju);
-    meterLabel.setTooltip ("拍子（クリックで入力、ホイールで分子を ±1）。再生位置の拍子を変えます"_ju);
+    bpmLabel.setTooltip ("テンポ"_ju);
+    meterLabel.setTooltip ("拍子"_ju);
 
     bpmLabel.onEditorShow = [this]
     {
@@ -157,7 +156,7 @@ ToolBar::ToolBar (AppContext& c) : ctx (c)
         setMeterAtPlayhead (juce::jlimit (1, 64, sig.numerator + dir), sig.denominator);
     };
 
-    keyLabel.setTooltip ("キー（クリックで選ぶ）。再生位置のキーを変えます。コードのディグリー表示・入力の基準"_ju);
+    keyLabel.setTooltip ("キー"_ju);
     keyLabel.setMouseCursor (juce::MouseCursor::PointingHandCursor);
     keyLabel.addMouseListener (this, false);
 
@@ -312,8 +311,8 @@ void ToolBar::ToolButton::paintButton (juce::Graphics& g, bool highlighted, bool
 TransportBar::TransportBar (AppContext& c) : ctx (c)
 {
     // 左: 左右のロケーター（旗）。Cubase と同じく、サイクル再生はこの間を繰り返す
-    loopStartFlag.setTooltip ("左ロケーター（サイクルの開始）。テンキー 1 でここへ移動"_ju);
-    loopEndFlag.setTooltip ("右ロケーター（サイクルの終了）。テンキー 2 でここへ移動"_ju);
+    loopStartFlag.setTooltip ("左ロケーター"_ju);
+    loopEndFlag.setTooltip ("右ロケーター"_ju);
 
     for (auto* f : { &loopStartFlag, &loopEndFlag })
         addAndMakeVisible (f);
@@ -321,8 +320,7 @@ TransportBar::TransportBar (AppContext& c) : ctx (c)
     for (auto* l : { &loopStartLabel, &loopEndLabel })
     {
         styleValue (*l, 17.0f, true, true);
-        l->setTooltip ("クリックで入力（例: 5 または 5.3.0 = 小節.拍.tick）、ホイールで 1 小節ずつ。テンキー 1 / 2 でそこへ移動。"_ju
-                       "クリップやノートを選んで P でも設定できます"_ju);
+        l->setTooltip (l == &loopStartLabel ? "左ロケーター"_ju : "右ロケーター"_ju);
         addAndMakeVisible (l);
 
         const bool isStart = l == &loopStartLabel;
@@ -352,10 +350,10 @@ TransportBar::TransportBar (AppContext& c) : ctx (c)
     }
 
     // 中央: サイクル・停止・再生・録音、その右に現在の位置
-    loopButton.setTooltip ("サイクル再生（L / テンキー /）。左右のロケーター（旗）の間を繰り返す"_ju);
-    stopButton.setTooltip ("停止（テンキー 0）。停止中に押すと先頭へ"_ju);
-    playButton.setTooltip ("再生／一時停止（Space）"_ju);
-    recordButton.setTooltip ("録音（* / テンキー *）。録音待機（●）のトラックに録音します"_ju);
+    loopButton.setTooltip ("サイクル（L）"_ju);
+    stopButton.setTooltip ("停止"_ju);
+    playButton.setTooltip ("再生（Space）"_ju);
+    recordButton.setTooltip ("録音（*）"_ju);
 
     loopButton.setClickingTogglesState (false);
     loopButton.onClick = [this]
@@ -386,7 +384,7 @@ TransportBar::TransportBar (AppContext& c) : ctx (c)
 
     styleValue (barBeatLabel, 22.0f, true, false);
     barBeatLabel.setFont (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 22.0f, juce::Font::bold));
-    barBeatLabel.setTooltip ("現在の位置（小節. 拍. tick）"_ju);
+    barBeatLabel.setTooltip ("再生位置"_ju);
     addAndMakeVisible (barBeatLabel);
 
     ctx.state.addChangeListener (this);

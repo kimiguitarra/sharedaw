@@ -292,7 +292,7 @@ SyncPanel::SyncPanel (SyncManager& s, ProjectDocument& d, juce::PropertiesFile& 
     addAndMakeVisible (statusLabel);
 
     autoPull.setButtonText ("他の人の変更を自動でダウンロード"_ju);
-    autoPull.setTooltip ("競合がなく、再生・録音中でなければ、他の人がアップした変更をすぐに取り込む"_ju);
+    autoPull.setTooltip ("自動ダウンロード"_ju);
     autoPull.setToggleState (autoPullEnabled(), juce::dontSendNotification);
     autoPull.onClick = [this]
     {
@@ -304,7 +304,7 @@ SyncPanel::SyncPanel (SyncManager& s, ProjectDocument& d, juce::PropertiesFile& 
     for (auto* b : { &downloadButton, &uploadButton, &registerButton })
         b->setColour (juce::TextButton::buttonColourId, primaryButton);
 
-    downloadButton.setTooltip ("ダウンロードの欄にチェックの入ったものを取り込む（外したものは今のまま）"_ju);
+    downloadButton.setTooltip ("ダウンロード"_ju);
     downloadButton.onClick = [this]
     {
         juce::String unresolved;
@@ -322,7 +322,7 @@ SyncPanel::SyncPanel (SyncManager& s, ProjectDocument& d, juce::PropertiesFile& 
             onDownload (choices);
     };
 
-    uploadButton.setTooltip ("アップロードの欄にチェックの入ったものをサーバーに上げる（サーバーに新しい変更があれば先に取り込む）"_ju);
+    uploadButton.setTooltip ("アップロード"_ju);
     uploadButton.onClick = [this]
     {
         juce::String unresolved;
@@ -367,8 +367,8 @@ void SyncPanel::setCollapsed (bool c)
 
     // 畳むと «（開く）、開くと »（畳む）
     toggleButton.setButtonText (juce::String::fromUTF8 (collapsed ? "\xC2\xAB" : "\xC2\xBB"));
-    toggleButton.setTooltip (collapsed ? "同期パネルを開く（F7）"_ju : "同期パネルを畳む（F7）"_ju);
-    setTooltip (collapsed ? "同期（クリックで開く）。↓ ダウンロードできる数、↑ アップロードできる数"_ju : juce::String());
+    toggleButton.setTooltip (collapsed ? "開く（F7）"_ju : "畳む（F7）"_ju);
+    setTooltip (collapsed ? "同期"_ju : juce::String());
 
     for (auto* c2 : std::initializer_list<juce::Component*> { &viewport, &statusLabel, &autoPull, &downloadButton, &uploadButton,
                                                                 &registerButton, &settingsButton })

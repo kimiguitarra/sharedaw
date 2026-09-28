@@ -137,6 +137,7 @@ public:
 private:
     // 同期パネル（右側）から: 画面に出ている差分のまま、すぐに取り込む・アップする
     void toggleSyncPanel();
+    bool lastCopiedRange = false;   // 最後のコピーが上の段の範囲選択だったか（貼り付け先を決める）
 
     /** 曲を置くフォルダを選んでもらう（キャンセルなら何もしない）。選んだ場所は次の既定になる。 */
     void chooseProjectParent (const juce::String& title, std::function<void (const juce::File&)> onChosen);

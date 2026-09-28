@@ -77,6 +77,33 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
 
     audioCache.onThumbnailChanged = [this] { timeline.repaint(); };
 
+    // 上の段（拍子〜マーカー）の並びはこの PC の設定
+    {
+        auto saved = juce::StringArray::fromTokens (settings.getValue ("laneOrder"), ",", {});
+        std::vector<std::string> order;
+
+        for (auto& k : saved)
+            order.push_back (k.toStdString());
+
+        auto sorted = order, defaults = state.laneOrder;
+        std::sort (sorted.begin(), sorted.end());
+        std::sort (defaults.begin(), defaults.end());
+
+        if (sorted == defaults)   // 5 つそろっているときだけ使う（古い・壊れた設定は無視）
+            state.laneOrder = order;
+    }
+
+    timeline.onLaneOrderChanged = [this]
+    {
+        juce::StringArray keys;
+
+        for (auto& k : state.laneOrder)
+            keys.add (k);
+
+        settings.setValue ("laneOrder", keys.joinIntoString (","));
+        settings.saveIfNeeded();
+    };
+
     // 外部プラグインのエディタ
     ctx.openPluginEditor = [this] (const std::string& trackId, const std::string& effectId)
     {
@@ -581,17 +608,70 @@ void MainComponent::showAudioSettings()
 {
     auto& dm = engine.getDeviceManager().deviceManager;
 
-    // MIDI 入力は Tracktion が管理するので、JUCE の一覧ではなく下の「MIDI キーボード」欄で切り替える
-    auto selector = std::make_unique<juce::AudioDeviceSelectorComponent> (dm, 0, 2, 0, 2, false, false, true, false);
+    // MIDI 入力は Tracktion が管理するので、JUCE の一覧ではなく下の「MIDI キーボード」欄で切り替える。
+    // 入出力は機器のチャンネルをすべて使えるようにする（Babyface Pro FS など多チャンネルの機器。入力はモノラルごと、出力はステレオの組）
+    auto selector = std::make_unique<juce::AudioDeviceSelectorComponent> (dm, 0, 256, 0, 256, false, false, false, false);
     auto note = std::make_unique<juce::Label>();
-    note->setText ("プロジェクトのサンプルレートは 48kHz 固定です。可能ならデバイスも 48000 Hz に設定してください。"_ju
-                   "（Windows で ASIO を使うには ASIO SDK 付きでビルドする必要があります）"_ju,
-                   juce::dontSendNotification);
+    note->setText ("サンプルレートは 48000 Hz 推奨。Windows で多チャンネルの機器は ASIO を選ぶ"_ju, juce::dontSendNotification);
     note->setFont (juce::FontOptions (15.0f));
     note->setColour (juce::Label::textColourId, Theme::textDim);
 
-    selector->setBounds (0, 0, 560, 420);
-    note->setBounds (8, 424, 544, 48);
+    selector->setBounds (0, 0, 560, 520);
+    note->setBounds (8, 524, 544, 24);
+
+    // マスター（曲の音）とメトロノームを出す出力（ステレオの組）
+    struct MasterOut  : public juce::Component,
+                        private juce::ChangeListener
+    {
+        explicit MasterOut (te::DeviceManager& d) : dm (d)
+        {
+            title.setText ("マスター出力"_ju, juce::dontSendNotification);
+            title.setFont (juce::FontOptions (15.0f));
+            addAndMakeVisible (title);
+            box.onChange = [this]
+            {
+                const int i = box.getSelectedItemIndex();
+
+                if (i >= 0 && i < ids.size() && ids[i] != dm.getDefaultWaveOutDeviceID())
+                    dm.setDefaultWaveOutDevice (ids[i]);
+            };
+            addAndMakeVisible (box);
+            dm.addChangeListener (this);
+            refresh();
+        }
+
+        ~MasterOut() override   { dm.removeChangeListener (this); }
+
+        void refresh()
+        {
+            box.clear (juce::dontSendNotification);
+            ids.clear();
+
+            for (int i = 0; i < dm.getNumWaveOutDevices(); ++i)
+                if (auto* d = dm.getWaveOutDevice (i); d != nullptr && d->isEnabled())
+                {
+                    ids.add (d->getDeviceID());
+                    box.addItem (d->getName(), ids.size());
+
+                    if (d->getDeviceID() == dm.getDefaultWaveOutDeviceID())
+                        box.setSelectedId (ids.size(), juce::dontSendNotification);
+                }
+        }
+
+        void changeListenerCallback (juce::ChangeBroadcaster*) override    { refresh(); }
+
+        void resized() override
+        {
+            auto r = getLocalBounds().reduced (8, 0);
+            title.setBounds (r.removeFromLeft (150));
+            box.setBounds (r.reduced (0, 2));
+        }
+
+        te::DeviceManager& dm;
+        juce::Label title;
+        juce::ComboBox box;
+        juce::StringArray ids;
+    };
 
     // レイテンシ補正（§3.5）: ドライバが報告する値で自動補正し、さらにデバイスごとに手動でずらせる
     struct Latency  : public juce::Component,
@@ -659,30 +739,34 @@ void MainComponent::showAudioSettings()
     };
 
     auto latency = std::make_unique<Latency> (*this);
-    latency->setBounds (0, 476, 560, 64);
+    auto masterOut = std::make_unique<MasterOut> (engine.getDeviceManager());
+    masterOut->setBounds (0, 552, 560, 32);
+    latency->setBounds (0, 590, 560, 64);
 
     struct Holder : juce::Component
     {
-        std::unique_ptr<juce::Component> a, b, c, d;
+        std::unique_ptr<juce::Component> a, b, c, d, e;
     };
 
     auto holder = std::make_unique<Holder>();
     holder->a = std::move (selector);
     holder->b = std::move (note);
     holder->c = std::move (latency);
+    holder->e = std::move (masterOut);
     holder->addAndMakeVisible (*holder->a);
     holder->addAndMakeVisible (*holder->b);
     holder->addAndMakeVisible (*holder->c);
+    holder->addAndMakeVisible (*holder->e);
 
     const int midiHeight = 60 + juce::jmax (1, (int) bridge.getMidiInputs().size()) * 26 + 26;
     holder->d = std::make_unique<MidiInputPanel> (bridge);
-    holder->d->setBounds (0, 546, 560, midiHeight);
+    holder->d->setBounds (0, 660, 560, midiHeight);
     holder->addAndMakeVisible (*holder->d);
-    holder->setSize (560, 546 + midiHeight);
+    holder->setSize (560, 660 + midiHeight);
 
     juce::DialogWindow::LaunchOptions o;
     o.content.setOwned (holder.release());
-    o.dialogTitle = "オーディオ設定"_ju;
+    o.dialogTitle = "オーディオ・MIDI の設定"_ju;
     o.dialogBackgroundColour = Theme::panel;
     o.escapeKeyTriggersCloseButton = true;
     o.useNativeTitleBar = true;
@@ -1395,6 +1479,8 @@ bool MainComponent::perform (const InvocationInfo& info)
             if (n < markers.size())
             {
                 bridge.setPositionTick ((double) markers[n].tick);
+                timeline.followPlayhead ((double) markers[n].tick);   // 画面もそこへ
+                pianoRoll.followPlayhead ((double) markers[n].tick);
                 state.selectedMarkerId = markers[n].id;
                 state.changed();
             }
@@ -1431,8 +1517,10 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdCut:
             if (pianoRoll.hasKeyboardFocus (true) && pianoRoll.hasSelectedNotes())
                 pianoRoll.copySelectedNotes (info.commandID == cmdCut);
+            else if (timeline.copyRange (info.commandID == cmdCut))
+                lastCopiedRange = true;
             else if (timeline.copyChord (info.commandID == cmdCut))
-                break;
+                lastCopiedRange = false;
             else
             {
                 ctx.copyClips (state.clipSelection());
@@ -1444,6 +1532,8 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdPaste:
             if (pianoRoll.hasKeyboardFocus (true) && pianoRoll.hasNotesInClipboard())
                 pianoRoll.pasteNotes();
+            else if (lastCopiedRange && timeline.pasteRange (bridge.getPositionTick()))
+                break;
             else if (timeline.pasteChord (bridge.getPositionTick()))
                 break;
             else

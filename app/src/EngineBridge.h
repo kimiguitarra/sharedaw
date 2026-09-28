@@ -202,6 +202,7 @@ private:
         ChannelStripPlugin* strip = nullptr;
         juce::String sfzText;
         std::string clipsKey;
+        juce::uint32 clipsRebuiltAt = 0;   // クリップを作り直した時刻（直後の試し弾きは少し待つ）
         juce::String problem;
         int missingAudio = 0;
 

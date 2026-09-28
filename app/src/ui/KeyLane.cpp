@@ -19,8 +19,7 @@ namespace
 KeyLane::KeyLane (AppContext& c) : ctx (c)
 {
     setWantsKeyboardFocus (true);
-    setTooltip ("キー: 鉛筆ツールでクリック（または右クリック）して追加。コードにディグリー（Ⅵm7 など）が表示され、"_ju
-                "コード入力で 6m7 のようにディグリーでも打てるようになります。ドラッグで移動、ダブルクリックで変更、Delete で削除"_ju);
+    setTooltip ({});
     ctx.document.addChangeListener (this);
     ctx.state.addChangeListener (this);
 }
@@ -35,18 +34,24 @@ juce::PopupMenu KeyLane::keyMenu (std::optional<collab::chord::Key> current, std
 {
     juce::PopupMenu m;
 
-    // メジャーは五度圏の順（C G D A E B F# / F Bb Eb Ab Db）、マイナーはその平行調
-    const int circle[] = { 0, 7, 2, 9, 4, 11, 6, 5, 10, 3, 8, 1 };
-
+    // アルファベット順（A, Ab, B, Bb, C, C#, D …。同じ文字なら ♮ → ♭ / ♯ の順）で探しやすく
     for (bool minor : { false, true })
     {
         m.addSectionHeader (minor ? "マイナー"_ju : "メジャー"_ju);
 
-        for (int i : circle)
+        std::vector<collab::chord::Key> keys;
+
+        for (int i = 0; i < 12; ++i)
+            keys.push_back ({ i, minor });
+
+        std::sort (keys.begin(), keys.end(), [] (const auto& a, const auto& b)
         {
-            const collab::chord::Key k { minor ? (i + 9) % 12 : i, minor };
+            const auto na = collab::chord::keyName (a), nb = collab::chord::keyName (b);
+            return na[0] != nb[0] ? na[0] < nb[0] : na.size() < nb.size();
+        });
+
+        for (auto& k : keys)
             m.addItem (longName (k), true, current && *current == k, [onPick, k] { onPick (k); });
-        }
 
         if (! minor)
             m.addColumnBreak();

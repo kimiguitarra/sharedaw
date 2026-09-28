@@ -109,15 +109,15 @@ MasterPanel::MasterPanel (AppContext& c) : look (std::make_unique<Look>()), ctx 
 
     setupSlider (threshold, -20.0, 0.0, 0.0, true, "マスターのリミッター THRESHOLD"_ju, [] (auto& l, double v) { l.thresholdDb = v; });
     setupSlider (ceiling, -6.0, 0.0, -1.0, false, "マスターのリミッター CEILING"_ju, [] (auto& l, double v) { l.ceilingDb = v; });
-    threshold.setTooltip ("THRESHOLD: 下げるほど音が大きくなり、強くかかる（ダブルクリックで 0 dB）"_ju);
-    ceiling.setTooltip ("CEILING: 出力の上限（ダブルクリックで -1.0 dB。配信向けは -1.0 dB 前後）"_ju);
+    threshold.setTooltip ("THRESHOLD"_ju);
+    ceiling.setTooltip ("CEILING"_ju);
 
     character.setLookAndFeel (look.get());
     character.setRange (0.0, 10.0, 0.1);
     character.setRotaryParameters (juce::MathConstants<float>::pi * 1.25f, juce::MathConstants<float>::pi * 2.75f, true);
     character.setDoubleClickReturnValue (true, 5.0);
     character.setPopupDisplayEnabled (true, true, this);
-    character.setTooltip ("CHARACTER: 0 = ゆっくり・なめらか、10 = 速く・はっきり（ダブルクリックで 5）"_ju);
+    character.setTooltip ("CHARACTER"_ju);
     character.onDragStart = [this] { mergeId = juce::Uuid().toString(); };
     character.onDragEnd = [this] { ctx.document.endMerge(); mergeId = {}; };
     character.onValueChange = [this]
@@ -128,15 +128,11 @@ MasterPanel::MasterPanel (AppContext& c) : look (std::make_unique<Look>()), ctx 
     };
     addAndMakeVisible (character);
 
-    const juce::String modeTips[3] = { "ANALOG: やわらかくかかり、かかり続けるほど戻りがゆっくりになる"_ju,
-                                       "TUBE: ANALOG に真空管のような温かい倍音を足す"_ju,
-                                       "MODERN: 色付けがなく速い。音量を稼ぎたいとき向け"_ju };
 
     for (int i = 0; i < 3; ++i)
     {
         auto& b = modeButtons[i];
         b.setButtonText (modeNames[i]);
-        b.setTooltip (modeTips[i]);
         b.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff3a3632));
         b.setColour (juce::TextButton::buttonOnColourId, amber);
         b.setColour (juce::TextButton::textColourOffId, cream);
@@ -145,11 +141,11 @@ MasterPanel::MasterPanel (AppContext& c) : look (std::make_unique<Look>()), ctx 
         addAndMakeVisible (b);
     }
 
-    matchButton.setTooltip ("いま測ったインテグレーテッドの値から、-14 LUFS に近づくように THRESHOLD を動かす（曲を最後まで再生してから押すと正確）"_ju);
+    matchButton.setTooltip ("-14 LUFS に合わせる"_ju);
     matchButton.onClick = [this] { matchTarget(); };
     addAndMakeVisible (matchButton);
 
-    resetLoudness.setTooltip ("インテグレーテッド（全体の平均）を測り直す。再生を始めたときにも自動で測り直す"_ju);
+    resetLoudness.setTooltip ("測り直す"_ju);
     resetLoudness.onClick = [this] { ctx.engine.resetLoudness(); shortTermHistory.clear(); repaint(); };
     addAndMakeVisible (resetLoudness);
 

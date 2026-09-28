@@ -26,7 +26,7 @@ TrackHeader::TrackHeader (AppContext& c, const std::string& id)
     addAndMakeVisible (nameLabel);
     nameLabel.setInterceptsMouseClicks (false, false);   // 名前の上でも選択・ドラッグ（並べ替え）・右クリックが効くように
 
-    instrumentButton.setTooltip ("音源の調整"_ju);
+    instrumentButton.setTooltip ("音源"_ju);
     instrumentButton.onClick = [this]
     {
         select();
@@ -99,11 +99,11 @@ TrackHeader::TrackHeader (AppContext& c, const std::string& id)
     volumeSlider.setRange (-60.0, 6.0, 0.1);
     volumeSlider.setSkewFactorFromMidPoint (-12.0);
     volumeSlider.setDoubleClickReturnValue (true, 0.0);
-    volumeSlider.setTooltip ("音量（ダブルクリックで 0 dB）"_ju);
+    volumeSlider.setTooltip ("音量"_ju);
 
     panSlider.setRange (-1.0, 1.0, 0.01);
     panSlider.setDoubleClickReturnValue (true, 0.0);
-    panSlider.setTooltip ("パン（ダブルクリックで中央）"_ju);
+    panSlider.setTooltip ("パン"_ju);
 
     // 値は横に数字で出す（クリックで打ち込める）
     for (auto* l : { &volumeValue, &panValue })
@@ -120,8 +120,8 @@ TrackHeader::TrackHeader (AppContext& c, const std::string& id)
         addAndMakeVisible (l);
     }
 
-    volumeValue.setTooltip ("音量（dB）。クリックして数値を入力"_ju);
-    panValue.setTooltip ("パン。クリックして入力（L30・C・R20）"_ju);
+    volumeValue.setTooltip ("音量"_ju);
+    panValue.setTooltip ("パン"_ju);
     volumeValue.onTextChange = [this]
     {
         if (auto db = ValueText::parseDb (volumeValue.getText(), -60.0, 6.0))
@@ -213,12 +213,12 @@ void TrackHeader::update()
         const auto in = ctx.engine.getTrackInput (trackId);
         instName = in.device.isEmpty() ? "入力: なし"_ju : "入力: "_ju + in.device + (in.monitor ? "（モニター）"_ju : juce::String());
         armButton.setToggleState (in.armed, juce::dontSendNotification);
-        armButton.setTooltip ("録音待機（入力はその下のボタンで選ぶ）"_ju);
+        armButton.setTooltip ("録音待機"_ju);
     }
     else if (t->type == collab::TrackType::midi)
     {
         armButton.setToggleState (ctx.state.midiArmedTrackId == trackId, juce::dontSendNotification);
-        armButton.setTooltip ("録音待機（MIDI キーボードで弾いたものをこのトラックに録音）"_ju);
+        armButton.setTooltip ("録音待機"_ju);
     }
 
     const bool canArm = t->type == collab::TrackType::audio || t->type == collab::TrackType::midi;
