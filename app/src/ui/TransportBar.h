@@ -30,6 +30,9 @@ public:
 
     std::function<void()> onAudioSettings;
 
+    /** 同期の状態のバッジ（右側に置く）。 */
+    void setSyncBadge (juce::Component*);
+
     /** 定期的に呼ぶ（MIDI 入力のランプ）。 */
     void update();
 
@@ -51,6 +54,7 @@ private:
     juce::TextButton snapButton, autoScrollButton, metronomeButton, settingsButton;
     juce::Slider metronomeVolume { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     MidiActivityLight midiLight;
+    juce::Component* syncBadge = nullptr;
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
 };

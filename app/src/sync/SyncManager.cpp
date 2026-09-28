@@ -32,6 +32,11 @@ namespace
         return hashes;
     }
 
+    juce::String megabytes (juce::int64 bytes)
+    {
+        return juce::String ((double) bytes / (1024.0 * 1024.0), 1) + " MB";
+    }
+
     juce::Result writeAtomically (const juce::File& target, const void* data, size_t size)
     {
         target.getParentDirectory().createDirectory();
@@ -49,7 +54,7 @@ SyncManager::SyncManager (ProjectDocument& doc, juce::PropertiesFile& props)
 {
     document.editGuard = [this] (const collab::Project& before, const collab::Project& after) { return guardEdit (before, after); };
     reloadForDocument();
-    startTimer (60 * 1000);
+    startTimer (20 * 1000);   // 他の人のアップロードに早く気付けるように（1 回あたり小さな GET が 3 つ）
 }
 
 SyncManager::~SyncManager()
@@ -63,17 +68,134 @@ SyncManager::~SyncManager()
         juce::Thread::sleep (10);
 }
 
-void SyncManager::refreshLocksInBackground()
+void SyncManager::checkServerNow()
+{
+    refreshInBackground();
+}
+
+SyncManager::ServerStatus SyncManager::getServerStatus() const
+{
+    const juce::ScopedLock sl (statusLock);
+    return serverStatus;
+}
+
+std::map<std::string, SyncManager::LockInfo> SyncManager::getLocks() const
+{
+    const juce::ScopedLock sl (lockMapLock);
+    return locks;
+}
+
+void SyncManager::refreshInBackground()
 {
     if (! linked || refreshing.exchange (true))
         return;
 
-    juce::Thread::launch ([this, alive = alive]
     {
-        if (*alive)
-            fetchLocks();
+        const juce::ScopedLock sl (statusLock);
+        serverStatus.checking = true;
+    }
 
+    sendChangeMessage();
+
+    // ベースはメッセージスレッドで書き換わるので、ここで写しを取る
+    const auto projectId = meta.projectId;
+    const int baseRevision = meta.baseRevision;
+    const auto baseCopy = base;
+    const auto cachedPreview = getServerStatus().preview;
+
+    juce::Thread::launch ([this, alive = alive, projectId, baseRevision, baseCopy, cachedPreview]
+    {
+        ServerStatus st;
+        st.checked = true;
+        st.checkedAt = juce::Time::getCurrentTime();
+        st.base = baseRevision;
+
+        if (*alive)
+        {
+            auto client = makeClient();
+            auto info = client.get ("/projects/" + toJuce (projectId));
+
+            if (! info.ok())
+            {
+                st.error = info.message();
+            }
+            else
+            {
+                st.online = true;
+                st.head = info.body.value ("headRevision", 0);
+                fetchLocks();
+
+                if (auto revs = client.get ("/projects/" + toJuce (projectId) + "/revisions"); revs.ok() && revs.body.is_array())
+                {
+                    for (auto& r : revs.body)
+                    {
+                        RevisionInfo ri;
+                        ri.number = r.value ("number", 0);
+                        ri.authorId = r.value ("authorId", std::string());
+                        ri.author = r.contains ("authorName") && r["authorName"].is_string() ? toJuce (r["authorName"].get<std::string>()) : juce::String ("?");
+                        ri.message = toJuce (r.value ("message", std::string()));
+                        ri.createdAt = juce::Time::fromISO8601 (toJuce (r.value ("createdAt", std::string())));
+
+                        if (ri.number > baseRevision)
+                            st.incoming.push_back (ri);
+
+                        if (st.history.size() < 30)
+                            st.history.push_back (ri);
+                    }
+                }
+
+                // 取り込む変更の中身（ヘッドが変わったときだけダウンロードする）
+                if (st.head > baseRevision)
+                {
+                    if (cachedPreview != nullptr && cachedPreview->head == st.head)
+                    {
+                        st.preview = cachedPreview;
+                    }
+                    else
+                    {
+                        auto preview = std::make_shared<PullPreview>();
+
+                        if (buildPreview (client, projectId, st.head, baseCopy, *preview).wasOk())
+                            st.preview = preview;
+                    }
+                }
+            }
+        }
+
+        // 終わった印はこのスレッドで付ける（デストラクタがメッセージスレッドで待っているので、メッセージスレッドに任せるとデッドロックする）
+        const bool stillAlive = *alive;
         refreshing = false;
+
+        if (stillAlive)
+        {
+            juce::MessageManager::callAsync ([this, alive, st, baseRevision]
+            {
+                if (! *alive)
+                    return;
+
+                // 確認している間に取り込み・アップロードでベースが変わったら、この結果は古い（すぐ確認し直す）
+                if (baseRevision != meta.baseRevision)
+                    return refreshInBackground();
+
+                {
+                    const juce::ScopedLock sl (statusLock);
+                    serverStatus = st;
+                }
+
+                // 他の人の新しいリビジョンを知らせる
+                std::vector<RevisionInfo> fresh;
+
+                for (auto& r : st.incoming)
+                    if (r.number > notifiedHead && r.authorId != meta.userId)
+                        fresh.push_back (r);
+
+                notifiedHead = juce::jmax (notifiedHead, st.head);
+                sendChangeMessage();
+
+                if (! fresh.empty() && onIncomingRevisions)
+                    onIncomingRevisions (fresh);
+            });
+        }
     });
 }
 
@@ -228,8 +350,15 @@ void SyncManager::reloadForDocument()
             }
     }
 
+    // 別の曲を開いたら、サーバーの状況は確認し直す
+    {
+        const juce::ScopedLock sl (statusLock);
+        serverStatus = {};
+    }
+
+    notifiedHead = meta.baseRevision;
     sendChangeMessage();
-    refreshLocksInBackground();
+    refreshInBackground();
 }
 
 void SyncManager::saveMeta (const juce::File& projectDir) const
@@ -387,7 +516,8 @@ juce::Result SyncManager::runReleaseLock (const std::string& scopeId, bool force
 
 //==============================================================================
 juce::Result SyncManager::uploadMissingBlobs (const SyncClient& client, const std::vector<std::string>& hashes,
-                                              const juce::File& projectDir, const std::map<std::string, std::string>& inlineContent)
+                                              const juce::File& projectDir, const std::map<std::string, std::string>& inlineContent,
+                                              const SyncProgress& progress)
 {
     if (hashes.empty())
         return juce::Result::ok();
@@ -396,36 +526,80 @@ juce::Result SyncManager::uploadMissingBlobs (const SyncClient& client, const st
     for (auto& h : hashes)
         list.push_back (h);
 
+    if (progress && ! progress ("サーバーにないファイルを確認しています"_ju, -1.0))
+        return juce::Result::fail ("中止しました"_ju);
+
     auto check = client.post ("/blobs/check", { { "hashes", list } });
 
     if (! check.ok())
         return juce::Result::fail (check.message());
 
+    // 送るものの一覧と合計サイズ（進み具合の表示用）
+    struct Item { TransferUrl url; juce::File file; const std::string* inlineText = nullptr; juce::int64 size = 0; };
+    std::vector<Item> items;
+    juce::int64 totalBytes = 0;
+
     for (auto& m : check.body.value ("missing", nlohmann::json::array()))
     {
-        auto t = TransferUrl::fromJson (m);
-        juce::MemoryBlock data;
+        Item item;
+        item.url = TransferUrl::fromJson (m);
 
-        if (auto it = inlineContent.find (t.hash); it != inlineContent.end())
+        if (auto it = inlineContent.find (item.url.hash); it != inlineContent.end())
         {
-            data.append (it->second.data(), it->second.size());
+            item.inlineText = &it->second;
+            item.size = (juce::int64) it->second.size();
         }
         else
         {
-            auto file = projectDir.getChildFile ("audio").getChildFile (toJuce (t.hash) + ".wav");
+            item.file = projectDir.getChildFile ("audio").getChildFile (toJuce (item.url.hash) + ".wav");
 
-            if (! file.loadFileAsData (data))
-                return juce::Result::fail ("オーディオが見つかりません: "_ju + file.getFullPathName());
+            if (! item.file.existsAsFile())
+                return juce::Result::fail ("オーディオが見つかりません: "_ju + item.file.getFullPathName());
+
+            item.size = item.file.getSize();
         }
 
-        if (auto r = client.uploadBlob (t, data); r.failed())
+        totalBytes += item.size;
+        items.push_back (std::move (item));
+    }
+
+    juce::int64 doneBytes = 0;
+    int index = 0;
+
+    for (auto& item : items)
+    {
+        ++index;
+        juce::MemoryBlock data;
+
+        if (item.inlineText != nullptr)
+            data.append (item.inlineText->data(), item.inlineText->size());
+        else if (! item.file.loadFileAsData (data))
+            return juce::Result::fail ("オーディオを読めません: "_ju + item.file.getFullPathName());
+
+        TransferProgress onBytes;
+
+        if (progress)
+            onBytes = [&] (juce::int64 sent, juce::int64)
+            {
+                const auto done = doneBytes + juce::jlimit<juce::int64> (0, item.size, sent);
+                return progress ("アップロードしています "_ju + juce::String (index) + " / " + juce::String ((int) items.size())
+                                   + "（"_ju + megabytes (done) + " / " + megabytes (totalBytes) + "）"_ju,
+                                 totalBytes > 0 ? (double) done / (double) totalBytes : -1.0);
+            };
+
+        if (onBytes && ! onBytes (0, item.size))
+            return juce::Result::fail ("中止しました"_ju);
+
+        if (auto r = client.uploadBlob (item.url, data, onBytes, &directUploadBroken); r.failed())
             return r;
+
+        doneBytes += item.size;
     }
 
     return juce::Result::ok();
 }
 
-juce::Result SyncManager::runRegister (const collab::Project& snapshot, const juce::File& projectDir)
+juce::Result SyncManager::runRegister (const collab::Project& snapshot, const juce::File& projectDir, const SyncProgress& progress)
 {
     auto client = makeClient();
     auto me = client.get ("/me");
@@ -453,8 +627,11 @@ juce::Result SyncManager::runRegister (const collab::Project& snapshot, const ju
     auto hashes = referencedAudio (snapshot);
     hashes.push_back (hash);
 
-    if (auto r = uploadMissingBlobs (client, hashes, projectDir, { { hash, text } }); r.failed())
+    if (auto r = uploadMissingBlobs (client, hashes, projectDir, { { hash, text } }, progress); r.failed())
         return r;
+
+    if (progress)
+        progress ("最初のリビジョンを作っています"_ju, -1.0);
 
     auto pushed = client.post ("/projects/" + toJuce (snapshot.projectId) + "/revisions",
                                { { "parentNumber", 0 }, { "message", "最初のリビジョン" }, { "projectJsonHash", hash } });   // utf8-std
@@ -476,23 +653,11 @@ void SyncManager::applyRegistered (const collab::Project& snapshot, int revision
 }
 
 //==============================================================================
-juce::Result SyncManager::fetchPullPreview (PullPreview& preview)
+juce::Result SyncManager::buildPreview (const SyncClient& client, const std::string& projectId, int head,
+                                        const std::optional<collab::Project>& baseProject, PullPreview& preview)
 {
-    auto client = makeClient();
-    auto info = client.get ("/projects/" + toJuce (meta.projectId));
-
-    if (! info.ok())
-        return juce::Result::fail (info.message());
-
-    preview.head = info.body.value ("headRevision", 0);
-
-    if (preview.head == meta.baseRevision || preview.head == 0)
-    {
-        preview.headProject = base ? *base : document.getProject();
-        return juce::Result::ok();
-    }
-
-    auto rev = client.get ("/projects/" + toJuce (meta.projectId) + "/revisions/" + juce::String (preview.head));
+    preview.head = head;
+    auto rev = client.get ("/projects/" + toJuce (projectId) + "/revisions/" + juce::String (head));
 
     if (! rev.ok())
         return juce::Result::fail (rev.message());
@@ -516,22 +681,54 @@ juce::Result SyncManager::fetchPullPreview (PullPreview& preview)
         return juce::Result::fail (juce::String::fromUTF8 (e.what()));
     }
 
-    preview.diff = collab::diffProjects (base ? *base : preview.headProject, preview.headProject);
+    preview.diff = collab::diffProjects (baseProject ? *baseProject : preview.headProject, preview.headProject);
+    return juce::Result::ok();
+}
+
+juce::Result SyncManager::fetchPullPreview (PullPreview& preview)
+{
+    auto client = makeClient();
+    auto info = client.get ("/projects/" + toJuce (meta.projectId));
+
+    if (! info.ok())
+        return juce::Result::fail (info.message());
+
+    preview.head = info.body.value ("headRevision", 0);
+
+    if (preview.head == meta.baseRevision || preview.head == 0)
+    {
+        preview.headProject = base ? *base : document.getProject();
+        return juce::Result::ok();
+    }
+
+    if (auto r = buildPreview (client, meta.projectId, preview.head, base, preview); r.failed())
+        return r;
+
     return fetchLocks();
 }
 
-juce::Result SyncManager::runDownloadAudio (const collab::Project& p, const juce::File& projectDir)
+juce::Result SyncManager::runDownloadAudio (const collab::Project& p, const juce::File& projectDir, const SyncProgress& progress)
 {
     auto client = makeClient();
     auto audioDir = projectDir.getChildFile ("audio");
     audioDir.createDirectory();
 
-    for (auto& hash : referencedAudio (p))
-    {
-        auto target = audioDir.getChildFile (toJuce (hash) + ".wav");
+    std::vector<std::string> needed;
 
-        if (target.existsAsFile())
-            continue;
+    for (auto& hash : referencedAudio (p))
+        if (! audioDir.getChildFile (toJuce (hash) + ".wav").existsAsFile())
+            needed.push_back (hash);
+
+    int index = 0;
+
+    for (auto& hash : needed)
+    {
+        ++index;
+        auto target = audioDir.getChildFile (toJuce (hash) + ".wav");
+        const auto label = "オーディオをダウンロードしています "_ju + juce::String (index) + " / " + juce::String ((int) needed.size());
+
+        if (progress && ! progress (label, (double) (index - 1) / (double) needed.size()))
+            return juce::Result::fail ("中止しました"_ju);
 
         auto info = client.get ("/blobs/" + toJuce (hash));
 
@@ -539,8 +736,17 @@ juce::Result SyncManager::runDownloadAudio (const collab::Project& p, const juce
             return juce::Result::fail (info.message());
 
         juce::MemoryBlock data;
+        TransferProgress onBytes;
 
-        if (auto r = client.download (TransferUrl::fromJson (info.body), data); r.failed())
+        if (progress)
+            onBytes = [&] (juce::int64 got, juce::int64 total)
+            {
+                const double part = total > 0 ? (double) got / (double) total : 0.0;
+                return progress (label + "（"_ju + megabytes (got) + (total > 0 ? " / " + megabytes (total) : juce::String()) + "）"_ju,
+                                 ((double) (index - 1) + part) / (double) needed.size());
+            };
+
+        if (auto r = client.download (TransferUrl::fromJson (info.body), data, onBytes); r.failed())
             return r;
 
         collab::Sha256 sha;
@@ -588,7 +794,9 @@ SyncManager::PullReport SyncManager::applyPull (const PullPreview& preview)
     saveBase (document.getProjectDir(), preview.headProject);
     base = preview.headProject;
     document.save();
+    notifiedHead = juce::jmax (notifiedHead, preview.head);
     sendChangeMessage();
+    refreshInBackground();
     return report;
 }
 
@@ -654,7 +862,7 @@ juce::Result SyncManager::fetchPushPlan (const collab::Project& snapshot, PushPl
 }
 
 juce::Result SyncManager::runPush (const PushPlan& plan, const juce::String& message, bool releaseLocks,
-                                   const juce::File& projectDir, int& newRevision)
+                                   const juce::File& projectDir, int& newRevision, const SyncProgress& progress)
 {
     auto client = makeClient();
     const auto text = collab::serialiseProject (plan.snapshot);
@@ -663,8 +871,11 @@ juce::Result SyncManager::runPush (const PushPlan& plan, const juce::String& mes
     auto hashes = referencedAudio (plan.snapshot);
     hashes.push_back (hash);
 
-    if (auto r = uploadMissingBlobs (client, hashes, projectDir, { { hash, text } }); r.failed())
+    if (auto r = uploadMissingBlobs (client, hashes, projectDir, { { hash, text } }, progress); r.failed())
         return r;
+
+    if (progress)
+        progress ("リビジョンを登録しています"_ju, -1.0);
 
     nlohmann::json changed = nlohmann::json::array();
     for (auto& id : plan.diff.changedScopeIds)
@@ -687,7 +898,9 @@ void SyncManager::applyPushed (const PushPlan& plan, int newRevision)
     saveMeta (document.getProjectDir());
     saveBase (document.getProjectDir(), plan.snapshot);
     base = plan.snapshot;
+    notifiedHead = juce::jmax (notifiedHead, newRevision);
     sendChangeMessage();
+    refreshInBackground();
 }
 
 //==============================================================================
@@ -713,7 +926,8 @@ juce::Result SyncManager::fetchRevisions (nlohmann::json& list)
     return juce::Result::ok();
 }
 
-juce::Result SyncManager::runOpenFromServer (const std::string& projectId, const juce::File& parentDir, juce::File& createdFolder)
+juce::Result SyncManager::runOpenFromServer (const std::string& projectId, const juce::File& parentDir, juce::File& createdFolder,
+                                             const SyncProgress& progress)
 {
     auto client = makeClient();
     auto me = client.get ("/me");
@@ -760,8 +974,11 @@ juce::Result SyncManager::runOpenFromServer (const std::string& projectId, const
 
     ProjectDocument::createFolderStructure (folder);
 
-    if (auto r = runDownloadAudio (project, folder); r.failed())
+    if (auto r = runDownloadAudio (project, folder, progress); r.failed())
+    {
+        folder.deleteRecursively();   // 途中で止めた・失敗したときは、中途半端なフォルダを残さない
         return r;
+    }
 
     const auto text = collab::serialiseProject (project);
 

@@ -32,7 +32,7 @@ namespace
         cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
         cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9,
         cmdToolSplit, cmdCopy, cmdCut, cmdPaste, cmdNudgeLeft, cmdNudgeRight,
-        cmdForward, cmdRewind, cmdShortcuts
+        cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate
     };
 
     constexpr float fontScales[] = { 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
@@ -50,6 +50,21 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     addAndMakeVisible (timeline);
     addAndMakeVisible (pianoRoll);
     addAndMakeVisible (statusBar);
+    addChildComponent (syncPanel);
+    addChildComponent (toast);
+    toolbar.setSyncBadge (&syncBadge);
+    syncBadge.onClick = [this] { toggleSyncPanel(); };
+
+    syncPanel.onClose = [this] { toggleSyncPanel(); };
+    syncPanel.onRegister = [this] { registerProject(); };
+    syncPanel.onServerSettings = [this] { showServerSettings(); };
+    syncPanel.onOpenPicker = [this] { showProjectPicker(); };
+    syncPanel.onShowHistory = [this] { showHistory(); };
+    syncPanel.onPull = [this] { pullNow(); };
+    syncPanel.onPush = [this] (const juce::String& message, bool release) { pushFromPanel (message, release); };
+    syncPanel.onJump = [this] (const collab::Change& c) { jumpTo (c); };
+    sync.onIncomingRevisions = [this] (const std::vector<SyncManager::RevisionInfo>& revs) { onIncomingRevisions (revs); };
+    syncPanel.setVisible (settings.getBoolValue ("syncPanelVisible", true));
 
     resizer = std::make_unique<juce::StretchableLayoutResizerBar> (&layout, 1, false);
     addAndMakeVisible (*resizer);
@@ -132,6 +147,7 @@ MainComponent::~MainComponent()
     engine.getDeviceManager().deviceManager.removeChangeListener (this);
     pluginWindows.closeAll();
     sync.onLockRequired = nullptr;
+    sync.onIncomingRevisions = nullptr;
     sync.removeChangeListener (this);
     document.removeChangeListener (this);
     state.removeChangeListener (this);
@@ -149,6 +165,11 @@ void MainComponent::resized()
     toolbar.setBounds (area.removeFromTop (toolbarHeight));
     statusBar.setBounds (area.removeFromBottom (statusHeight));
     transport.setBounds (area.removeFromBottom (transportHeight));
+
+    if (syncPanel.isVisible())
+        syncPanel.setBounds (area.removeFromRight (juce::jmin (SyncPanel::preferredWidth, area.getWidth() / 2)));
+
+    toast.setTopLeftPosition (area.getRight() - toast.getWidth() - 12, area.getBottom() - toast.getHeight() - 12);
 
     juce::Component* comps[] = { &timeline, resizer.get(), &pianoRoll };
     layout.layOutComponents (comps, 3, area.getX(), area.getY(), area.getWidth(), area.getHeight(), true, true);
@@ -1036,7 +1057,7 @@ void MainComponent::showShortcuts()
         "  Insert: 再生位置に追加　Shift+1〜9: マーカーへ移動　ダブルクリック: 名前\n"_ju
         "\n"_ju
         "■ そのほか\n"_ju
-        "  F3: ミキサー　F4: マスター（リミッター / ラウドネス）　Ctrl+Z / Ctrl+Shift+Z: 元に戻す / やり直し　Ctrl+S: 保存　Ctrl+I: オーディオを読み込む\n"_ju
+        "  F3: ミキサー　F4: マスター（リミッター / ラウドネス）　F7: 同期パネル　Ctrl+Z / Ctrl+Shift+Z: 元に戻す / やり直し　Ctrl+S: 保存　Ctrl+I: オーディオを読み込む\n"_ju
         "  BPM・拍子: トランスポートバーの数字をクリックして入力、ホイールで増減\n"_ju);
 
     auto editor = std::make_unique<juce::TextEditor>();
@@ -1126,7 +1147,7 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
                          cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
                          cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9,
                          cmdToolSplit, cmdCopy, cmdCut, cmdPaste, cmdNudgeLeft, cmdNudgeRight,
-                         cmdForward, cmdRewind, cmdShortcuts });
+                         cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate });
 }
 
 void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommandInfo& info)
@@ -1318,6 +1339,12 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdSyncPull:      info.setInfo ("取り込み（pull）…"_ju, {}, "Sync", 0); info.setActive (sync.isLinked()); break;
         case cmdSyncPush:      info.setInfo ("アップロード（push）…"_ju, {}, "Sync", 0); info.setActive (sync.isLinked()); break;
         case cmdSyncHistory:   info.setInfo ("リビジョン履歴…"_ju, {}, "Sync", 0); info.setActive (sync.isLinked()); break;
+        case cmdSyncPanel:
+            info.setInfo ("同期パネル"_ju, {}, "Sync", 0);
+            info.addDefaultKeypress (juce::KeyPress::F7Key, 0);
+            info.setTicked (syncPanel.isVisible());
+            break;
+        case cmdSyncCreate:    info.setInfo ("サーバーに新しい曲を作る…"_ju, {}, "Sync", 0); break;
         case cmdSyncRefreshLocks: info.setInfo ("ロックの状態を更新"_ju, {}, "Sync", 0); info.setActive (sync.isLinked()); break;
         case cmdCredits:    info.setInfo ("クレジット…"_ju, {}, "Help", 0); break;
         case cmdAbout:      info.setInfo ("ShareDAW について…"_ju, {}, "Help", 0); break;
@@ -1474,6 +1501,8 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdSyncPull:      pull(); break;
         case cmdSyncPush:      push(); break;
         case cmdSyncHistory:   showHistory(); break;
+        case cmdSyncPanel:     toggleSyncPanel(); break;
+        case cmdSyncCreate:    createProjectOnServer(); break;
         case cmdSyncRefreshLocks:
         {
             auto r = SyncUI::runWithProgress ("ロックを確認しています"_ju, [this] { return sync.fetchLocks(); });
@@ -1581,6 +1610,8 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             break;
         case 4:
         {
+            m.addCommandItem (cm, cmdSyncPanel);
+            m.addSeparator();
             m.addCommandItem (cm, cmdSyncPull);
             m.addCommandItem (cm, cmdSyncPush);
             m.addSeparator();
@@ -1606,6 +1637,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             }
 
             m.addSeparator();
+            m.addCommandItem (cm, cmdSyncCreate);
             m.addCommandItem (cm, cmdSyncRegister);
             m.addCommandItem (cm, cmdSyncOpen);
             m.addCommandItem (cm, cmdSyncSettings);

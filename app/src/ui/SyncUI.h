@@ -2,11 +2,15 @@
 
 #include "Common.h"
 #include "collab/ProjectDiff.h"
+#include "sync/SyncClient.h"
 
 namespace SyncUI
 {
     /** 進捗ウィンドウを出してバックグラウンドで実行する（完了まで待つ）。 */
     juce::Result runWithProgress (const juce::String& title, std::function<juce::Result()> work);
+
+    /** 進み具合（バー・何を送っているか）を出し、「中止」できる版。 */
+    juce::Result runWithProgress (const juce::String& title, std::function<juce::Result (const SyncProgress&)> work);
 
     /** サーバー URL とトークンの入力（§6.2）。 */
     class ServerSettings  : public juce::Component

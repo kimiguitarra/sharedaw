@@ -74,7 +74,7 @@ public:
 
     //==============================================================================
     // サーバーへの登録（新規作成 + 最初の push）
-    juce::Result runRegister (const collab::Project& snapshot, const juce::File& projectDir);
+    juce::Result runRegister (const collab::Project& snapshot, const juce::File& projectDir, const SyncProgress& progress = {});
     void applyRegistered (const collab::Project& snapshot, int revision);
 
     // pull（§4.5）
@@ -86,7 +86,42 @@ public:
     };
 
     juce::Result fetchPullPreview (PullPreview&);
-    juce::Result runDownloadAudio (const collab::Project&, const juce::File& projectDir);
+
+    //==============================================================================
+    // サーバーの状況（同期パネル・ツールバーの表示用）。リンク中は定期的にバックグラウンドで確認する。
+    struct RevisionInfo
+    {
+        int number = 0;
+        std::string authorId;
+        juce::String author, message;
+        juce::Time createdAt;
+    };
+
+    struct ServerStatus
+    {
+        bool checked = false;                         // 一度でも確認した
+        bool checking = false;
+        bool online = false;
+        juce::String error;
+        juce::Time checkedAt;
+        int head = 0;
+        int base = 0;                                 // 確認したときのベース
+        std::vector<RevisionInfo> incoming;           // ベースより新しいリビジョン（新しい順）
+        std::vector<RevisionInfo> history;            // 最近のリビジョン（新しい順）
+        std::shared_ptr<const PullPreview> preview;   // ヘッドの内容とベースからの差分（head > base のとき）
+    };
+
+    ServerStatus getServerStatus() const;
+
+    /** すぐにサーバーを確認する（バックグラウンド。終わったら変更通知）。 */
+    void checkServerNow();
+
+    /** 他の人の新しいリビジョンを見つけたとき（メッセージスレッド。同じリビジョンは 1 回だけ）。 */
+    std::function<void (const std::vector<RevisionInfo>&)> onIncomingRevisions;
+
+    /** ロックの一覧（同期パネル用）。 */
+    std::map<std::string, LockInfo> getLocks() const;
+    juce::Result runDownloadAudio (const collab::Project&, const juce::File& projectDir, const SyncProgress& progress = {});
 
     struct PullReport
     {
@@ -108,12 +143,14 @@ public:
     };
 
     juce::Result fetchPushPlan (const collab::Project& snapshot, PushPlan&);
-    juce::Result runPush (const PushPlan&, const juce::String& message, bool releaseLocks, const juce::File& projectDir, int& newRevision);
+    juce::Result runPush (const PushPlan&, const juce::String& message, bool releaseLocks, const juce::File& projectDir, int& newRevision,
+                         const SyncProgress& progress = {});
     void applyPushed (const PushPlan&, int newRevision);
 
     // サーバーから開く
     juce::Result fetchProjects (nlohmann::json& list);
-    juce::Result runOpenFromServer (const std::string& projectId, const juce::File& parentDir, juce::File& createdFolder);
+    juce::Result runOpenFromServer (const std::string& projectId, const juce::File& parentDir, juce::File& createdFolder,
+                                   const SyncProgress& progress = {});
 
     juce::Result fetchRevisions (nlohmann::json& list);
 
@@ -153,16 +190,27 @@ private:
     std::atomic<bool> refreshing { false };
     std::shared_ptr<bool> alive = std::make_shared<bool> (true);
 
-    /** ロックの状態をバックグラウンドで更新する（開いたとき・定期的に）。 */
-    void refreshLocksInBackground();
-    void timerCallback() override      { refreshLocksInBackground(); }
+    ServerStatus serverStatus;
+    juce::CriticalSection statusLock;
+    int notifiedHead = 0;   // onIncomingRevisions で知らせた最新のリビジョン
+
+    /** サーバーの状況（ヘッド・履歴・ロック・取り込む変更）をバックグラウンドで更新する（開いたとき・定期的に）。 */
+    void refreshInBackground();
+    void timerCallback() override      { refreshInBackground(); }
+
+    /** ヘッドのプロジェクトをダウンロードして、ベースからの差分を作る。 */
+    static juce::Result buildPreview (const SyncClient&, const std::string& projectId, int head,
+                                      const std::optional<collab::Project>& base, PullPreview&);
 
     bool guardEdit (const collab::Project& before, const collab::Project& after);
     void saveMeta (const juce::File& projectDir) const;
     static void saveBase (const juce::File& projectDir, const collab::Project&);
 
     juce::Result uploadMissingBlobs (const SyncClient&, const std::vector<std::string>& hashes, const juce::File& projectDir,
-                                     const std::map<std::string, std::string>& inlineContent);
+                                     const std::map<std::string, std::string>& inlineContent, const SyncProgress& progress);
+
+    /** 署名付き URL（R2 へ直接）のアップロードが失敗したら、以後はサーバー経由で送る。 */
+    std::atomic<bool> directUploadBroken { false };
 
     JUCE_DECLARE_NON_COPYABLE (SyncManager)
 };

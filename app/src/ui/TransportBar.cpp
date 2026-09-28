@@ -123,9 +123,13 @@ void ToolBar::update()
 
 void ToolBar::paint (juce::Graphics& g)
 {
-    g.fillAll (Theme::panel);
-    g.setColour (Theme::background);
-    g.drawHorizontalLine (getHeight() - 1, 0.0f, (float) getWidth());
+    g.setGradientFill (juce::ColourGradient (Theme::panelLight, 0.0f, 0.0f, Theme::panel, 0.0f, (float) getHeight(), false));
+    g.fillAll();
+
+    juce::ColourGradient line (Theme::accent, 0.0f, 0.0f, Theme::pink, (float) getWidth(), 0.0f, false);
+    line.addColour (0.5, Theme::purple);
+    g.setGradientFill (line);
+    g.fillRect (0, getHeight() - 2, getWidth(), 2);
 }
 
 void ToolBar::resized()
@@ -151,7 +155,21 @@ void ToolBar::resized()
 
     settingsButton.setBounds (area.removeFromRight (juce::jmin (130, area.getWidth())));
     area.removeFromRight (8);
+
+    if (syncBadge != nullptr)
+    {
+        syncBadge->setBounds (area.removeFromRight (juce::jmin (150, area.getWidth())));
+        area.removeFromRight (8);
+    }
+
     midiLight.setBounds (area.removeFromRight (juce::jmin (44, area.getWidth())));
+}
+
+void ToolBar::setSyncBadge (juce::Component* c)
+{
+    syncBadge = c;
+    addAndMakeVisible (c);
+    resized();
 }
 
 void ToolBar::ToolButton::paintButton (juce::Graphics& g, bool highlighted, bool down)
@@ -248,11 +266,18 @@ TransportBar::TransportBar (AppContext& c) : ctx (c)
         ctx.engine.stop();
     };
     playButton.onClick = [this] { ctx.engine.togglePlay(); };
-    playButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff43a047));
+    // ポップな色: 再生は緑、録音はピンク〜赤、ループは水色
+    playButton.setColour (juce::TextButton::buttonColourId, Theme::green.withAlpha (0.85f));
+    playButton.setColour (juce::TextButton::textColourOffId, juce::Colour (0xff15162a));
+    playButton.setColour (juce::TextButton::buttonOnColourId, Theme::green.brighter (0.2f));
+    playButton.setColour (juce::TextButton::textColourOnId, juce::Colour (0xff15162a));
     recordButton.onClick = [this] { if (ctx.toggleRecord) ctx.toggleRecord(); };
-    recordButton.setColour (juce::TextButton::textColourOffId, juce::Colour (0xffe57373));
-    recordButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffc62828));
+    recordButton.setColour (juce::TextButton::buttonColourId, Theme::pink.withAlpha (0.28f));
+    recordButton.setColour (juce::TextButton::textColourOffId, Theme::pink);
+    recordButton.setColour (juce::TextButton::buttonOnColourId, Theme::red);
     recordButton.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+    loopButton.setColour (juce::TextButton::buttonOnColourId, Theme::accent);
+    loopButton.setColour (juce::TextButton::textColourOnId, juce::Colour (0xff15162a));
 
     for (auto* b : { &loopButton, &stopButton, &playButton, &recordButton })
         addAndMakeVisible (b);
@@ -436,9 +461,14 @@ void TransportBar::updatePosition (double tick, double seconds, bool playing)
 
 void TransportBar::paint (juce::Graphics& g)
 {
-    g.fillAll (Theme::panel);
-    g.setColour (Theme::background);
-    g.drawHorizontalLine (0, 0.0f, (float) getWidth());
+    g.setGradientFill (juce::ColourGradient (Theme::panelLight, 0.0f, 0.0f, Theme::panel, 0.0f, (float) getHeight(), false));
+    g.fillAll();
+
+    // 上の縁にポップな色の線（ピンク → 紫 → 水色）
+    juce::ColourGradient line (Theme::pink, 0.0f, 0.0f, Theme::accent, (float) getWidth(), 0.0f, false);
+    line.addColour (0.5, Theme::purple);
+    g.setGradientFill (line);
+    g.fillRect (0, 0, getWidth(), 2);
 }
 
 void TransportBar::resized()

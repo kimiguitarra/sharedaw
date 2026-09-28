@@ -30,6 +30,12 @@ struct TransferUrl
     static TransferUrl fromJson (const nlohmann::json&);
 };
 
+/** 転送の進み具合（バイト）。false を返すと中止する。 */
+using TransferProgress = std::function<bool (juce::int64 done, juce::int64 total)>;
+
+/** 長い処理の進み具合（表示する文と 0〜1。不明なら -1）。false を返すと中止する。 */
+using SyncProgress = std::function<bool (const juce::String& status, double fraction)>;
+
 /**
     同期サーバーの HTTP クライアント（§6.5）。呼び出しはすべて同期的（バックグラウンドスレッドから呼ぶ）。
 */
@@ -42,11 +48,16 @@ public:
     ApiResponse post (const juce::String& path, const nlohmann::json& body) const;
     ApiResponse del (const juce::String& path) const;
 
-    /** 実体をアップロードする（署名付き URL なら完了を通知してサーバーに検証させる）。 */
-    juce::Result uploadBlob (const TransferUrl&, const juce::MemoryBlock& data) const;
+    /**
+        実体をアップロードする（署名付き URL なら完了を通知してサーバーに検証させる）。
+        署名付き URL で失敗したらサーバー（Worker）経由で送り直し、directBroken を true にする
+        （true なら最初からサーバー経由で送る。同じファイルを 2 回送らない）。
+    */
+    juce::Result uploadBlob (const TransferUrl&, const juce::MemoryBlock& data,
+                             const TransferProgress& progress = {}, std::atomic<bool>* directBroken = nullptr) const;
 
     /** 実体をダウンロードする。 */
-    juce::Result download (const TransferUrl&, juce::MemoryBlock& out) const;
+    juce::Result download (const TransferUrl&, juce::MemoryBlock& out, const TransferProgress& progress = {}) const;
 
     const juce::String& getServerUrl() const noexcept   { return serverUrl; }
 

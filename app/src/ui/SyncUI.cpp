@@ -27,6 +27,41 @@ juce::Result runWithProgress (const juce::String& title, std::function<juce::Res
     return task.result;
 }
 
+juce::Result runWithProgress (const juce::String& title, std::function<juce::Result (const SyncProgress&)> work)
+{
+    struct Task  : public juce::ThreadWithProgressWindow
+    {
+        Task (const juce::String& t, std::function<juce::Result (const SyncProgress&)> w)
+            : ThreadWithProgressWindow (t, true, true, 30000, "中止"_ju), fn (std::move (w)) {}
+
+        void run() override
+        {
+            setProgress (-1.0);
+            setStatusMessage ("サーバーに接続しています…"_ju);
+
+            result = fn ([this] (const juce::String& status, double fraction)
+            {
+                setStatusMessage (status);
+                setProgress (fraction);
+                return ! threadShouldExit();
+            });
+
+            if (threadShouldExit() && result.wasOk())
+                result = juce::Result::fail ("中止しました"_ju);
+        }
+
+        std::function<juce::Result (const SyncProgress&)> fn;
+        juce::Result result = juce::Result::ok();
+    };
+
+    Task task (title, std::move (work));
+
+    if (! task.runThread())
+        return juce::Result::fail ("中止しました"_ju);
+
+    return task.result;
+}
+
 //==============================================================================
 ServerSettings::ServerSettings (const juce::String& url, bool hasToken,
                                 std::function<juce::String (const juce::String&, const juce::String&)> cb)

@@ -71,6 +71,7 @@ target_sources(ShareDAW PRIVATE
     src/ui/MasterPanel.cpp
     src/ui/MixerView.cpp
     src/ui/SyncUI.cpp
+    src/ui/SyncPanel.cpp
     src/ui/TransportBar.cpp
     src/ui/TimelineView.cpp
     src/ui/TrackHeader.cpp

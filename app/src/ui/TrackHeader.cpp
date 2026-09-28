@@ -41,7 +41,7 @@ TrackHeader::TrackHeader (AppContext& c, const std::string& id)
     armButton.setTooltip ("録音待機（入力はその下のボタンで選ぶ）"_ju);
     armButton.setClickingTogglesState (false);
     armButton.setColour (juce::TextButton::textColourOffId, juce::Colour (0xffe57373));
-    armButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffc62828));
+    armButton.setColour (juce::TextButton::buttonOnColourId, Theme::red);
     armButton.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
     armButton.onClick = [this]
     {
@@ -73,8 +73,10 @@ TrackHeader::TrackHeader (AppContext& c, const std::string& id)
 
     muteButton.setTooltip ("ミュート"_ju);
     soloButton.setTooltip ("ソロ"_ju);
-    muteButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffe57373));
-    soloButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffffd54f).darker (0.2f));
+    muteButton.setColour (juce::TextButton::buttonOnColourId, Theme::orange);
+    muteButton.setColour (juce::TextButton::textColourOnId, juce::Colour (0xff15162a));
+    soloButton.setColour (juce::TextButton::buttonOnColourId, Theme::selection);
+    soloButton.setColour (juce::TextButton::textColourOnId, juce::Colour (0xff15162a));
     muteButton.onClick = [this] { editTrack ("ミュート"_ju, [] (collab::Track& t) { t.mute = ! t.mute; }); };
     soloButton.onClick = [this] { editTrack ("ソロ"_ju, [] (collab::Track& t) { t.solo = ! t.solo; }); };
 
@@ -128,6 +130,9 @@ void TrackHeader::update()
 
     if (t == nullptr)
         return;
+
+    if (badgeShown != (ctx.sync.isLinked() && getWidth() > 130))
+        resized();
 
     nameLabel.setText (toJuce (t->name), juce::dontSendNotification);
     muteButton.setToggleState (t->mute, juce::dontSendNotification);
@@ -184,30 +189,54 @@ void TrackHeader::paint (juce::Graphics& g)
 
     if (t != nullptr)
     {
-        g.setColour (Theme::parseColour (t->color));
-        g.fillRect (0, 0, 5, getHeight());
+        // トラックの色をうっすら重ねて、左に太めの色の帯
+        const auto colour = Theme::parseColour (t->color);
+        g.setGradientFill (juce::ColourGradient (colour.withAlpha (selected ? 0.28f : 0.16f), 0.0f, 0.0f,
+                                                 colour.withAlpha (0.0f), (float) getWidth() * 0.7f, 0.0f, false));
+        g.fillAll();
+        g.setColour (colour);
+        g.fillRoundedRectangle (1.0f, 2.0f, 5.0f, (float) getHeight() - 4.0f, 2.5f);
     }
 
     g.setColour (Theme::background);
     g.drawHorizontalLine (getHeight() - 1, 0.0f, (float) getWidth());
 
-    // 同期中: ロックと未 push の変更（§4.2, §4.4）
-    if (ctx.sync.isLinked())
+    // 同期中: ロックと未 push の変更（§4.2, §4.4）。名前の右の小さな丸いバッジ
+    if (ctx.sync.isLinked() && ! badgeArea.isEmpty())
     {
-        juce::String badge;
-        auto colour = Theme::textDim;
+        juce::String label;
+        auto colour = Theme::panelLight;
 
-        if (ctx.sync.isLockedByMe (trackId))           { badge = "ロック中（自分）"_ju; colour = Theme::accent; }
-        else if (auto lock = ctx.sync.getLock (trackId)) { badge = lock->displayName + " が編集中"_ju; colour = Theme::warning; }
-        else if (! ctx.sync.canEdit (trackId))          { badge = "読み取り専用"_ju; }
+        if (ctx.sync.isLockedByMe (trackId))             { label = "自分"_ju; colour = Theme::green; }
+        else if (auto lock = ctx.sync.getLock (trackId)) { label = lock->displayName; colour = Theme::personColour (lock->displayName); }
+        else if (! ctx.sync.canEdit (trackId))           { label = "閲覧"_ju; }
 
-        if (ctx.sync.hasLocalChanges (trackId))
-            badge = (badge.isEmpty() ? juce::String() : badge + "  ") + "● 未 push"_ju;
+        const bool unpushed = ctx.sync.hasLocalChanges (trackId);
+        auto r = badgeArea.toFloat().withSizeKeepingCentre ((float) badgeArea.getWidth(), 16.0f);
 
-        g.setColour (colour);
-        g.setFont (juce::FontOptions (10.5f));
-        g.drawText (badge, getLocalBounds().withTrimmedLeft (10).withTrimmedRight (60).removeFromTop (14).translated (0, 1),
-                    juce::Justification::centredRight, true);
+        if (label.isNotEmpty())
+        {
+            // 錠の印つきのバッジ
+            g.setColour (colour);
+            g.fillRoundedRectangle (r, 8.0f);
+            const auto ink = colour.getPerceivedBrightness() > 0.55f ? juce::Colour (0xff15162a) : Theme::text;
+            g.setColour (ink);
+            auto lockIcon = r.removeFromLeft (14.0f).reduced (3.5f, 3.0f).translated (2.0f, 0.0f);
+            g.fillRoundedRectangle (lockIcon.withTrimmedTop (lockIcon.getHeight() * 0.45f), 1.5f);
+            juce::Path arc;
+            arc.addCentredArc (lockIcon.getCentreX(), lockIcon.getY() + lockIcon.getHeight() * 0.45f, lockIcon.getWidth() * 0.32f,
+                               lockIcon.getHeight() * 0.35f, 0.0f, -juce::MathConstants<float>::halfPi, juce::MathConstants<float>::halfPi, true);
+            g.strokePath (arc, juce::PathStrokeType (1.3f));
+            g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+            g.drawText (label, r.withTrimmedRight (unpushed ? 12.0f : 4.0f), juce::Justification::centred, true);
+        }
+
+        if (unpushed)
+        {
+            // 未送信の変更: オレンジの点
+            g.setColour (Theme::orange);
+            g.fillEllipse (juce::Rectangle<float> (8.0f, 8.0f).withCentre ({ badgeArea.toFloat().getRight() - 6.0f, badgeArea.toFloat().getCentreY() }));
+        }
     }
 
     // バウンスの状態（§3.7）
@@ -265,6 +294,13 @@ void TrackHeader::resized()
         armButton.setBounds (top.removeFromRight (24));
         top.removeFromRight (4);
     }
+
+    // 同期中はロックのバッジの場所を空ける
+    badgeShown = ctx.sync.isLinked() && top.getWidth() > 110;
+    badgeArea = badgeShown ? top.removeFromRight (juce::jmin (62, top.getWidth() / 2)).reduced (0, 2) : juce::Rectangle<int>();
+
+    if (badgeShown)
+        top.removeFromRight (4);
 
     nameLabel.setBounds (top);
 

@@ -89,8 +89,11 @@ ApiResponse SyncClient::post (const juce::String& path, const nlohmann::json& bo
     return request ("POST", path, &text);
 }
 
-juce::Result SyncClient::uploadBlob (const TransferUrl& t, const juce::MemoryBlock& data) const
+juce::Result SyncClient::uploadBlob (const TransferUrl& t, const juce::MemoryBlock& data,
+                                    const TransferProgress& progress, std::atomic<bool>* directBroken) const
 {
+    bool cancelled = false;
+
     auto put = [&] (const juce::String& url, const juce::StringPairArray& extra, bool withAuth, juce::String& errorText) -> int
     {
         int status = 0;
@@ -102,12 +105,20 @@ juce::Result SyncClient::uploadBlob (const TransferUrl& t, const juce::MemoryBlo
         if (withAuth)
             headers << "\r\nAuthorization: Bearer " << token;
 
-        auto stream = juce::URL (url).withPOSTData (data)
-                        .createInputStream (juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inPostData)
-                                              .withExtraHeaders (headers)
-                                              .withHttpRequestCmd ("PUT")
-                                              .withConnectionTimeoutMs (timeoutMs)
-                                              .withStatusCode (&status));
+        const auto options = juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inPostData)
+                               .withExtraHeaders (headers)
+                               .withHttpRequestCmd ("PUT")
+                               .withConnectionTimeoutMs (timeoutMs)
+                               .withStatusCode (&status)
+                               .withProgressCallback ([&] (int sent, int total)
+                               {
+                                   if (progress && ! progress (sent, total))
+                                       cancelled = true;
+
+                                   return ! cancelled;
+                               });
+
+        auto stream = juce::URL (url).withPOSTData (data).createInputStream (options);
 
         if (stream != nullptr)
         {
@@ -125,16 +136,44 @@ juce::Result SyncClient::uploadBlob (const TransferUrl& t, const juce::MemoryBlo
         return stream == nullptr ? 0 : status;
     };
 
+    auto ok = [] (int status) { return status >= 200 && status < 300; };
+    const auto viaServer = serverUrl + "/blobs/" + toJuce (t.hash) + "/data";
+
+    // 前に署名付き URL で失敗していたら、最初からサーバー経由で送る
+    if (! t.authRequired && directBroken != nullptr && directBroken->load())
+    {
+        juce::String error;
+        const int status = put (viaServer, {}, true, error);
+
+        if (cancelled)
+            return juce::Result::fail ("中止しました"_ju);
+
+        return ok (status) ? juce::Result::ok()
+                           : juce::Result::fail ("アップロードに失敗しました（サーバー経由: HTTP "_ju + juce::String (status)
+                                                 + (error.isNotEmpty() ? " " + error : juce::String()) + "）"_ju);
+    }
+
     juce::String error;
     int status = put (t.url, t.headers, t.authRequired, error);
 
-    // 署名付き URL（R2 へ直接）で失敗したら、サーバー（Worker）経由で送り直す
-    if ((status < 200 || status >= 300) && ! t.authRequired)
-    {
-        juce::String fallbackError;
-        const int fallback = put (serverUrl + "/blobs/" + toJuce (t.hash) + "/data", {}, true, fallbackError);
+    if (cancelled)
+        return juce::Result::fail ("中止しました"_ju);
 
-        if (fallback >= 200 && fallback < 300)
+    // 署名付き URL（R2 へ直接）で失敗したら、サーバー（Worker）経由で送り直す
+    if (! ok (status) && ! t.authRequired)
+    {
+        if (directBroken != nullptr)
+            *directBroken = true;
+
+        DBG ("direct upload failed: HTTP " << status << " " << error);
+
+        juce::String fallbackError;
+        const int fallback = put (viaServer, {}, true, fallbackError);
+
+        if (cancelled)
+            return juce::Result::fail ("中止しました"_ju);
+
+        if (ok (fallback))
             return juce::Result::ok();   // Worker 経由のアップロードはその場で検証・登録される
 
         return juce::Result::fail ("アップロードに失敗しました（直接: HTTP "_ju + juce::String (status)
@@ -143,7 +182,7 @@ juce::Result SyncClient::uploadBlob (const TransferUrl& t, const juce::MemoryBlo
                                    + (fallbackError.isNotEmpty() ? " " + fallbackError : juce::String()) + "）"_ju);
     }
 
-    if (status < 200 || status >= 300)
+    if (! ok (status))
         return juce::Result::fail ("アップロードに失敗しました（HTTP "_ju + juce::String (status)
                                    + (error.isNotEmpty() ? " " + error : juce::String()) + "）"_ju);
 
@@ -159,7 +198,7 @@ juce::Result SyncClient::uploadBlob (const TransferUrl& t, const juce::MemoryBlo
     return juce::Result::ok();
 }
 
-juce::Result SyncClient::download (const TransferUrl& t, juce::MemoryBlock& out) const
+juce::Result SyncClient::download (const TransferUrl& t, juce::MemoryBlock& out, const TransferProgress& progress) const
 {
     int status = 0;
     juce::String headers;
@@ -176,6 +215,24 @@ juce::Result SyncClient::download (const TransferUrl& t, juce::MemoryBlock& out)
         return juce::Result::fail ("ダウンロードに失敗しました（HTTP "_ju + juce::String (status) + "）"_ju);
 
     out.reset();
-    stream->readIntoMemoryBlock (out);
+    const auto total = stream->getTotalLength();
+    juce::HeapBlock<char> buffer (64 * 1024);
+
+    for (;;)
+    {
+        const int n = stream->read (buffer.get(), 64 * 1024);
+
+        if (n <= 0)
+            break;
+
+        out.append (buffer.get(), (size_t) n);
+
+        if (progress && ! progress ((juce::int64) out.getSize(), total))
+            return juce::Result::fail ("中止しました"_ju);
+    }
+
+    if (total > 0 && (juce::int64) out.getSize() != total)
+        return juce::Result::fail ("ダウンロードが途中で切れました"_ju);
+
     return juce::Result::ok();
 }

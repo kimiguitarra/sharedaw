@@ -93,25 +93,245 @@ void MainComponent::registerProject()
     if (sync.isLinked())
         return Dialogs::showInfo ("同期"_ju, "このプロジェクトは既にサーバーに登録されています。"_ju);
 
-    auto doRegister = [this]
+    // まだ保存していない曲は、ダウンロード先と同じフォルダ（ドキュメント/ShareDAW）に保存してから登録する
+    if (! document.hasLocation())
     {
-        const auto snapshot = document.getProject();
-        const auto dir = document.getProjectDir();
-        auto r = SyncUI::runWithProgress ("サーバーに登録しています"_ju, [&] { return sync.runRegister (snapshot, dir); });
+        auto dir = ProjectPicker::projectsFolder (settings);
+
+        if (! dir.isDirectory() && ! dir.createDirectory())
+            return Dialogs::showError ("登録できませんでした"_ju, "フォルダを作れません: "_ju + dir.getFullPathName());
+
+        if (auto r = document.saveNew (dir); r.failed())
+            return Dialogs::showError ("保存に失敗しました"_ju, r.getErrorMessage());
+
+        settings.setValue ("lastProjectDir", document.getProjectDir().getFullPathName());
+        ProjectPicker::remember (settings, document.getProjectDir());
+    }
+    else if (document.isDirty())
+    {
+        if (auto r = document.save(); r.failed())
+            return Dialogs::showError ("保存に失敗しました"_ju, r.getErrorMessage());
+    }
+
+    const auto snapshot = document.getProject();
+    const auto dir = document.getProjectDir();
+    auto r = SyncUI::runWithProgress ("サーバーに登録しています"_ju, [&] (const SyncProgress& p) { return sync.runRegister (snapshot, dir, p); });
+
+    if (r.failed())
+        return Dialogs::showError ("登録できませんでした"_ju, r.getErrorMessage()
+                                     + "\n\n"_ju + "もう一度「サーバーにアップ」を押すと、続きから登録します。"_ju);
+
+    sync.applyRegistered (snapshot, sync.getMeta().baseRevision);
+    SyncUI::runWithProgress ("ロックを確認しています"_ju, [this] { return sync.fetchLocks(); });
+    setStatus ("サーバーに登録しました（リビジョン "_ju + juce::String (sync.getMeta().baseRevision) + "）"_ju);
+    toast.show ("サーバーにアップしました"_ju, "仲間は「楽曲を選ぶ」からダウンロードして一緒に作業できます。"_ju, {}, {}, Theme::green);
+
+    if (! syncPanel.isVisible())
+        toggleSyncPanel();
+}
+
+void MainComponent::createProjectOnServer()
+{
+    if (! sync.hasCredentials())
+    {
+        Dialogs::showInfo ("サーバーに新しい曲を作る"_ju, "先にサーバー URL とトークンを設定してください。"_ju);
+        return showServerSettings();
+    }
+
+    confirmDiscardChanges ([this]
+    {
+        Dialogs::askText ("サーバーに新しい曲を作る"_ju, "曲名"_ju, "新しい曲"_ju, [this] (const juce::String& name)
+        {
+            bridge.stop();
+            document.newProject (name.trim().isEmpty() ? juce::String ("無題"_ju) : name.trim());
+            state.selectedTrackId = {};
+            state.selectClip ({});
+            state.timeline.scrollTick = 0;
+            state.changed();
+            bridge.returnToStart();
+
+            // サーバーに作って、この PC（ドキュメント/ShareDAW）にも置く
+            registerProject();
+        });
+    });
+}
+
+void MainComponent::toggleSyncPanel()
+{
+    syncPanel.setVisible (! syncPanel.isVisible());
+    settings.setValue ("syncPanelVisible", syncPanel.isVisible());
+    resized();
+    commandManager.commandStatusChanged();
+
+    if (syncPanel.isVisible())
+        sync.checkServerNow();
+}
+
+void MainComponent::onIncomingRevisions (const std::vector<SyncManager::RevisionInfo>& revs)
+{
+    juce::StringArray authors, messages;
+
+    for (auto& r : revs)
+    {
+        authors.addIfNotAlreadyThere (r.author);
+
+        if (r.message.isNotEmpty())
+            messages.add (r.message);
+    }
+
+    // 何が変わったか（トラック名など）
+    juce::StringArray scopes;
+
+    if (auto st = sync.getServerStatus(); st.preview != nullptr)
+        for (auto& c : st.preview->diff.changes)
+            scopes.addIfNotAlreadyThere (toJuce (c.scopeName));
+
+    const auto title = authors.joinIntoString ("・"_ju) + " さんがアップしました"_ju;
+    auto body = scopes.isEmpty() ? juce::String() : scopes.joinIntoString ("、"_ju) + " が変わりました"_ju;
+
+    if (! messages.isEmpty())
+        body = "「"_ju + messages[0] + "」 "_ju + body;
+
+    if (syncPanel.autoPullEnabled())
+        return pullNow (true);
+
+    toast.show (title, body, "取り込む"_ju, [this] { pullNow(); }, Theme::accent);
+}
+
+void MainComponent::pullNow (bool quiet)
+{
+    if (! ensureSyncReady (true))
+        return;
+
+    if (! quiet)
+    {
+        auto preview = std::make_shared<SyncManager::PullPreview>();
+        auto r = SyncUI::runWithProgress ("サーバーを確認しています"_ju, [&] { return sync.fetchPullPreview (*preview); });
 
         if (r.failed())
-            return Dialogs::showError ("登録できませんでした"_ju, r.getErrorMessage());
+            return Dialogs::showError ("取り込めませんでした"_ju, r.getErrorMessage());
 
-        sync.applyRegistered (snapshot, sync.getMeta().baseRevision);
-        SyncUI::runWithProgress ("ロックを確認しています"_ju, [this] { return sync.fetchLocks(); });
-        setStatus ("サーバーに登録しました（リビジョン "_ju + juce::String (sync.getMeta().baseRevision) + "）"_ju);
-    };
+        if (preview->head == sync.getMeta().baseRevision)
+            return setStatus ("最新です（リビジョン "_ju + juce::String (preview->head) + "）"_ju);
 
-    // 保存されていないと .collab を置けない
-    if (! document.hasLocation() || document.isDirty())
-        saveProject ([doRegister] (bool ok) { if (ok) doRegister(); });
-    else
-        doRegister();
+        return applyPullPreview (*preview);
+    }
+
+    // 自動の取り込み: 画面を止めずにバックグラウンドで準備し、再生・録音中でなければ反映する
+    if (autoPullRunning)
+        return;
+
+    autoPullRunning = true;
+    auto preview = std::make_shared<SyncManager::PullPreview>();
+    const auto dir = document.getProjectDir();
+    const int baseAtStart = sync.getMeta().baseRevision;
+
+    juce::Thread::launch ([safe = juce::Component::SafePointer<MainComponent> (this), &syncRef = sync, preview, dir, baseAtStart]
+    {
+        auto r = syncRef.fetchPullPreview (*preview);
+
+        if (r.wasOk() && preview->head != baseAtStart)
+            r = syncRef.runDownloadAudio (preview->headProject, dir);
+
+        juce::MessageManager::callAsync ([safe, preview, r, baseAtStart]
+        {
+            if (safe == nullptr)
+                return;
+
+            auto& self = *safe;
+            self.autoPullRunning = false;
+
+            if (r.failed())
+                return self.setStatus ("自動の取り込みに失敗しました: "_ju + r.getErrorMessage());
+
+            if (preview->head == baseAtStart || self.sync.getMeta().baseRevision != baseAtStart)
+                return;
+
+            if (self.bridge.isPlaying() || self.bridge.isRecording())
+                return self.toast.show ("新しい変更があります"_ju, "再生中なので、止めてから取り込んでください。"_ju, "取り込む"_ju,
+                                        [s = safe] { if (s != nullptr) s->pullNow(); }, Theme::accent);
+
+            auto report = self.sync.applyPull (*preview);
+            juce::StringArray scopes;
+
+            for (auto& c : preview->diff.changes)
+                scopes.addIfNotAlreadyThere (toJuce (c.scopeName));
+
+            self.setStatus ("リビジョン "_ju + juce::String (preview->head) + " を自動で取り込みました"_ju);
+            self.toast.show ("他の人の変更を取り込みました"_ju,
+                             scopes.joinIntoString ("、"_ju) + (report.conflicts.empty() ? juce::String() : "（不整合あり: 取り込む前の状態を保存しました）"_ju),
+                             {}, {}, report.conflicts.empty() ? Theme::green : Theme::warning);
+        });
+    });
+}
+
+bool MainComponent::pushBlocked (const SyncManager::PushPlan& plan)
+{
+    if (! plan.notLocked.empty())
+    {
+        Dialogs::showError ("ロックが必要です"_ju, "次のトラックのロックを持っていません: "_ju + joinNames (sync, plan.notLocked));
+        return true;
+    }
+
+    if (! plan.staleRenders.empty())
+    {
+        auto message = "外部プラグインを使うトラックはバウンスしてからアップしてください: "_ju + joinNames (sync, plan.staleRenders);
+
+        for (auto& id : plan.staleRenders)
+            if (bridge.isPlayingRender (id))
+            {
+                message << "\n\n"
+                        << "この環境で鳴らせないプラグインのトラックは、ここではバウンスできません。"_ju
+                        << "ノートなど音の元の変更を元に戻すか、プラグインの持ち主にバウンスしてもらってください。"_ju;
+                break;
+            }
+
+        Dialogs::showError ("バウンスが必要です"_ju, message);
+        return true;
+    }
+
+    return false;
+}
+
+void MainComponent::pushFromPanel (const juce::String& message, bool release)
+{
+    if (! ensureSyncReady (true))
+        return;
+
+    auto plan = std::make_shared<SyncManager::PushPlan>();
+    const auto snapshot = document.getProject();
+    auto r = SyncUI::runWithProgress ("サーバーを確認しています"_ju, [&] { return sync.fetchPushPlan (snapshot, *plan); });
+
+    if (r.failed())
+        return Dialogs::showError ("アップロードできませんでした"_ju, r.getErrorMessage());
+
+    if (plan->diff.empty())
+        return setStatus ("アップロードする変更はありません"_ju);
+
+    if (plan->needsPull)
+    {
+        // 先に取り込んでから、続けてアップする（自分の変更はロックしているので残る）
+        return Dialogs::confirm ("先に取り込みます"_ju,
+                                 "サーバーに新しいリビジョン（"_ju + juce::String (plan->head) + "）があります。取り込んでからアップしますか？"_ju,
+                                 "取り込んでアップ"_ju, [this, message, release, head = plan->head]
+        {
+            pullNow();
+
+            // 取り込めたら（ベースがサーバーのヘッドに追いついたら）続けてアップする
+            if (sync.getMeta().baseRevision >= head)
+                juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<MainComponent> (this), message, release]
+                {
+                    if (safe != nullptr)
+                        safe->pushFromPanel (message, release);
+                });
+        });
+    }
+
+    if (pushBlocked (*plan))
+        return;
+
+    runPushPlan (*plan, message, release);
+    syncPanel.clearComment();
 }
 
 void MainComponent::showProjectPicker()
@@ -140,12 +360,25 @@ void MainComponent::showProjectPicker()
     };
 
     cb.newProject = [this] { newProject(); };
+    cb.createOnServer = [this] { createProjectOnServer(); };
+    cb.openAndUpload = [this] (const juce::File& folder)
+    {
+        confirmDiscardChanges ([this, folder]
+        {
+            openProjectFolder (folder);
+            juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<MainComponent> (this)]
+            {
+                if (safe != nullptr)
+                    safe->registerProject();
+            });
+        });
+    };
     cb.openOther = [this] { openProject(); };
     cb.serverSettings = [this] { showServerSettings(); };
 
     juce::DialogWindow::LaunchOptions o;
-    o.content.setOwned (new ProjectPicker (sync, settings, document.hasLocation() ? document.getProjectDir()
-                                                                                  : juce::File (settings.getValue ("lastProjectDir")),
+    // 「いま開いている」は実際に開いている曲だけ（起動直後はまだ何も開いていない）
+    o.content.setOwned (new ProjectPicker (sync, settings, document.hasLocation() ? document.getProjectDir() : juce::File(),
                                            std::move (cb)));
     o.dialogTitle = "楽曲を選ぶ"_ju;
     o.dialogBackgroundColour = Theme::panel;
@@ -167,7 +400,7 @@ void MainComponent::downloadProject (const std::string& projectId)
         return Dialogs::showError ("開けませんでした"_ju, "ダウンロード先のフォルダを作れません: "_ju + dir.getFullPathName());
 
     juce::File created;
-    auto res = SyncUI::runWithProgress ("ダウンロードしています"_ju, [&] { return sync.runOpenFromServer (projectId, dir, created); });
+    auto res = SyncUI::runWithProgress ("ダウンロードしています"_ju, [&] (const SyncProgress& p) { return sync.runOpenFromServer (projectId, dir, created, p); });
 
     if (res.failed())
         return Dialogs::showError ("開けませんでした"_ju, res.getErrorMessage());
@@ -216,7 +449,7 @@ void MainComponent::applyPullPreview (const SyncManager::PullPreview& previewRef
         auto preview = &previewRef;
 
         auto res = SyncUI::runWithProgress ("オーディオをダウンロードしています"_ju,
-                                            [&] { return sync.runDownloadAudio (preview->headProject, document.getProjectDir()); });
+                                            [&] (const SyncProgress& p) { return sync.runDownloadAudio (preview->headProject, document.getProjectDir(), p); });
 
         if (res.failed())
             return Dialogs::showError ("取り込めませんでした"_ju, res.getErrorMessage());
@@ -261,24 +494,8 @@ void MainComponent::push()
     if (plan->diff.empty())
         return Dialogs::showInfo ("アップロード"_ju, "アップロードする変更はありません。"_ju);
 
-    if (! plan->notLocked.empty())
-        return Dialogs::showError ("ロックが必要です"_ju, "次のトラックのロックを持っていません: "_ju + joinNames (sync, plan->notLocked));
-
-    if (! plan->staleRenders.empty())
-    {
-        auto message = "外部プラグインを使うトラックはバウンスしてから push してください: "_ju + joinNames (sync, plan->staleRenders);
-
-        for (auto& id : plan->staleRenders)
-            if (bridge.isPlayingRender (id))
-            {
-                message << "\n\n"
-                        << "この環境で鳴らせないプラグインのトラックは、ここではバウンスできません。"_ju
-                        << "ノートなど音の元の変更を元に戻すか、プラグインの持ち主にバウンスしてもらってください。"_ju;
-                break;
-            }
-
-        return Dialogs::showError ("バウンスが必要です"_ju, message);
-    }
+    if (pushBlocked (*plan))
+        return;
 
     const auto headline = "リビジョン "_ju + juce::String (sync.getMeta().baseRevision) + " からの変更（ベース → ローカル）"_ju;
 
@@ -310,7 +527,7 @@ void MainComponent::runPushPlan (const SyncManager::PushPlan& planRef, const juc
         int revision = 0;
         const auto dir = document.getProjectDir();
         auto res = SyncUI::runWithProgress ("アップロードしています"_ju,
-                                            [&] { return sync.runPush (*plan, message, release, dir, revision); });
+                                            [&] (const SyncProgress& p) { return sync.runPush (*plan, message, release, dir, revision, p); });
 
         if (res.failed())
             return Dialogs::showError ("アップロードできませんでした"_ju, res.getErrorMessage());

@@ -4,6 +4,7 @@
 
 #include "ui/AppContext.h"
 #include "ui/PianoRoll.h"
+#include "ui/SyncPanel.h"
 #include "ui/TimelineView.h"
 #include "ui/TransportBar.h"
 #include "collab/ProjectDiff.h"
@@ -66,6 +67,9 @@ private:
     juce::StretchableLayoutManager layout;
     std::unique_ptr<juce::StretchableLayoutResizerBar> resizer;
     PianoRollView pianoRoll { ctx };
+    SyncPanel syncPanel { sync, document, settings };
+    SyncBadge syncBadge { sync, document };
+    SyncToast toast;
     juce::Label statusBar;
     std::unique_ptr<juce::FileChooser> chooser;
 
@@ -130,6 +134,15 @@ public:
 private:
     void pull();
     void push();
+
+    // 同期パネル（右側）から: 画面に出ている差分のまま、すぐに取り込む・アップする
+    void toggleSyncPanel();
+    void pullNow (bool quiet = false);
+    void pushFromPanel (const juce::String& message, bool releaseLocks);
+    void onIncomingRevisions (const std::vector<SyncManager::RevisionInfo>&);
+    void createProjectOnServer();
+    bool pushBlocked (const SyncManager::PushPlan&);
+    bool autoPullRunning = false;
     void showHistory();
     void requestLocks (std::vector<std::string> scopeIds);
     void lockMenuForScope (const std::string& scopeId, juce::PopupMenu&);

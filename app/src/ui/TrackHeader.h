@@ -39,6 +39,8 @@ private:
     juce::Slider panSlider { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     juce::String dragMergeId;
     juce::String problem;
+    juce::Rectangle<int> badgeArea;   // 同期中のロックの印（名前の右）
+    bool badgeShown = false;
 
     void select();
     void showMenu();
