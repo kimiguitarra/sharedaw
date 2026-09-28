@@ -530,10 +530,9 @@ private:
     /**
         --sync-config <url> <token>
         --sync-register <dir>
-        --sync-push <dir> [message] [--keep-locks]
-        --sync-pull <dir>
+        --sync-push <dir> [message]          この PC で変えたスコープをすべてアップする
+        --sync-pull <dir> [--keep-mine]      ダウンロードする（競合はサーバーの版。--keep-mine なら自分の版）
         --sync-open <projectId> <parentDir>
-        --sync-lock <dir> <scopeId|tempo|meter|chord|trackName> [--release|--force]
         --sync-status <dir>
     */
     int runSyncCommand (const juce::StringArray& args)
@@ -593,50 +592,27 @@ private:
 
         if (command == "--sync-status")
         {
-            if (auto r = sync->fetchLocks(); r.failed()) return fail (r.getErrorMessage());
+            sync->checkServerNow();
             std::cout << "linked: " << sync->isLinked() << " base: " << sync->getMeta().baseRevision << std::endl;
 
-            for (auto& id : collab::allScopeIds (document->getProject()))
-            {
-                auto lock = sync->getLock (id);
-                std::cout << "  " << sync->scopeName (id).toStdString() << " [" << id << "]"
-                          << (lock ? " locked by " + lock->displayName.toStdString() : std::string())
-                          << (sync->hasLocalChanges (id) ? " (local changes)" : "") << std::endl;
-            }
-            return 0;
-        }
-
-        if (command == "--sync-lock")
-        {
-            if (args.size() < 3) return fail ("usage: --sync-lock <dir> <scope> [--release|--force]");
-            const auto& p = document->getProject();
-            std::string scope = args[2].toStdString();
-
-            if (scope == "tempo")  scope = p.tempoTrack.id;
-            if (scope == "meter")  scope = p.meterTrack.id;
-            if (scope == "chord")  scope = p.chordTrack.id;
-            if (scope == "marker") scope = p.markerTrack.id;
-            if (scope == "master") scope = p.master.id;
-            if (scope == "key")    scope = p.keyTrack.id;
-
-            for (auto& t : p.tracks)
-                if (t.name == scope)
-                    scope = t.id;
-
-            juce::Result r = args.contains ("--release") ? sync->runReleaseLock (scope, false)
-                           : args.contains ("--force")   ? sync->runReleaseLock (scope, true)
-                                                         : sync->runAcquireLock (scope);
-            if (r.failed()) return fail (r.getErrorMessage());
-            std::cout << "ok" << std::endl;
+            for (auto& st : sync->scopeStates())
+                std::cout << "  " << st.name << " [" << st.id << "]" << (st.mine ? " (local changes)" : "")
+                          << (st.theirs ? " (server changes)" : "") << (st.conflict ? " (conflict)" : "") << std::endl;
             return 0;
         }
 
         if (command == "--sync-push")
         {
-            SyncManager::PushPlan plan;
-            if (auto r = sync->fetchPushPlan (document->getProject(), plan); r.failed()) return fail (r.getErrorMessage());
-            if (plan.needsPull) return fail ("pull required (head " + juce::String (plan.head) + ")");
-            if (! plan.notLocked.empty()) return fail ("lock required: " + juce::String (plan.notLocked.front()));
+            std::set<std::string> scopes;
+
+            if (auto* b = sync->getBase())
+                for (auto& st : collab::syncStates (*b, document->getProject(), nullptr))
+                    if (st.mine)
+                        scopes.insert (st.id);
+
+            SyncManager::UploadPlan plan;
+            if (auto r = sync->fetchUploadPlan (document->getProject(), scopes, plan); r.failed()) return fail (r.getErrorMessage());
+            if (plan.needsDownload) return fail ("download required (head " + juce::String (plan.head) + ")");
             if (! plan.staleRenders.empty()) return fail ("bounce required: " + juce::String (plan.staleRenders.front()));
 
             for (auto& c : plan.diff.changes)
@@ -644,10 +620,10 @@ private:
 
             int revision = 0;
             const auto message = args.size() >= 3 && ! args[2].startsWith ("--") ? args[2] : juce::String();
-            if (auto r = sync->runPush (plan, message, ! args.contains ("--keep-locks"), dir, revision); r.failed())
+            if (auto r = sync->runUpload (plan, message, dir, revision); r.failed())
                 return fail (r.getErrorMessage());
 
-            sync->applyPushed (plan, revision);
+            sync->applyUploaded (plan, revision);
             std::cout << "pushed: revision " << revision << std::endl;
             return 0;
         }
@@ -668,9 +644,19 @@ private:
 
             if (auto r = sync->runDownloadAudio (preview.headProject, dir); r.failed()) return fail (r.getErrorMessage());
 
-            auto report = sync->applyPull (preview);
-            std::cout << "pulled: revision " << preview.head << " kept local: " << report.keptLocal.size()
-                      << " conflicts: " << report.conflicts.size() << std::endl;
+            std::map<std::string, collab::Resolution> choices;
+            int conflicts = 0;
+
+            if (auto* b = sync->getBase())
+                for (auto& st : collab::syncStates (*b, document->getProject(), &preview.headProject))
+                    if (st.conflict)
+                    {
+                        ++conflicts;
+                        choices[st.id] = args.contains ("--keep-mine") ? collab::Resolution::mine : collab::Resolution::theirs;
+                    }
+
+            sync->applyDownload (preview, choices);
+            std::cout << "pulled: revision " << preview.head << " conflicts: " << conflicts << std::endl;
             return 0;
         }
 

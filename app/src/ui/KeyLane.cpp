@@ -67,13 +67,13 @@ void KeyLane::paint (juce::Graphics& g)
     if (events.empty())
     {
         g.setColour (Theme::textDim);
-        g.setFont (juce::FontOptions (11.5f));
+        g.setFont (juce::FontOptions (13.0f));
         g.drawText ("キー未設定（右クリックで設定。コードから推定もできます）"_ju, getLocalBounds().reduced (6, 0),
                     juce::Justification::centredLeft);
         return;
     }
 
-    g.setFont (juce::FontOptions (12.5f, juce::Font::bold));
+    g.setFont (juce::FontOptions (13.5f, juce::Font::bold));
 
     // 左にスクロールして変更点が見えなくなっても、いまのキーを左端に出す
     {

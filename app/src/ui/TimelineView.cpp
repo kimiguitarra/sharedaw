@@ -282,7 +282,7 @@ void TrackLanes::paintAudioClip (juce::Graphics& g, const collab::AudioClip& c, 
     else
     {
         g.setColour (Theme::warning);
-        g.setFont (juce::FontOptions (12.0f));
+        g.setFont (juce::FontOptions (13.5f));
         g.drawText ("オーディオが見つかりません"_ju, r, juce::Justification::centred);
     }
 
@@ -310,7 +310,7 @@ void TrackLanes::paintAudioClip (juce::Graphics& g, const collab::AudioClip& c, 
     g.drawRoundedRectangle (r, 3.0f, selected ? 2.0f : 1.0f);
 
     g.setColour (Theme::text);
-    g.setFont (juce::FontOptions (11.0f));
+    g.setFont (juce::FontOptions (12.5f));
     auto label = toJuce (c.displayName);
 
     if (std::abs (c.gainDb) > 0.05)
@@ -1012,7 +1012,7 @@ void TimelineView::paint (juce::Graphics& g)
 {
     g.fillAll (Theme::panel);
     g.setColour (Theme::textDim);
-    g.setFont (juce::FontOptions (12.0f));
+    g.setFont (juce::FontOptions (13.5f));
 
     const int w = headerWidth - 10;
     g.drawText ("小節"_ju, 10, 0, w, rulerHeight, juce::Justification::centredLeft);

@@ -25,7 +25,7 @@ namespace
         cmdAddDrums, cmdAddBass, cmdAddPiano, cmdAddEPiano,
         cmdAudioSettings, cmdCredits, cmdAbout, cmdCheckUpdate,
         cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
-        cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory, cmdSyncRefreshLocks,
+        cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory,
         cmdAddAudioTrack, cmdImportAudio, cmdImportMidi, cmdExportMixdown, cmdSplit, cmdMuteTrack, cmdSoloTrack, cmdPlugins,
         cmdRecord, cmdCountIn0, cmdCountIn1, cmdCountIn2,
         cmdToolSelect, cmdToolPencil, cmdModeCubase, cmdModeStudioOne, cmdMixer, cmdMaster, cmdLoopToSelection,
@@ -59,9 +59,9 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     syncPanel.onRegister = [this] { registerProject(); };
     syncPanel.onServerSettings = [this] { showServerSettings(); };
     syncPanel.onOpenPicker = [this] { showProjectPicker(); };
-    syncPanel.onShowHistory = [this] { showHistory(); };
-    syncPanel.onPull = [this] { pullNow(); };
-    syncPanel.onPush = [this] (const juce::String& message, bool release) { pushFromPanel (message, release); };
+    syncPanel.onDownload = [this] (const std::map<std::string, collab::Resolution>& choices) { downloadWithChoices (choices, false); };
+    syncPanel.onUpload = [this] (const std::set<std::string>& excluded, const juce::String& message,
+                                 const std::map<std::string, collab::Resolution>& choices) { uploadFromPanel (excluded, message, choices); };
     syncPanel.onJump = [this] (const collab::Change& c) { jumpTo (c); };
     sync.onIncomingRevisions = [this] (const std::vector<SyncManager::RevisionInfo>& revs) { onIncomingRevisions (revs); };
     syncPanel.setVisible (settings.getBoolValue ("syncPanelVisible", true));
@@ -73,7 +73,7 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     layout.setItemLayout (1, 6, 6, 6);            // 仕切り
     layout.setItemLayout (2, 150, -1.0, -0.45);   // ピアノロール
 
-    statusBar.setFont (juce::FontOptions (12.0f));
+    statusBar.setFont (juce::FontOptions (13.5f));
     statusBar.setColour (juce::Label::textColourId, Theme::textDim);
     statusBar.setColour (juce::Label::backgroundColourId, Theme::panel);
 
@@ -99,8 +99,6 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     document.addChangeListener (this);
     state.addChangeListener (this);
     sync.addChangeListener (this);
-    sync.onLockRequired = [this] (std::vector<std::string> ids) { requestLocks (std::move (ids)); };
-    ctx.addLockMenuItems = [this] (const std::string& id, juce::PopupMenu& m) { lockMenuForScope (id, m); };
     ctx.toggleRecord = [this] { toggleRecord(); };
 
     state.countInBars = juce::jlimit (0, 2, settings.getIntValue ("countInBars", 1));
@@ -146,7 +144,6 @@ MainComponent::~MainComponent()
     bridge.onMidiRecorded = nullptr;
     engine.getDeviceManager().deviceManager.removeChangeListener (this);
     pluginWindows.closeAll();
-    sync.onLockRequired = nullptr;
     sync.onIncomingRevisions = nullptr;
     sync.removeChangeListener (this);
     document.removeChangeListener (this);
@@ -593,7 +590,7 @@ void MainComponent::showAudioSettings()
     note->setText ("プロジェクトのサンプルレートは 48kHz 固定です。可能ならデバイスも 48000 Hz に設定してください。"_ju
                    "（Windows で ASIO を使うには ASIO SDK 付きでビルドする必要があります）"_ju,
                    juce::dontSendNotification);
-    note->setFont (juce::FontOptions (12.0f));
+    note->setFont (juce::FontOptions (13.5f));
     note->setColour (juce::Label::textColourId, Theme::textDim);
 
     selector->setBounds (0, 0, 560, 420);
@@ -621,7 +618,7 @@ void MainComponent::showAudioSettings()
             };
             addAndMakeVisible (offset);
 
-            info.setFont (juce::FontOptions (12.0f));
+            info.setFont (juce::FontOptions (13.5f));
             info.setColour (juce::Label::textColourId, Theme::textDim);
             addAndMakeVisible (info);
 
@@ -726,16 +723,6 @@ void MainComponent::toggleRecord()
 
     if (midiTarget)
         armed.push_back (selected->id);
-
-    // 同期中はロックを持っているトラックにだけ録音できる（§4.2）
-    std::vector<std::string> notEditable;
-
-    for (auto& id : armed)
-        if (! sync.canEdit (id))
-            notEditable.push_back (id);
-
-    if (! notEditable.empty())
-        return requestLocks (std::move (notEditable));
 
     if (auto r = bridge.startRecording (state.countInBars); r.failed())
         return Dialogs::showError ("録音できません"_ju, r.getErrorMessage());
@@ -1141,7 +1128,7 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
                          cmdAddDrums, cmdAddBass, cmdAddPiano, cmdAddEPiano, cmdAudioSettings, cmdCredits, cmdAbout, cmdCheckUpdate,
                          cmdRecord, cmdCountIn0, cmdCountIn1, cmdCountIn2,
                          cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
-                         cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory, cmdSyncRefreshLocks,
+                         cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory,
                          cmdAddAudioTrack, cmdImportAudio, cmdImportMidi, cmdExportMixdown, cmdSplit, cmdMuteTrack, cmdSoloTrack, cmdPlugins,
                          cmdToolSelect, cmdToolPencil, cmdModeCubase, cmdModeStudioOne, cmdMixer, cmdMaster, cmdLoopToSelection,
                          cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
@@ -1159,8 +1146,8 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
 
     switch (id)
     {
-        case cmdNew:        info.setInfo ("新規プロジェクト…"_ju, {}, "File", 0); info.addDefaultKeypress ('n', cmd); break;
-        case cmdOpen:       info.setInfo ("開く…"_ju, {}, "File", 0); info.addDefaultKeypress ('o', cmd); break;
+        case cmdNew:        info.setInfo ("新しい曲（サーバーに作る）…"_ju, {}, "File", 0); info.addDefaultKeypress ('n', cmd); break;
+        case cmdOpen:       info.setInfo ("楽曲を開く…"_ju, {}, "File", 0); info.addDefaultKeypress ('o', cmd); break;
         case cmdSave:       info.setInfo ("保存"_ju, {}, "File", 0); info.addDefaultKeypress ('s', cmd); break;
         case cmdUndo:
             info.setInfo ("元に戻す "_ju + document.getUndoDescription(), {}, "Edit", 0);
@@ -1336,8 +1323,8 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
             info.setInfo ("楽曲を選ぶ（サーバー / この PC）…"_ju, {}, "File", 0);
             info.addDefaultKeypress ('o', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
             break;
-        case cmdSyncPull:      info.setInfo ("取り込み（pull）…"_ju, {}, "Sync", 0); info.setActive (sync.isLinked()); break;
-        case cmdSyncPush:      info.setInfo ("アップロード（push）…"_ju, {}, "Sync", 0); info.setActive (sync.isLinked()); break;
+        case cmdSyncPull:      info.setInfo ("ダウンロード（サーバーの新しい変更を取り込む）"_ju, {}, "Sync", 0); info.setActive (sync.isLinked()); break;
+        case cmdSyncPush:      info.setInfo ("アップ（同期パネルを開く）"_ju, {}, "Sync", 0); info.setActive (sync.isLinked()); break;
         case cmdSyncHistory:   info.setInfo ("リビジョン履歴…"_ju, {}, "Sync", 0); info.setActive (sync.isLinked()); break;
         case cmdSyncPanel:
             info.setInfo ("同期パネル"_ju, {}, "Sync", 0);
@@ -1345,7 +1332,6 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
             info.setTicked (syncPanel.isVisible());
             break;
         case cmdSyncCreate:    info.setInfo ("サーバーに新しい曲を作る…"_ju, {}, "Sync", 0); break;
-        case cmdSyncRefreshLocks: info.setInfo ("ロックの状態を更新"_ju, {}, "Sync", 0); info.setActive (sync.isLinked()); break;
         case cmdCredits:    info.setInfo ("クレジット…"_ju, {}, "Help", 0); break;
         case cmdAbout:      info.setInfo ("ShareDAW について…"_ju, {}, "Help", 0); break;
         case cmdCheckUpdate: info.setInfo ("アップデートを確認…"_ju, {}, "Help", 0); break;
@@ -1364,8 +1350,8 @@ bool MainComponent::perform (const InvocationInfo& info)
 {
     switch (info.commandID)
     {
-        case cmdNew:        newProject(); break;
-        case cmdOpen:       openProject(); break;
+        case cmdNew:        createProjectOnServer(); break;
+        case cmdOpen:       showProjectPicker(); break;
         case cmdSave:       saveProject(); break;
         case cmdUndo:       document.undo(); break;
         case cmdRedo:       document.redo(); break;
@@ -1498,17 +1484,11 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdSyncSettings:  showServerSettings(); break;
         case cmdSyncRegister:  registerProject(); break;
         case cmdSyncOpen:      showProjectPicker(); break;
-        case cmdSyncPull:      pull(); break;
-        case cmdSyncPush:      push(); break;
+        case cmdSyncPull:      downloadWithChoices ({}, false); break;
+        case cmdSyncPush:      if (! syncPanel.isVisible()) toggleSyncPanel(); break;
         case cmdSyncHistory:   showHistory(); break;
         case cmdSyncPanel:     toggleSyncPanel(); break;
         case cmdSyncCreate:    createProjectOnServer(); break;
-        case cmdSyncRefreshLocks:
-        {
-            auto r = SyncUI::runWithProgress ("ロックを確認しています"_ju, [this] { return sync.fetchLocks(); });
-            if (r.failed()) Dialogs::showError ("取得できませんでした"_ju, r.getErrorMessage());
-            break;
-        }
         case cmdCredits:    showCredits(); break;
         case cmdAbout:
             Dialogs::showInfo ("ShareDAW について"_ju,
@@ -1616,25 +1596,6 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addCommandItem (cm, cmdSyncPush);
             m.addSeparator();
             m.addCommandItem (cm, cmdSyncHistory);
-            m.addCommandItem (cm, cmdSyncRefreshLocks);
-
-            if (sync.isLinked())
-            {
-                const auto& p = document.getProject();
-
-                for (auto [id, name] : { std::pair (p.tempoTrack.id, "テンポのロック"_ju), std::pair (p.meterTrack.id, "拍子のロック"_ju),
-                                         std::pair (p.chordTrack.id, "コードのロック"_ju), std::pair (p.markerTrack.id, "マーカーのロック"_ju) })
-                {
-                    juce::PopupMenu sub;
-                    lockMenuForScope (id, sub);
-                    auto label = name;
-
-                    if (auto lock = sync.getLock (id))
-                        label << "（"_ju << lock->displayName << "）"_ju;
-
-                    m.addSubMenu (label, sub);
-                }
-            }
 
             m.addSeparator();
             m.addCommandItem (cm, cmdSyncCreate);

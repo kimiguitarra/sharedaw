@@ -203,7 +203,7 @@ void EqGraph::paint (juce::Graphics& g)
     g.fillRect (r);
 
     // グリッド
-    g.setFont (juce::FontOptions (10.0f));
+    g.setFont (juce::FontOptions (11.5f));
 
     for (double hz : { 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0 })
     {
@@ -327,7 +327,7 @@ void EqGraph::paint (juce::Graphics& g)
     if (const int b = dragBand >= 0 ? dragBand : hoverBand; b >= 0)
     {
         const auto text = describe (b);
-        g.setFont (juce::FontOptions (12.0f));
+        g.setFont (juce::FontOptions (13.5f));
         auto box = juce::Rectangle<float> (r.getX() + 6.0f, r.getY() + 6.0f, 260.0f, 20.0f);
         g.setColour (juce::Colours::black.withAlpha (0.6f));
         g.fillRoundedRectangle (box, 4.0f);

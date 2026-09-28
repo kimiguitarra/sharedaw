@@ -33,12 +33,6 @@ void ProjectDocument::perform (const juce::String& description, const std::funct
     if (project == before)
         return;
 
-    if (editGuard && ! editGuard (before, project))
-    {
-        project = std::move (before);
-        return;
-    }
-
     if (mergeId.isEmpty() || mergeId != lastMergeId || undoStack.empty())
     {
         undoStack.push_back ({ std::move (before), description });

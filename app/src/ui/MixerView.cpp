@@ -19,6 +19,51 @@ namespace
         return db <= -59.9 ? juce::String ("-inf") : (db > 0.05 ? "+" : "") + juce::String (db, 1);
     }
 
+    /** 打ち込んだ dB（「-6」「+3.5」「-inf」「6dB」など）。数字でなければ nullopt。 */
+    std::optional<double> parseDb (juce::String text, double minDb, double maxDb)
+    {
+        text = text.trim().toLowerCase().removeCharacters ("db ");
+
+        if (text.contains ("inf") || text == "off")
+            return minDb;
+
+        if (! text.containsAnyOf ("0123456789"))
+            return std::nullopt;
+
+        return juce::jlimit (minDb, maxDb, text.getDoubleValue());
+    }
+
+    /** 打ち込んだパン（「L30」「R20」「C」「-30」「30」）を -1〜1 に。 */
+    std::optional<double> parsePan (juce::String text)
+    {
+        text = text.trim().toUpperCase();
+
+        if (text == "C" || text == "0")
+            return 0.0;
+
+        double sign = 1.0;
+
+        if (text.startsWithChar ('L'))       { sign = -1.0; text = text.substring (1); }
+        else if (text.startsWithChar ('R'))  { text = text.substring (1); }
+
+        if (! text.containsAnyOf ("0123456789"))
+            return std::nullopt;
+
+        return juce::jlimit (-1.0, 1.0, sign * text.getDoubleValue() / 100.0);
+    }
+
+    /** 数値を打ち込むラベル（クリックで入力、Enter で確定、Esc でやめる）。 */
+    void styleValueLabel (juce::Label& l)
+    {
+        l.setJustificationType (juce::Justification::centred);
+        l.setFont (juce::FontOptions (12.5f));
+        l.setColour (juce::Label::backgroundColourId, juce::Colour (0xff15171b));
+        l.setColour (juce::Label::backgroundWhenEditingColourId, juce::Colour (0xff0e0f12));
+        l.setColour (juce::Label::textWhenEditingColourId, Theme::text);
+        l.setColour (juce::Label::outlineWhenEditingColourId, Theme::accent);
+        l.setColour (juce::TextEditor::highlightColourId, Theme::accent.withAlpha (0.4f));
+    }
+
     /** センドの量（dB）とバーの長さ（0〜1）の対応。左端はオフ（-inf）。 */
     constexpr double sendMinDb = -48.0, sendMaxDb = 6.0;
     double sendDbForRatio (double t)   { return t < 0.02 ? -100.0 : juce::jmap (t, 0.02, 1.0, sendMinDb, sendMaxDb); }
@@ -43,6 +88,8 @@ namespace
 class LevelMeter  : public juce::Component
 {
 public:
+    bool mono = false;
+
     void push (EngineBridge::StereoPeak peak)
     {
         const float levels[2] = { peak.left, peak.right };
@@ -66,9 +113,10 @@ public:
         auto toY = [&] (float db) { return juce::jmap (db, meterFloorDb, 6.0f, area.getBottom(), area.getY()); };
         juce::ColourGradient gradient (juce::Colour (0xffff5252), 0.0f, toY (6.0f), juce::Colour (0xff66bb6a), 0.0f, toY (-18.0f), false);
         gradient.addColour (juce::jmap (-6.0, (double) meterFloorDb, 6.0, 1.0, 0.0), juce::Colour (0xffffd54f));
-        const float w = (area.getWidth() - 3.0f) / 2.0f;
+        const int numBars = mono ? 1 : 2;
+        const float w = (area.getWidth() - (float) (numBars + 1)) / (float) numBars;
 
-        for (int ch = 0; ch < 2; ++ch)
+        for (int ch = 0; ch < numBars; ++ch)
         {
             const auto r = juce::Rectangle<float> (area.getX() + 1.0f + (float) ch * (w + 1.0f), area.getY(), w, area.getHeight());
             const float y = toY (shown[ch]);
@@ -90,6 +138,10 @@ struct PanBar  : public juce::Slider
 {
     PanBar() : juce::Slider (juce::Slider::LinearBar, juce::Slider::NoTextBox) {}
 
+    /** ダブルクリックで数値を打ち込む（Alt ＋クリックで中央）。 */
+    std::function<void()> onType;
+    void mouseDoubleClick (const juce::MouseEvent&) override   { if (onType) onType(); }
+
     void paint (juce::Graphics& g) override
     {
         auto r = getLocalBounds().toFloat();
@@ -104,7 +156,7 @@ struct PanBar  : public juce::Slider
         g.setColour (Theme::gridBar);
         g.drawVerticalLine (juce::roundToInt (centre), r.getY(), r.getBottom());
         g.setColour (Theme::text);
-        g.setFont (juce::FontOptions (10.5f));
+        g.setFont (juce::FontOptions (12.0f));
         g.drawText (getTextFromValue (getValue()), r, juce::Justification::centred);
     }
 };
@@ -168,7 +220,7 @@ protected:
         g.setColour (filled ? Theme::panelLight : Theme::panel.withAlpha (0.5f));
         g.fillRect (row.reduced (1, 1));
         g.setColour (active ? Theme::text : Theme::textDim);
-        g.setFont (juce::FontOptions (11.0f));
+        g.setFont (juce::FontOptions (12.5f));
         g.drawText (text, row.reduced (4, 0), juce::Justification::centredLeft, true);
     }
 
@@ -408,7 +460,7 @@ public:
         g.setFont (juce::FontOptions (18.0f, juce::Font::bold));
         g.drawText (integrated <= -99.0 ? juce::String ("--.-") : juce::String (integrated, 1), r.removeFromTop (22), juce::Justification::centred);
         g.setColour (Theme::textDim);
-        g.setFont (juce::FontOptions (10.0f));
+        g.setFont (juce::FontOptions (11.5f));
         g.drawText ("LUFS（目標 -14）"_ju, r.removeFromTop (13), juce::Justification::centred);
         g.drawText ("S " + (status.shortTermLufs <= -99.0 ? juce::String ("--.-") : juce::String (status.shortTermLufs, 1)),
                     r.removeFromTop (14), juce::Justification::centred);
@@ -449,7 +501,7 @@ public:
                 g.fillRect (inner.withWidth (inner.getWidth() * (float) sendRatioForDb (s.levelDb)));
 
                 g.setColour (Theme::text);
-                g.setFont (juce::FontOptions (10.5f));
+                g.setFont (juce::FontOptions (12.0f));
                 auto text = inner.reduced (3.0f, 0.0f);
                 g.drawText (formatDb (s.levelDb), text, juce::Justification::centredRight);
                 g.drawText ((s.preFader ? "PRE " : "") + (bus != nullptr ? toJuce (bus->name) : juce::String ("?")),
@@ -494,14 +546,14 @@ public:
             return;
         }
 
+        // クリックだけでは変えない（ダブルクリックで打ち込めるように）。ドラッグで量を変える
         dragBus = s.busId;
         mergeId = juce::Uuid().toString();
-        setLevelFromX (e.x);
     }
 
     void mouseDrag (const juce::MouseEvent& e) override
     {
-        if (! dragBus.empty())
+        if (! dragBus.empty() && e.getDistanceFromDragStart() > 2)
             setLevelFromX (e.x);
     }
 
@@ -513,18 +565,46 @@ public:
         dragBus.clear();
     }
 
+    /** ダブルクリックで量（dB）を打ち込む。 */
     void mouseDoubleClick (const juce::MouseEvent& e) override
     {
         auto* t = track();
         const int i = (e.y - headerHeight) / rowHeight;
 
-        if (t != nullptr && e.y >= headerHeight && i < (int) t->sends.size())
-            ctx.setSend (trackId, t->sends[(size_t) i].busId, 0.0, std::nullopt);
+        if (t == nullptr || e.y < headerHeight || i >= (int) t->sends.size())
+            return;
+
+        const auto& send = t->sends[(size_t) i];
+        editingBus = send.busId;
+
+        if (editor == nullptr)
+        {
+            editor = std::make_unique<juce::Label>();
+            styleValueLabel (*editor);
+            editor->setEditable (true, true, true);
+            editor->onTextChange = [this]
+            {
+                if (auto db = parseDb (editor->getText(), -100.0, sendMaxDb))
+                    ctx.setSend (trackId, editingBus, *db <= sendMinDb - 0.05 ? -100.0 : *db, std::nullopt);
+            };
+            editor->onEditorHide = [this] { juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<SendSection> (this)]
+            {
+                if (safe != nullptr && safe->editor != nullptr)
+                    safe->editor->setVisible (false);
+            }); };
+            addChildComponent (*editor);
+        }
+
+        editor->setBounds (juce::Rectangle<int> (1, headerHeight + i * rowHeight, getWidth() - 2, rowHeight));
+        editor->setText (formatDb (send.levelDb), juce::dontSendNotification);
+        editor->setVisible (true);
+        editor->showEditor();
     }
 
 private:
-    std::string dragBus;
+    std::string dragBus, editingBus;
     juce::String mergeId;
+    std::unique_ptr<juce::Label> editor;
 
     void setLevelFromX (int x)
     {
@@ -564,13 +644,33 @@ public:
         sends.setVisible (isTrack());
 
         pan.setRange (-1.0, 1.0, 0.01);
-        pan.setDoubleClickReturnValue (true, 0.0);
         pan.textFromValueFunction = [] (double v)
         {
             const int n = juce::roundToInt (std::abs (v) * 100.0);
             return n == 0 ? juce::String ("C") : (v < 0 ? "L" : "R") + juce::String (n);
         };
-        pan.setTooltip ("パン（ダブルクリックで中央）"_ju);
+        pan.setDoubleClickReturnValue (true, 0.0, juce::ModifierKeys::altModifier);
+        pan.setTooltip ("パン（ダブルクリックで数値を入力: L30・C・R20。Alt ＋クリックで中央）"_ju);
+        pan.onType = [this]
+        {
+            panEdit.setBounds (pan.getBounds());
+            panEdit.setText (pan.getTextFromValue (pan.getValue()), juce::dontSendNotification);
+            panEdit.setVisible (true);
+            panEdit.showEditor();
+        };
+        styleValueLabel (panEdit);
+        panEdit.setEditable (true, true, true);
+        panEdit.onTextChange = [this]
+        {
+            if (auto v = parsePan (panEdit.getText()))
+                pan.setValue (*v, juce::sendNotificationSync);
+        };
+        panEdit.onEditorHide = [this] { juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<Strip> (this)]
+        {
+            if (safe != nullptr)
+                safe->panEdit.setVisible (false);
+        }); };
+        addChildComponent (panEdit);
         pan.setVisible (isTrack());
         addChildComponent (pan);
 
@@ -579,12 +679,19 @@ public:
         fader.setRange (-60.0, 6.0, 0.1);
         fader.setSkewFactorFromMidPoint (-12.0);
         fader.setDoubleClickReturnValue (true, isChord() || isMetronome() ? -6.0 : 0.0);
-        fader.setTooltip ("音量（ダブルクリックで既定値）"_ju);
+        fader.setTooltip ("音量（ダブルクリックで既定値。下の数字をクリックすると dB を打ち込めます）"_ju);
         addAndMakeVisible (fader);
 
-        value.setJustificationType (juce::Justification::centred);
-        value.setFont (juce::FontOptions (11.0f));
-        value.setColour (juce::Label::backgroundColourId, juce::Colour (0xff15171b));
+        styleValueLabel (value);
+        value.setEditable (true, true, true);
+        value.setTooltip ("クリックして音量（dB）を入力。Enter で確定"_ju);
+        value.onTextChange = [this]
+        {
+            if (auto db = parseDb (value.getText(), -60.0, 6.0))
+                fader.setValue (*db, juce::sendNotificationSync);
+
+            value.setText (formatDb (fader.getValue()), juce::dontSendNotification);
+        };
         addAndMakeVisible (value);
         addAndMakeVisible (meter);
 
@@ -707,7 +814,9 @@ public:
         for (auto* s : std::initializer_list<MixSection*> { &inserts, &eq, &comp, &sends, &masterSection })
             s->update();
 
-        value.setText (formatDb (fader.getValue()), juce::dontSendNotification);
+        if (! value.isBeingEdited())
+            value.setText (formatDb (fader.getValue()), juce::dontSendNotification);
+
         repaint();
     }
 
@@ -765,15 +874,15 @@ public:
 
         if (number.isNotEmpty())
         {
-            g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+            g.setFont (juce::FontOptions (12.5f, juce::Font::bold));
             g.drawText (number, r.removeFromLeft (16), juce::Justification::centredLeft);
         }
 
-        g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+        g.setFont (juce::FontOptions (13.5f, juce::Font::bold));
         g.drawText (name, r, juce::Justification::centred, true);
 
         g.setColour (Theme::textDim);
-        g.setFont (juce::FontOptions (10.0f));
+        g.setFont (juce::FontOptions (11.5f));
         g.drawText (detail, detailArea, juce::Justification::centred, true);
 
         g.setColour (Theme::background);
@@ -869,7 +978,7 @@ private:
     CompSection comp;
     SendSection sends;
     MasterSection masterSection;
-    juce::Label value;
+    juce::Label value, panEdit;
     PanBar pan;
     juce::Slider fader;
     juce::TextButton mute, solo;
@@ -902,6 +1011,191 @@ private:
 };
 
 //==============================================================================
+/** 左端の「入力」: オーディオ機器に入ってくる信号（チャンネルごと）。録音の前にレベルを確かめる。 */
+class MixerView::InputStrip  : public juce::Component,
+                               public juce::SettableTooltipClient
+{
+public:
+    explicit InputStrip (AppContext& c) : ctx (c)
+    {
+        setTooltip ("オーディオ機器の入力（チャンネルごと）。録音する前に、ここで音が来ているか・大きすぎないかを確かめます。数字は最大値（クリックでリセット）"_ju);
+    }
+
+    std::function<void()> onLayoutChanged;
+
+    int preferredWidth() const
+    {
+        return juce::jmax (stripWidth, scaleWidth + 10 + (int) columns.size() * columnWidth);
+    }
+
+    void updateMeters()
+    {
+        const auto levels = ctx.engine.getInputLevels();
+        bool same = levels.size() == columns.size();
+
+        for (size_t i = 0; same && i < levels.size(); ++i)
+            same = levels[i].name == columns[i]->name;
+
+        if (! same)
+        {
+            columns.clear();
+
+            for (auto& l : levels)
+            {
+                auto col = std::make_unique<Column>();
+                col->name = l.name;
+                col->meter.mono = true;
+                col->meter.setInterceptsMouseClicks (false, false);
+                addAndMakeVisible (col->meter);
+                columns.push_back (std::move (col));
+            }
+
+            if (auto* device = ctx.engine.getEngine().getDeviceManager().deviceManager.getCurrentAudioDevice())
+                deviceName = device->getName();
+            else
+                deviceName = {};
+
+            if (onLayoutChanged)
+                onLayoutChanged();
+
+            resized();
+        }
+
+        bool changedMax = false;
+
+        for (size_t i = 0; i < levels.size(); ++i)
+        {
+            auto& col = *columns[i];
+            col.meter.push ({ levels[i].peakDb, levels[i].peakDb });
+
+            if (levels[i].peakDb > col.maxDb + 0.05f)
+            {
+                col.maxDb = levels[i].peakDb;
+                changedMax = true;
+            }
+        }
+
+        if (changedMax)
+            repaint();
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.setColour (Theme::panel);
+        g.fillRect (getLocalBounds().reduced (1, 0));
+        g.setColour (Theme::textDim);
+        g.fillRect (getLocalBounds().reduced (1, 0).removeFromTop (3));
+
+        auto area = getLocalBounds().reduced (6, 0);
+        area.removeFromTop (8);
+        g.setColour (Theme::textDim);
+        g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
+        g.drawText ("INPUT", area.removeFromTop (15), juce::Justification::centredLeft);
+        g.setColour (Theme::text);
+        g.setFont (juce::FontOptions (12.5f));
+        g.drawFittedText (deviceName.isNotEmpty() ? deviceName : "オーディオ機器なし"_ju, area.removeFromTop (34), juce::Justification::topLeft, 2);
+
+        if (columns.empty())
+        {
+            g.setColour (Theme::textDim);
+            g.setFont (juce::FontOptions (12.5f));
+            g.drawFittedText ("入力が使えません。\nオーディオ設定で入力を有効にしてください"_ju, getLocalBounds().reduced (8).withTrimmedTop (80).withHeight (80),
+                              juce::Justification::centredTop, 4);
+        }
+        else if (! meterArea.isEmpty())
+        {
+            // 目盛り
+            g.setFont (juce::FontOptions (11.0f));
+
+            for (float db : { 6.0f, 0.0f, -6.0f, -12.0f, -24.0f, -36.0f, -48.0f })
+            {
+                const int y = juce::roundToInt (juce::jmap (db, meterFloorDb, 6.0f, (float) meterArea.getBottom(), (float) meterArea.getY()));
+                g.setColour (Theme::gridBar);
+                g.drawHorizontalLine (y, (float) meterArea.getX() + scaleWidth - 4.0f, (float) meterArea.getX() + scaleWidth);
+                g.setColour (Theme::textDim);
+                g.drawText (juce::String ((int) db), juce::Rectangle<int> (meterArea.getX(), y - 6, scaleWidth - 6, 12), juce::Justification::centredRight);
+            }
+
+            for (size_t i = 0; i < columns.size(); ++i)
+            {
+                auto& col = *columns[i];
+                const auto x = col.meter.getX() - 2;
+
+                // 最大値（0 dB を超えたら赤）
+                g.setColour (col.maxDb > -0.1f ? Theme::danger : Theme::text);
+                g.setFont (juce::FontOptions (11.5f));
+                g.drawText (col.maxDb <= meterFloorDb ? juce::String ("-") : juce::String (juce::roundToInt (col.maxDb)),
+                            juce::Rectangle<int> (x, meterArea.getY() - 18, columnWidth, 16), juce::Justification::centred);
+
+                // チャンネル番号
+                g.setColour (Theme::text);
+                g.setFont (juce::FontOptions (12.5f, juce::Font::bold));
+                g.drawText (juce::String ((int) i + 1), juce::Rectangle<int> (x, meterArea.getBottom() + 4, columnWidth, 16), juce::Justification::centred);
+            }
+        }
+
+        // 下の名前
+        g.setColour (Theme::panelLight);
+        g.fillRoundedRectangle (nameArea.toFloat(), 3.0f);
+        g.setColour (Theme::text);
+        g.setFont (juce::FontOptions (13.5f, juce::Font::bold));
+        g.drawText ("入力"_ju, nameArea, juce::Justification::centred);
+
+        g.setColour (Theme::background);
+        g.drawVerticalLine (getWidth() - 1, 0.0f, (float) getHeight());
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced (4, 0);
+        nameArea = area.removeFromBottom (22);
+        area.removeFromBottom (26);
+        area.removeFromTop (8 + 15 + 34 + 24);
+        meterArea = area;
+
+        auto meters = area.withTrimmedLeft (scaleWidth);
+
+        for (auto& col : columns)
+            col->meter.setBounds (meters.removeFromLeft (columnWidth).reduced (4, 0));
+    }
+
+    void mouseDown (const juce::MouseEvent&) override
+    {
+        for (auto& col : columns)
+            col->maxDb = meterFloorDb;
+
+        repaint();
+    }
+
+    /** チャンネルにマウスを乗せると、機器が付けている名前を出す。 */
+    juce::String getTooltip() override
+    {
+        const auto p = getMouseXYRelative();
+
+        for (size_t i = 0; i < columns.size(); ++i)
+            if (p.x >= columns[i]->meter.getX() - 4 && p.x < columns[i]->meter.getRight() + 4)
+                return juce::String ((int) i + 1) + ": " + columns[i]->name;
+
+        return juce::SettableTooltipClient::getTooltip();
+    }
+
+private:
+    static constexpr int columnWidth = 26, scaleWidth = 30;
+
+    struct Column
+    {
+        juce::String name;
+        LevelMeter meter;
+        float maxDb = meterFloorDb;
+    };
+
+    AppContext& ctx;
+    std::vector<std::unique_ptr<Column>> columns;
+    juce::String deviceName;
+    juce::Rectangle<int> meterArea, nameArea;
+};
+
+//==============================================================================
 MixerView::MixerView (AppContext& c) : ctx (c)
 {
     addBusButton.setButtonText ("+ バスを追加"_ju);
@@ -909,8 +1203,8 @@ MixerView::MixerView (AppContext& c) : ctx (c)
     addBusButton.onClick = [this] { ctx.addBusTrack ("Bus"_ju); };
     addAndMakeVisible (addBusButton);
 
-    hint.setText ("INSERTS・SENDS の空き枠（+）をクリックで追加、右クリックでメニュー。センドは左右にドラッグで量"_ju, juce::dontSendNotification);
-    hint.setFont (juce::FontOptions (11.0f));
+    hint.setText ("INSERTS・SENDS の空き枠（+）で追加、右クリックでメニュー。音量の数字はクリック、パン・センドはダブルクリックで数値を入力"_ju, juce::dontSendNotification);
+    hint.setFont (juce::FontOptions (12.5f));
     hint.setColour (juce::Label::textColourId, Theme::textDim);
     addAndMakeVisible (hint);
 
@@ -918,11 +1212,15 @@ MixerView::MixerView (AppContext& c) : ctx (c)
     viewport.setScrollBarsShown (false, true);
     addAndMakeVisible (viewport);
 
+    inputStrip = std::make_unique<InputStrip> (ctx);
+    inputStrip->onLayoutChanged = [this] { resized(); };
+    addAndMakeVisible (*inputStrip);
+
     ctx.document.addChangeListener (this);
     ctx.state.addChangeListener (this);
     rebuild();
     startTimerHz (30);
-    setSize (stripWidth * 7, 700);
+    setSize (stripWidth * 8, 700);
 }
 
 MixerView::~MixerView()
@@ -934,6 +1232,12 @@ MixerView::~MixerView()
 void MixerView::paint (juce::Graphics& g)
 {
     g.fillAll (Theme::background);
+
+    // 入力・トラック・メトロノーム/マスターの区切り
+    g.setColour (Theme::background.darker (0.6f));
+
+    for (int x : { viewport.getX() - 3, viewport.getRight() })
+        g.fillRect (x, viewport.getY(), 3, viewport.getHeight());
 }
 
 void MixerView::resized()
@@ -944,12 +1248,22 @@ void MixerView::resized()
     top.removeFromLeft (10);
     hint.setBounds (top);
 
+    // 左端に入力、右端にメトロノームとマスター（スクロールしても動かない）。間のトラックだけ横にスクロールする
+    const int stripHeight = juce::jmax (560, area.getHeight() - viewport.getScrollBarThickness());
+    inputStrip->setBounds (area.removeFromLeft (inputStrip->preferredWidth()).withHeight (stripHeight));
+    area.removeFromLeft (3);
+
+    for (int i = fixedStrips.size(); --i >= 0;)
+        fixedStrips[i]->setBounds (area.removeFromRight (stripWidth).withHeight (stripHeight));
+
+    area.removeFromRight (3);
     viewport.setBounds (area);
-    const int height = viewport.getHeight() - (content.getWidth() > viewport.getWidth() ? viewport.getScrollBarThickness() : 0);
-    content.setSize (juce::jmax (viewport.getWidth(), strips.size() * stripWidth), juce::jmax (560, height));
+    content.setSize (juce::jmax (viewport.getWidth(), strips.size() * stripWidth), stripHeight);
 
     for (int i = 0; i < strips.size(); ++i)
         strips[i]->setBounds (i * stripWidth, 0, stripWidth, content.getHeight());
+
+    repaint();
 }
 
 void MixerView::rebuild()
@@ -959,8 +1273,17 @@ void MixerView::rebuild()
     for (auto& t : ctx.document.getProject().tracks)
         ids.push_back (t.id);
 
-    ids.push_back (metronomeId);   // 右端にメトロノームとマスター
-    ids.push_back (masterId);
+    if (fixedStrips.isEmpty())
+    {
+        // 右端に固定: メトロノームとマスター
+        for (auto& id : { metronomeId, masterId })
+            addAndMakeVisible (fixedStrips.add (new Strip (ctx, id)));
+
+        resized();
+    }
+
+    for (auto* s : fixedStrips)
+        s->update();
 
     bool same = (int) ids.size() == strips.size();
 
@@ -990,4 +1313,9 @@ void MixerView::timerCallback()
 {
     for (auto* s : strips)
         s->updateMeter();
+
+    for (auto* s : fixedStrips)
+        s->updateMeter();
+
+    inputStrip->updateMeters();
 }

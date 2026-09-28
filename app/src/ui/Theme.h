@@ -48,12 +48,47 @@ namespace Theme
     /** 見出しの帯（Cubase のインスペクターのセクション見出しのように、少し明るい帯に文字）。 */
     void drawSectionHeader (juce::Graphics&, juce::Rectangle<int> area, const juce::String& title, const juce::String& right = {});
 
+    /**
+        Liquid Glass 風の面。下地の上に半透明の白を重ね、上の縁に光、細い明るい縁取りを付ける（色は付けない）。
+        tint を渡すと、その色をごく薄く混ぜる（選択中・状態の色分け）。
+    */
+    void drawGlass (juce::Graphics&, juce::Rectangle<float> area, float radius, juce::Colour tint = {});
+
     /** 状態の小さな丸（接続中・オフラインなど）。 */
     void drawStatusDot (juce::Graphics&, juce::Rectangle<float> area, juce::Colour);
 
+    /** アイコンの形（塗りつぶし用）。name: snap / follow / loop / metronome / stop / play / pause / record */
+    juce::Path iconPath (const juce::String& name, juce::Rectangle<float> area);
+
+    /** アイコンだけのボタン（TextButton と同じように使える。文字は描かず、ツールチップで説明する）。 */
+    class IconButton  : public juce::TextButton
+    {
+    public:
+        explicit IconButton (juce::String iconName) : icon (std::move (iconName)) {}
+
+        void setIcon (const juce::String& name)     { icon = name; repaint(); }
+        void paintButton (juce::Graphics&, bool highlighted, bool down) override;
+
+    private:
+        juce::String icon;
+    };
+
+    /** Liquid Glass 風の見た目（半透明の白のカプセル、明るい縁、上の光。色は落ち着いたまま）。 */
     class LookAndFeel  : public juce::LookAndFeel_V4
     {
     public:
         LookAndFeel();
+
+        void drawButtonBackground (juce::Graphics&, juce::Button&, const juce::Colour& backgroundColour,
+                                   bool highlighted, bool down) override;
+        void drawComboBox (juce::Graphics&, int width, int height, bool down, int buttonX, int buttonY, int buttonW, int buttonH,
+                           juce::ComboBox&) override;
+        void fillTextEditorBackground (juce::Graphics&, int width, int height, juce::TextEditor&) override;
+        void drawTextEditorOutline (juce::Graphics&, int width, int height, juce::TextEditor&) override;
+        void drawLinearSlider (juce::Graphics&, int x, int y, int width, int height, float sliderPos, float minSliderPos,
+                               float maxSliderPos, juce::Slider::SliderStyle, juce::Slider&) override;
+        void drawScrollbar (juce::Graphics&, juce::ScrollBar&, int x, int y, int width, int height, bool isScrollbarVertical,
+                            int thumbStartPosition, int thumbSize, bool isMouseOver, bool isMouseDown) override;
+        void drawPopupMenuBackground (juce::Graphics&, int width, int height) override;
     };
 }

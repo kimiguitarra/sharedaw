@@ -51,7 +51,7 @@ void TempoLane::paint (juce::Graphics& g)
     TimeGrid::drawGrid (g, getLocalBounds(), axis, document.getTempoMap(), nullptr);
 
     const auto& events = document.getProject().tempoTrack.events;
-    g.setFont (juce::FontOptions (12.0f));
+    g.setFont (juce::FontOptions (13.5f));
 
     for (size_t i = 0; i < events.size(); ++i)
     {
@@ -295,7 +295,7 @@ void MeterLane::paint (juce::Graphics& g)
     const auto& map = document.getTempoMap();
     g.fillAll (Theme::laneAlt);
     TimeGrid::drawGrid (g, getLocalBounds(), axis, map, nullptr);
-    g.setFont (juce::FontOptions (12.0f));
+    g.setFont (juce::FontOptions (13.5f));
 
     // 左にスクロールして変更点が見えなくなっても、いまの拍子を左端に出す
     {

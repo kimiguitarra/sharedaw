@@ -162,13 +162,10 @@ route("GET", "/projects/:id", async (ctx, { id }) => {
   });
 });
 
-// 曲の削除（作成した人だけ）。リビジョン・ロック・メンバーを消し、この曲だけが使っていたプロジェクト JSON の実体も消す。
+// 曲の削除（参加している人なら誰でも）。リビジョン・ロック・メンバーを消し、この曲だけが使っていたプロジェクト JSON の実体も消す。
 // オーディオの実体は他の曲と共有している可能性があるので残す（コンテンツアドレスで重複しない）。
 route("DELETE", "/projects/:id", async (ctx, { id }) => {
-  const project = await requireMember(ctx, id);
-  if (project.created_by !== ctx.user.id) {
-    throw new HttpError(403, "not_owner", "曲を削除できるのは作った人だけです（参加をやめるには「参加をやめる」を使ってください）");
-  }
+  await requireMember(ctx, id);
 
   const revs = await ctx.env.DB.prepare("SELECT project_json_hash FROM revisions WHERE project_id = ?").bind(id).all<{ project_json_hash: string }>();
   const jsonHashes = [...new Set(revs.results.map((r) => r.project_json_hash))];
@@ -199,6 +196,18 @@ route("DELETE", "/projects/:id", async (ctx, { id }) => {
   }
 
   return json({ ok: true, deletedRevisions: revs.results.length, deletedBlobs });
+});
+
+// 曲名の変更（参加している人なら誰でも）
+route("PATCH", "/projects/:id", async (ctx, { id }) => {
+  await requireMember(ctx, id);
+  const body = await readJson<{ name?: string }>(ctx.request);
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  if (!name) throw new HttpError(400, "bad_request", "name が必要です");
+  if (name.length > 200) throw new HttpError(400, "bad_request", "曲名が長すぎます");
+
+  await ctx.env.DB.prepare("UPDATE projects SET name = ? WHERE id = ?").bind(name, id).run();
+  return json({ id, name });
 });
 
 // 参加をやめる（自分をメンバーから外す。作った人は削除を使う）
@@ -291,7 +300,7 @@ route("POST", "/projects/:id/revisions", async (ctx, { id }) => {
   const missing = refs.filter((h) => !present.has(h));
   if (missing.length > 0) throw new HttpError(400, "missing_blobs", "アップロードされていないオーディオがあります", { hashes: missing });
 
-  // 4. 変更したスコープのロック（サーバー側で親と比較して判定する）
+  // 4. 変わったスコープ（応答用。ロックはない。競合はアプリがトラックごとに利用者に選んでもらって解決する）
   let parent: ProjectJson | null = null;
 
   if (project.head_revision > 0) {
@@ -302,14 +311,6 @@ route("POST", "/projects/:id/revisions", async (ctx, { id }) => {
   }
 
   const changes = changedScopes(parent, next);
-  const locks = await ctx.env.DB.prepare("SELECT track_id, user_id FROM locks WHERE project_id = ?").bind(id).all<{ track_id: string; user_id: string }>();
-  const holder = new Map(locks.results.map((l) => [l.track_id, l.user_id]));
-
-  const notLocked = changes.filter((c) => c.existedInParent && holder.get(c.id) !== ctx.user.id).map((c) => c.id);
-  if (notLocked.length > 0) throw new HttpError(403, "lock_required", "ロックを持っていないトラックが変更されています", { trackIds: notLocked });
-
-  const lockedByOthers = changes.filter((c) => !c.existedInParent && holder.has(c.id) && holder.get(c.id) !== ctx.user.id).map((c) => c.id);
-  if (lockedByOthers.length > 0) throw new HttpError(409, "locked", "他の人がロックしているトラックがあります", { trackIds: lockedByOthers });
 
   // 5. リビジョンの登録とヘッドの更新（アトミック）
   const number = project.head_revision + 1;
@@ -325,35 +326,6 @@ route("POST", "/projects/:id/revisions", async (ctx, { id }) => {
   if (insert.meta.changes !== 1) {
     throw new HttpError(409, "not_head", "サーバーに新しいリビジョンがあります。先に取り込んでください");
   }
-
-  // 6. ロックの後始末: 新規トラックは作成者がロックを持つ（§4.2）。削除したトラックのロックは消す。必要なら解除する。
-  const lockStatements: D1PreparedStatement[] = [];
-  const isFirstRevision = parent === null;
-
-  for (const c of changes) {
-    if (c.deleted) {
-      lockStatements.push(ctx.env.DB.prepare("DELETE FROM locks WHERE project_id = ? AND track_id = ?").bind(id, c.id));
-      continue;
-    }
-
-    const release = body.releaseLocks === true || (isFirstRevision && c.kind !== "track");
-
-    if (release) {
-      if (holder.get(c.id) === ctx.user.id) {
-        lockStatements.push(ctx.env.DB.prepare("DELETE FROM locks WHERE project_id = ? AND track_id = ? AND user_id = ?").bind(id, c.id, ctx.user.id));
-        lockStatements.push(
-          ctx.env.DB.prepare("INSERT INTO lock_events (project_id, track_id, user_id, action, created_at) VALUES (?, ?, ?, 'release', ?)").bind(id, c.id, ctx.user.id, now),
-        );
-      }
-    } else if (!holder.has(c.id)) {
-      lockStatements.push(ctx.env.DB.prepare("INSERT OR IGNORE INTO locks (project_id, track_id, user_id, acquired_at) VALUES (?, ?, ?, ?)").bind(id, c.id, ctx.user.id, now));
-      lockStatements.push(
-        ctx.env.DB.prepare("INSERT INTO lock_events (project_id, track_id, user_id, action, created_at) VALUES (?, ?, ?, 'acquire', ?)").bind(id, c.id, ctx.user.id, now),
-      );
-    }
-  }
-
-  if (lockStatements.length > 0) await ctx.env.DB.batch(lockStatements);
 
   return json({ number, head: number, changedTrackIds: changes.map((c) => c.id) }, 201);
 });

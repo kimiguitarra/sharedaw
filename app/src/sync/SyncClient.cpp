@@ -83,6 +83,12 @@ ApiResponse SyncClient::request (const juce::String& method, const juce::String&
 ApiResponse SyncClient::get (const juce::String& path) const                         { return request ("GET", path, nullptr); }
 ApiResponse SyncClient::del (const juce::String& path) const                         { return request ("DELETE", path, nullptr); }
 
+ApiResponse SyncClient::patch (const juce::String& path, const nlohmann::json& body) const
+{
+    const auto text = body.dump();
+    return request ("PATCH", path, &text);
+}
+
 ApiResponse SyncClient::post (const juce::String& path, const nlohmann::json& body) const
 {
     const auto text = body.dump();

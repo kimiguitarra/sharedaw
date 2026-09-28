@@ -2,6 +2,7 @@
 
 #include "ui/AppContext.h"
 #include "ui/MidiInputPanel.h"
+#include "ui/Theme.h"
 
 /** クリックで入力、ホイールで増減できる値（テンポ・拍子・ループ範囲）。 */
 struct ValueLabel  : public juce::Label
@@ -51,7 +52,9 @@ private:
     AppContext& ctx;
     ToolButton selectTool { EditTool::select }, pencilTool { EditTool::pencil }, splitTool { EditTool::split };
     juce::ComboBox quantiseBox;
-    juce::TextButton snapButton, autoScrollButton, metronomeButton, settingsButton;
+    Theme::IconButton snapButton { "snap" }, autoScrollButton { "follow" }, metronomeButton { "metronome" };
+    juce::TextButton settingsButton;
+    std::vector<juce::Rectangle<int>> groups;   // ガラスのまとまり（ツール、クオンタイズ、メトロノーム…）
     juce::Slider metronomeVolume { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     MidiActivityLight midiLight;
     juce::Component* syncBadge = nullptr;
@@ -80,7 +83,8 @@ private:
     AppContext& ctx;
     juce::Label loopStartTitle, loopEndTitle;
     ValueLabel loopStartLabel, loopEndLabel;
-    juce::TextButton loopButton, stopButton, playButton, recordButton;
+    Theme::IconButton loopButton { "loop" }, stopButton { "stop" }, playButton { "play" }, recordButton { "record" };
+    std::vector<juce::Rectangle<int>> groups;
     juce::Label barBeatLabel, timeLabel;
     ValueLabel bpmLabel, meterLabel;
     juce::String wheelMergeId;

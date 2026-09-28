@@ -2,6 +2,7 @@
 
 // 同期のための差分計算とマージ（仕様書 §4.3〜4.5）。すべて要素の UUID を基準にする。
 
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
@@ -49,23 +50,39 @@ bool scopeEquals (const Project& a, const Project& b, const std::string& scopeId
 std::vector<std::string> allScopeIds (const Project&);
 
 //==============================================================================
-struct PullResult
+// ロックなしの同期（§4.5〜4.6）: スコープ（トラック・テンポなど）ごとに「自分の変更」「サーバーの変更」「競合」を見て、
+// 利用者がスコープごとに採用する版を選ぶ。
+
+/** スコープの同期の状態。 */
+struct ScopeSyncState
 {
-    Project merged;
-    std::vector<std::string> keptLocalScopes;        // ローカルを維持したスコープ
-    std::vector<std::string> conflictScopes;         // 不整合を検知したスコープ（ローカルを競合コピーに退避）
-    std::vector<std::string> conflictCopyTrackIds;   // 追加した「競合コピー」トラック
+    std::string id;
+    ScopeKind kind = ScopeKind::track;
+    std::string name;          // 表示名（トラック名、「テンポ」など）
+    bool mine = false;         // この PC で変わった（ベース → ローカル）
+    bool theirs = false;       // サーバーで変わった（ベース → ヘッド）
+    bool conflict = false;     // 両方で変わっていて、内容が違う
+    bool inLocal = false, inHead = false;
 };
 
 /**
-    pull（取り込み）のマージ（§4.5）:
-    - 自分がロックしていて、ローカルに未 push の変更があるスコープ（新規作成したトラックを含む）: ローカルを維持
-    - それ以外: ヘッドを採用
-    - ロックを持たないのにローカルが変わっていた場合（本来起きない）: ヘッドを採用し、
-      トラックならローカル側を「（競合コピー）」トラックとして残す
+    すべてのスコープの状態（ローカルの並び順、ヘッドにだけあるトラックはその後ろ）。
+    head が nullptr なら、サーバーの変更はないものとする。
 */
-PullResult mergeForPull (const Project& base, const Project& local, const Project& head,
-                         const std::set<std::string>& lockedByMe);
+std::vector<ScopeSyncState> syncStates (const Project& base, const Project& local, const Project* head);
+
+/** from の scopeIds のスコープを source の内容に置き換えたもの（source にないトラックは消し、from にないトラックは足す）。 */
+Project replaceScopes (const Project& from, const Project& source, const std::set<std::string>& scopeIds);
+
+/** 取り込むときの、スコープごとの採用の選択。 */
+enum class Resolution { mine, theirs, both };
+
+/**
+    取り込み（ダウンロード）の結果を作る。ヘッドを基に:
+    - choices にあるスコープはその選択（both はトラックだけ: サーバーの版に加えて自分の版を別のトラックとして残す）
+    - choices にないスコープ: 自分だけが変えた → ローカル、それ以外 → ヘッド
+*/
+Project resolvePull (const Project& base, const Project& local, const Project& head, const std::map<std::string, Resolution>& choices);
 
 /** 日本語のドラムパーツ名（差分表示用）。不明なキーはそのまま返す。 */
 std::string drumPieceDisplayName (const std::string& key);

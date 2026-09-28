@@ -115,28 +115,31 @@ describe("projects and revisions", () => {
     expect(locks.data).toEqual([]);
   });
 
-  it("lets only the creator delete a song, and removes its revisions and project JSON", async () => {
+  it("lets any member delete a song, and removes its revisions and project JSON", async () => {
     const r = await push(alice, pid, minimalFixture, 0);
     expect(r.status).toBe(201);
     const rev = await alice("GET", `/projects/${pid}/revisions/1`);
     const jsonHash = rev.data.projectJsonHash;
 
-    const denied = await bob("DELETE", `/projects/${pid}`);
-    expect(denied.status).toBe(403);
-    expect(denied.data.error).toBe("not_owner");
-
-    const ok = await alice("DELETE", `/projects/${pid}`);
+    const ok = await bob("DELETE", `/projects/${pid}`);
     expect(ok.status).toBe(200);
     expect(ok.data).toMatchObject({ ok: true, deletedRevisions: 1, deletedBlobs: 1 });
 
     expect((await alice("GET", "/projects")).data).toEqual([]);
-    expect((await bob("GET", `/projects/${pid}`)).status).toBe(404);
+    expect((await alice("GET", `/projects/${pid}`)).status).toBe(404);
     expect(await env.BLOBS.head(`blobs/${jsonHash}`)).toBeNull();
     const row = await env.DB.prepare("SELECT hash FROM blobs WHERE hash = ?").bind(jsonHash).first();
     expect(row).toBeNull();
 
     // 同じ ID でまた作れる
     expect((await alice("POST", "/projects", { id: pid, name: "again" })).status).toBe(201);
+  });
+
+  it("renames a song", async () => {
+    const r = await bob("PATCH", `/projects/${pid}`, { name: "  新しい名前  " });
+    expect(r.status).toBe(200);
+    expect((await alice("GET", "/projects")).data[0].name).toBe("新しい名前");
+    expect((await alice("PATCH", `/projects/${pid}`, { name: " " })).status).toBe(400);
   });
 
   it("lets a member leave a song, but not its creator", async () => {
@@ -165,21 +168,19 @@ describe("projects and revisions", () => {
     expect((await push(alice, pid, other, 0)).data.error).toBe("invalid_project");
   });
 
-  it("requires the tempo lock to change tempo, and allows it after acquiring", async () => {
+  it("lets any member change the tempo", async () => {
     await push(alice, pid, minimalFixture, 0);
 
     const changed = clone(minimalFixture);
     changed.tempoTrack.events[0].bpm = 90;
 
-    const denied = await push(bob, pid, changed, 1);
-    expect(denied.status).toBe(403);
-    expect(denied.data).toMatchObject({ error: "lock_required", trackIds: [minimalFixture.tempoTrack.id] });
-
-    expect((await bob("POST", `/projects/${pid}/locks`, { trackId: minimalFixture.tempoTrack.id })).status).toBe(200);
-    expect((await push(bob, pid, changed, 1)).status).toBe(201);
+    // ロックはない。親がヘッドなら誰でも変えられる
+    const r = await push(bob, pid, changed, 1);
+    expect(r.status).toBe(201);
+    expect(r.data.changedTrackIds).toEqual([minimalFixture.tempoTrack.id]);
   });
 
-  it("treats the key track as its own scope with a lock", async () => {
+  it("treats the key track as its own scope", async () => {
     const keyId = "33333333-3333-4333-8333-333333333333";
     const withKey = clone(minimalFixture) as any;
     withKey.keyTrack = { id: keyId, events: [{ id: "33333333-3333-4333-8333-3333333333aa", bar: 1, tonic: 7, mode: "major" }] };
@@ -187,16 +188,16 @@ describe("projects and revisions", () => {
 
     const changed = clone(withKey);
     changed.keyTrack.events[0].mode = "minor";
-    const denied = await push(bob, pid, changed, 1);
-    expect(denied.status).toBe(403);
-    expect(denied.data).toMatchObject({ error: "lock_required", trackIds: [keyId] });
+    const r = await push(bob, pid, changed, 1);
+    expect(r.status).toBe(201);
+    expect(r.data.changedTrackIds).toEqual([keyId]);
 
     const bad = clone(withKey);
     bad.keyTrack.events[0].tonic = 12;
-    expect((await push(alice, pid, bad, 1)).data.error).toBe("invalid_project");
+    expect((await push(alice, pid, bad, 2)).data.error).toBe("invalid_project");
   });
 
-  it("treats the master limiter as its own scope with a lock", async () => {
+  it("treats the master limiter as its own scope", async () => {
     const masterId = "22222222-2222-4222-8222-222222222222";
     const withMaster = clone(minimalFixture) as any;
     withMaster.master = { id: masterId, limiter: { enabled: true, thresholdDb: -6, ceilingDb: -1, character: 5, mode: "tube" } };
@@ -204,11 +205,6 @@ describe("projects and revisions", () => {
 
     const changed = clone(withMaster);
     changed.master.limiter.thresholdDb = -8;
-    const denied = await push(bob, pid, changed, 1);
-    expect(denied.status).toBe(403);
-    expect(denied.data).toMatchObject({ error: "lock_required", trackIds: [masterId] });
-
-    expect((await bob("POST", `/projects/${pid}/locks`, { trackId: masterId })).status).toBe(200);
     expect((await push(bob, pid, changed, 1)).status).toBe(201);
 
     const bad = clone(changed);
@@ -233,7 +229,7 @@ describe("tracks, blobs and locks", () => {
     expect(r.data.hashes.sort()).toEqual(["a".repeat(64), "c".repeat(64)]);
   });
 
-  it("new tracks are locked by their creator; others need the lock", async () => {
+  it("lets any member change and delete tracks without locks", async () => {
     // フィクスチャが参照するハッシュに合う内容は用意できないので、参照を実際の実体に差し替える
     const project = clone(fullFixture) as any;
     const audio = await upload(alice, new Uint8Array([1, 2, 3, 4]));
@@ -242,38 +238,20 @@ describe("tracks, blobs and locks", () => {
     project.tracks[1].render.audioHash = render;
 
     expect((await push(alice, pid, project, 0)).status).toBe(201);
+    expect((await alice("GET", `/projects/${pid}/locks`)).data).toEqual([]);
 
-    const locks = await alice("GET", `/projects/${pid}/locks`);
-    expect(locks.data.map((l: any) => l.trackId).sort()).toEqual(project.tracks.map((t: any) => t.id).sort());
-    expect(locks.data.every((l: any) => l.displayName === "Alice")).toBe(true);
-
-    // Bob は Drums を変えられない
     const bobs = clone(project);
     bobs.tracks[0].volumeDb = -10;
-    expect((await push(bob, pid, bobs, 1)).data.error).toBe("lock_required");
+    const changed = await push(bob, pid, bobs, 1);
+    expect(changed.status).toBe(201);
+    expect(changed.data.changedTrackIds).toEqual([drums]);
 
-    // 取得しようとしても 409（保持者の名前つき）
-    const lock = await bob("POST", `/projects/${pid}/locks`, { trackId: drums });
-    expect(lock.status).toBe(409);
-    expect(lock.data.holder.displayName).toBe("Alice");
-
-    // 通常の解除はできない、強制解除はできて履歴に残る
-    expect((await bob("DELETE", `/projects/${pid}/locks/${drums}`)).status).toBe(403);
-    const forced = await bob("DELETE", `/projects/${pid}/locks/${drums}?force=true`);
-    expect(forced.data.action).toBe("force_release");
-    const events = await alice("GET", `/projects/${pid}/lock-events`);
-    expect(events.data[0]).toMatchObject({ trackId: drums, action: "force_release", displayName: "Bob" });
-
-    expect((await bob("POST", `/projects/${pid}/locks`, { trackId: drums })).status).toBe(200);
-    expect((await push(bob, pid, bobs, 1, { releaseLocks: true })).status).toBe(201);
-
-    const after = await alice("GET", `/projects/${pid}/locks`);
-    expect(after.data.find((l: any) => l.trackId === drums)).toBeUndefined();   // push 時に解除
-
-    // トラックの削除にもロックが必要
     const deleted = clone(bobs);
     deleted.tracks = deleted.tracks.filter((t: any) => t.id !== gt);
-    expect((await push(bob, pid, deleted, 2)).data).toMatchObject({ error: "lock_required", trackIds: [gt] });
+    expect((await push(bob, pid, deleted, 2)).status).toBe(201);
+
+    // 古い親からの push は競合（アプリがトラックごとに選んでもらってから、ヘッドを親にして push し直す）
+    expect((await push(alice, pid, project, 2)).status).toBe(409);
   });
 
   it("verifies uploaded blob hashes", async () => {

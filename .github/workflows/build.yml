@@ -16,7 +16,11 @@ on:
         type: boolean
         default: true
       macos:
-        description: "Mac 版（Universal）をビルドする（分数の消費が大きい）"
+        description: "Mac 版をビルドする（分数の消費が大きい）"
+        type: boolean
+        default: true
+      mac_universal:
+        description: "Mac 版を Intel Mac 用も含めた Universal にする（オフにすると Apple Silicon 専用で、ビルドが約半分の時間。Intel Mac では動かない）"
         type: boolean
         default: true
       linux:
@@ -82,11 +86,19 @@ jobs:
         env:
           WINDOWS: ${{ inputs.windows }}
           MACOS: ${{ inputs.macos }}
+          MAC_UNIVERSAL: ${{ inputs.mac_universal }}
           LINUX: ${{ inputs.linux }}
         run: |
+          # どの OS も Ninja + コンパイルキャッシュ（ccache / sccache）。変わったファイルだけをコンパイルし直す
           entries=()
-          [ "$WINDOWS" = "true" ] && entries+=('{"name":"windows","platform":"windows","os":"windows-2022","configure":"-G \"Visual Studio 17 2022\" -A x64"}')
-          [ "$MACOS" = "true" ] && entries+=('{"name":"macos-universal","platform":"mac","os":"macos-14","configure":"-G Xcode -DCMAKE_OSX_ARCHITECTURES=\"arm64;x86_64\""}')
+          [ "$WINDOWS" = "true" ] && entries+=('{"name":"windows","platform":"windows","os":"windows-2022","configure":"-G Ninja -DCMAKE_BUILD_TYPE=Release"}')
+          if [ "$MACOS" = "true" ]; then
+            if [ "$MAC_UNIVERSAL" = "true" ]; then
+              entries+=('{"name":"macos-universal","platform":"mac","os":"macos-14","configure":"-G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=\"arm64;x86_64\""}')
+            else
+              entries+=('{"name":"macos-arm64","platform":"mac","os":"macos-14","configure":"-G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64"}')
+            fi
+          fi
           [ "$LINUX" = "true" ] && entries+=('{"name":"linux","platform":"linux","os":"ubuntu-24.04","configure":"-G Ninja -DCMAKE_BUILD_TYPE=Release -DCOLLAB_BUILD_TEST_PLUGINS=ON"}')
           json="$(IFS=,; echo "{\"include\":[${entries[*]}]}")"
           echo "$json"
@@ -110,6 +122,32 @@ jobs:
         run: |
           git config --global url."https://github.com/".insteadOf "git@github.com:"
           git submodule update --init --recursive --depth 1 --jobs 8
+
+      # コンパイルキャッシュ（前回のビルドの結果を再利用する。初回だけは全部コンパイルする）
+      - name: Compiler cache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: app-${{ matrix.name }}
+          variant: ${{ runner.os == 'Windows' && 'sccache' || 'ccache' }}
+          max-size: 2G
+
+      - name: Use the compiler cache
+        shell: bash
+        run: |
+          launcher=${{ runner.os == 'Windows' && 'sccache' || 'ccache' }}
+          echo "CMAKE_C_COMPILER_LAUNCHER=$launcher" >> "$GITHUB_ENV"
+          echo "CMAKE_CXX_COMPILER_LAUNCHER=$launcher" >> "$GITHUB_ENV"
+
+      - name: Install Ninja (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      # Ninja で MSVC を使うための環境（cl.exe などを PATH に入れる）
+      - name: MSVC environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -140,7 +178,7 @@ jobs:
 
       - name: Build
         shell: bash
-        run: cmake --build build --config Release --parallel 4
+        run: cmake --build build --config Release
 
       - name: Core tests
         shell: bash

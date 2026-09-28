@@ -47,6 +47,7 @@ public:
     ApiResponse get (const juce::String& path) const;
     ApiResponse post (const juce::String& path, const nlohmann::json& body) const;
     ApiResponse del (const juce::String& path) const;
+    ApiResponse patch (const juce::String& path, const nlohmann::json& body) const;
 
     /**
         実体をアップロードする（署名付き URL なら完了を通知してサーバーに検証させる）。

@@ -53,11 +53,11 @@ ToolBar::ToolBar (AppContext& c) : ctx (c)
     };
     addAndMakeVisible (quantiseBox);
 
-    snapButton.setButtonText ("スナップ"_ju);
+
     snapButton.setTooltip ("スナップ（J）: オンでクオンタイズ値に合わせる、オフでフリー"_ju);
     snapButton.onClick = [this] { ctx.state.setSnapEnabled (! ctx.state.snapEnabled()); };
 
-    autoScrollButton.setButtonText ("自動スクロール"_ju);
+
     autoScrollButton.setTooltip ("自動スクロール（F）: 再生中に再生位置を追って表示を送る"_ju);
     autoScrollButton.onClick = [this]
     {
@@ -65,7 +65,7 @@ ToolBar::ToolBar (AppContext& c) : ctx (c)
         ctx.state.changed();
     };
 
-    metronomeButton.setButtonText ("メトロノーム"_ju);
+
     metronomeButton.setTooltip ("メトロノーム（C）"_ju);
     metronomeButton.onClick = [this]
     {
@@ -76,7 +76,7 @@ ToolBar::ToolBar (AppContext& c) : ctx (c)
     settingsButton.setButtonText ("オーディオ設定"_ju);
     settingsButton.onClick = [this] { if (onAudioSettings) onAudioSettings(); };
 
-    for (auto* b : { &snapButton, &autoScrollButton, &metronomeButton, &settingsButton })
+    for (auto* b : std::initializer_list<juce::TextButton*> { &snapButton, &autoScrollButton, &metronomeButton, &settingsButton })
     {
         b->setClickingTogglesState (false);
         addAndMakeVisible (b);
@@ -126,6 +126,9 @@ void ToolBar::paint (juce::Graphics& g)
     g.fillAll (Theme::panel);
     g.setColour (Theme::background);
     g.drawHorizontalLine (getHeight() - 1, 0.0f, (float) getWidth());
+
+    for (auto& r : groups)
+        Theme::drawGlass (g, r.toFloat(), 12.0f);
 }
 
 void ToolBar::resized()
@@ -138,16 +141,22 @@ void ToolBar::resized()
         area.removeFromLeft (2);
     }
 
-    area.removeFromLeft (14);
-    quantiseBox.setBounds (area.removeFromLeft (150));
+    groups.clear();
+    groups.push_back (selectTool.getBounds().getUnion (splitTool.getBounds()).expanded (4, 1));
+
+    area.removeFromLeft (18);
+    quantiseBox.setBounds (area.removeFromLeft (140));
     area.removeFromLeft (4);
-    snapButton.setBounds (area.removeFromLeft (80));
+    snapButton.setBounds (area.removeFromLeft (40));
     area.removeFromLeft (4);
-    autoScrollButton.setBounds (area.removeFromLeft (110));
-    area.removeFromLeft (14);
-    metronomeButton.setBounds (area.removeFromLeft (110));
-    area.removeFromLeft (4);
-    metronomeVolume.setBounds (area.removeFromLeft (90));
+    autoScrollButton.setBounds (area.removeFromLeft (40));
+    groups.push_back (quantiseBox.getBounds().getUnion (autoScrollButton.getBounds()).expanded (4, 1));
+
+    area.removeFromLeft (18);
+    metronomeButton.setBounds (area.removeFromLeft (40));
+    area.removeFromLeft (6);
+    metronomeVolume.setBounds (area.removeFromLeft (100));
+    groups.push_back (metronomeButton.getBounds().getUnion (metronomeVolume.getBounds()).expanded (4, 1));
 
     settingsButton.setBounds (area.removeFromRight (juce::jmin (130, area.getWidth())));
     area.removeFromRight (8);
@@ -198,7 +207,7 @@ TransportBar::TransportBar (AppContext& c) : ctx (c)
 
     for (auto* l : { &loopStartTitle, &loopEndTitle })
     {
-        l->setFont (juce::FontOptions (11.0f));
+        l->setFont (juce::FontOptions (12.5f));
         l->setColour (juce::Label::textColourId, Theme::textDim);
         l->setJustificationType (juce::Justification::centredRight);
         addAndMakeVisible (l);
@@ -238,10 +247,6 @@ TransportBar::TransportBar (AppContext& c) : ctx (c)
     }
 
     // 中央: ループ・停止・再生・録音
-    loopButton.setButtonText ("ループ"_ju);
-    stopButton.setButtonText ("■"_ju);
-    playButton.setButtonText ("▶"_ju);
-    recordButton.setButtonText ("●"_ju);
 
     loopButton.setTooltip ("ループ再生（L / テンキー /）"_ju);
     stopButton.setTooltip ("停止（テンキー 0）。停止中に押すと先頭へ"_ju);
@@ -267,6 +272,7 @@ TransportBar::TransportBar (AppContext& c) : ctx (c)
     recordButton.setColour (juce::TextButton::textColourOffId, juce::Colour (0xffe57373));
     recordButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffc62828));
     recordButton.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+    loopButton.setColour (juce::TextButton::buttonOnColourId, Theme::accent.darker (0.3f));
 
     for (auto* b : { &loopButton, &stopButton, &playButton, &recordButton })
         addAndMakeVisible (b);
@@ -443,7 +449,7 @@ void TransportBar::updatePosition (double tick, double seconds, bool playing)
     if (playing != wasPlaying)
     {
         wasPlaying = playing;
-        playButton.setButtonText (playing ? "❚❚"_ju : "▶"_ju);
+        playButton.setIcon (playing ? "pause" : "play");
         playButton.setToggleState (playing, juce::dontSendNotification);
     }
 }
@@ -453,6 +459,10 @@ void TransportBar::paint (juce::Graphics& g)
     g.fillAll (Theme::panel);
     g.setColour (Theme::background);
     g.drawHorizontalLine (0, 0.0f, (float) getWidth());
+
+    // まとまりごとのガラスのカプセル
+    for (auto& r : groups)
+        Theme::drawGlass (g, r.toFloat(), 12.0f);
 }
 
 void TransportBar::resized()
@@ -460,10 +470,12 @@ void TransportBar::resized()
     auto area = getLocalBounds().reduced (10, 6);
 
     // 中央のボタン
-    constexpr int buttonWidth = 50, gap = 4;
-    const int centreWidth = 70 + 3 * buttonWidth + 3 * gap;
+    constexpr int buttonWidth = 48, gap = 4;
+    const int centreWidth = 4 * buttonWidth + 3 * gap;
     auto centre = area.withSizeKeepingCentre (centreWidth, area.getHeight());
-    loopButton.setBounds (centre.removeFromLeft (70));
+    groups.clear();
+    groups.push_back (centre.expanded (6, 3));
+    loopButton.setBounds (centre.removeFromLeft (buttonWidth));
 
     for (auto* b : { &stopButton, &playButton, &recordButton })
     {
@@ -480,6 +492,7 @@ void TransportBar::resized()
     loopEndTitle.setBounds (left.removeFromLeft (70));
     left.removeFromLeft (4);
     loopEndLabel.setBounds (left.removeFromLeft (120));
+    groups.push_back (loopStartTitle.getBounds().getUnion (loopEndLabel.getBounds()).expanded (6, 3));
 
     // 右: 位置とテンポ・拍子
     auto right = area.withLeft (recordButton.getRight() + 20);
@@ -490,6 +503,7 @@ void TransportBar::resized()
     timeLabel.setBounds (right.removeFromRight (110));
     right.removeFromRight (4);
     barBeatLabel.setBounds (right.removeFromRight (150));
+    groups.push_back (barBeatLabel.getBounds().getUnion (meterLabel.getBounds()).expanded (6, 3));
 }
 
 //==============================================================================

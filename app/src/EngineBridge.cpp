@@ -72,6 +72,7 @@ EngineBridge::EngineBridge (te::Engine& e, ProjectDocument& doc, const Instrumen
 
     // 入力デバイスの一覧は非同期に作られるので、変わるたびに設定する
     engine.getDeviceManager().addChangeListener (this);
+    engine.getDeviceManager().deviceManager.addAudioCallback (&inputMeter);
     configureInputs();
 
     // ミックスバス: トラック・コード・バスの出力はここへ集まり、リミッターを通ってからマスターへ出る
@@ -124,6 +125,7 @@ EngineBridge::~EngineBridge()
     metronomeMeter.reset();
     masterMeter.reset();
     midiInputs.clear();
+    engine.getDeviceManager().deviceManager.removeAudioCallback (&inputMeter);
     document.removeChangeListener (this);
     engine.getDeviceManager().removeChangeListener (this);
     edit->getTransport().removeListener (this);
@@ -1367,6 +1369,56 @@ bool EngineBridge::renderToFile (const juce::File& output, collab::Tick endTick,
 }
 
 //==============================================================================
+void EngineBridge::InputMeter::audioDeviceIOCallbackWithContext (const float* const* in, int numIn, float* const* out, int numOut,
+                                                                 int numSamples, const juce::AudioIODeviceCallbackContext&)
+{
+    for (int ch = 0; ch < juce::jmin (numIn, maxChannels); ++ch)
+    {
+        if (in[ch] == nullptr)
+            continue;
+
+        const auto range = juce::FloatVectorOperations::findMinAndMax (in[ch], numSamples);
+        const float peak = juce::jmax (std::abs (range.getStart()), std::abs (range.getEnd()));
+
+        if (peak > peaks[(size_t) ch].load (std::memory_order_relaxed))
+            peaks[(size_t) ch].store (peak, std::memory_order_relaxed);
+    }
+
+    // 音は出さない（ほかのコールバックの音に足されるので 0 にしておく）
+    for (int ch = 0; ch < numOut; ++ch)
+        if (out[ch] != nullptr)
+            juce::FloatVectorOperations::clear (out[ch], numSamples);
+}
+
+std::vector<EngineBridge::InputLevel> EngineBridge::getInputLevels()
+{
+    std::vector<InputLevel> result;
+    auto* device = engine.getDeviceManager().deviceManager.getCurrentAudioDevice();
+
+    if (device == nullptr)
+        return result;
+
+    const auto names = device->getInputChannelNames();
+    const auto active = device->getActiveInputChannels();
+    int index = 0;   // コールバックには有効なチャンネルだけが順に来る
+
+    for (int ch = 0; ch < names.size(); ++ch)
+    {
+        if (! active[ch])
+            continue;
+
+        if (index < InputMeter::maxChannels)
+        {
+            const float peak = inputMeter.peaks[(size_t) index].exchange (0.0f, std::memory_order_relaxed);
+            result.push_back ({ names[ch], juce::Decibels::gainToDecibels (peak, -100.0f) });
+        }
+
+        ++index;
+    }
+
+    return result;
+}
+
 juce::StringArray EngineBridge::getAudioInputs() const
 {
     juce::StringArray names;

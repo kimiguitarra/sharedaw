@@ -2749,10 +2749,7 @@ route("GET", "/projects/:id", async (ctx, { id }) => {
   });
 });
 route("DELETE", "/projects/:id", async (ctx, { id }) => {
-  const project = await requireMember(ctx, id);
-  if (project.created_by !== ctx.user.id) {
-    throw new HttpError(403, "not_owner", "\u66F2\u3092\u524A\u9664\u3067\u304D\u308B\u306E\u306F\u4F5C\u3063\u305F\u4EBA\u3060\u3051\u3067\u3059\uFF08\u53C2\u52A0\u3092\u3084\u3081\u308B\u306B\u306F\u300C\u53C2\u52A0\u3092\u3084\u3081\u308B\u300D\u3092\u4F7F\u3063\u3066\u304F\u3060\u3055\u3044\uFF09");
-  }
+  await requireMember(ctx, id);
   const revs = await ctx.env.DB.prepare("SELECT project_json_hash FROM revisions WHERE project_id = ?").bind(id).all();
   const jsonHashes = [...new Set(revs.results.map((r) => r.project_json_hash))];
   await ctx.env.DB.batch([
@@ -2775,6 +2772,15 @@ route("DELETE", "/projects/:id", async (ctx, { id }) => {
     deletedBlobs += orphans.length;
   }
   return json({ ok: true, deletedRevisions: revs.results.length, deletedBlobs });
+});
+route("PATCH", "/projects/:id", async (ctx, { id }) => {
+  await requireMember(ctx, id);
+  const body = await readJson(ctx.request);
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  if (!name) throw new HttpError(400, "bad_request", "name \u304C\u5FC5\u8981\u3067\u3059");
+  if (name.length > 200) throw new HttpError(400, "bad_request", "\u66F2\u540D\u304C\u9577\u3059\u304E\u307E\u3059");
+  await ctx.env.DB.prepare("UPDATE projects SET name = ? WHERE id = ?").bind(name, id).run();
+  return json({ id, name });
 });
 route("DELETE", "/projects/:id/members/me", async (ctx, { id }) => {
   const project = await requireMember(ctx, id);
@@ -2845,12 +2851,6 @@ route("POST", "/projects/:id/revisions", async (ctx, { id }) => {
     if (head) parent = await loadProjectJson(ctx.env, head.project_json_hash);
   }
   const changes = changedScopes(parent, next);
-  const locks = await ctx.env.DB.prepare("SELECT track_id, user_id FROM locks WHERE project_id = ?").bind(id).all();
-  const holder = new Map(locks.results.map((l) => [l.track_id, l.user_id]));
-  const notLocked = changes.filter((c) => c.existedInParent && holder.get(c.id) !== ctx.user.id).map((c) => c.id);
-  if (notLocked.length > 0) throw new HttpError(403, "lock_required", "\u30ED\u30C3\u30AF\u3092\u6301\u3063\u3066\u3044\u306A\u3044\u30C8\u30E9\u30C3\u30AF\u304C\u5909\u66F4\u3055\u308C\u3066\u3044\u307E\u3059", { trackIds: notLocked });
-  const lockedByOthers = changes.filter((c) => !c.existedInParent && holder.has(c.id) && holder.get(c.id) !== ctx.user.id).map((c) => c.id);
-  if (lockedByOthers.length > 0) throw new HttpError(409, "locked", "\u4ED6\u306E\u4EBA\u304C\u30ED\u30C3\u30AF\u3057\u3066\u3044\u308B\u30C8\u30E9\u30C3\u30AF\u304C\u3042\u308A\u307E\u3059", { trackIds: lockedByOthers });
   const number = project.head_revision + 1;
   const now = nowIso();
   const [insert] = await ctx.env.DB.batch([
@@ -2863,29 +2863,6 @@ route("POST", "/projects/:id/revisions", async (ctx, { id }) => {
   if (insert.meta.changes !== 1) {
     throw new HttpError(409, "not_head", "\u30B5\u30FC\u30D0\u30FC\u306B\u65B0\u3057\u3044\u30EA\u30D3\u30B8\u30E7\u30F3\u304C\u3042\u308A\u307E\u3059\u3002\u5148\u306B\u53D6\u308A\u8FBC\u3093\u3067\u304F\u3060\u3055\u3044");
   }
-  const lockStatements = [];
-  const isFirstRevision = parent === null;
-  for (const c of changes) {
-    if (c.deleted) {
-      lockStatements.push(ctx.env.DB.prepare("DELETE FROM locks WHERE project_id = ? AND track_id = ?").bind(id, c.id));
-      continue;
-    }
-    const release = body.releaseLocks === true || isFirstRevision && c.kind !== "track";
-    if (release) {
-      if (holder.get(c.id) === ctx.user.id) {
-        lockStatements.push(ctx.env.DB.prepare("DELETE FROM locks WHERE project_id = ? AND track_id = ? AND user_id = ?").bind(id, c.id, ctx.user.id));
-        lockStatements.push(
-          ctx.env.DB.prepare("INSERT INTO lock_events (project_id, track_id, user_id, action, created_at) VALUES (?, ?, ?, 'release', ?)").bind(id, c.id, ctx.user.id, now)
-        );
-      }
-    } else if (!holder.has(c.id)) {
-      lockStatements.push(ctx.env.DB.prepare("INSERT OR IGNORE INTO locks (project_id, track_id, user_id, acquired_at) VALUES (?, ?, ?, ?)").bind(id, c.id, ctx.user.id, now));
-      lockStatements.push(
-        ctx.env.DB.prepare("INSERT INTO lock_events (project_id, track_id, user_id, action, created_at) VALUES (?, ?, ?, 'acquire', ?)").bind(id, c.id, ctx.user.id, now)
-      );
-    }
-  }
-  if (lockStatements.length > 0) await ctx.env.DB.batch(lockStatements);
   return json({ number, head: number, changedTrackIds: changes.map((c) => c.id) }, 201);
 });
 route("GET", "/projects/:id/locks", async (ctx, { id }) => {

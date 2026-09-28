@@ -103,7 +103,7 @@ void CompressorPanel::VuMeter::paint (juce::Graphics& g)
     g.setColour (juce::Colour (0xffc62828));
     g.strokePath (red, juce::PathStrokeType (3.0f));
 
-    g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
 
     for (float vu : { -20.0f, -10.0f, -7.0f, -5.0f, -3.0f, -2.0f, -1.0f, 0.0f, 1.0f, 2.0f, 3.0f })
     {
@@ -160,7 +160,7 @@ void CompressorPanel::Knob::paint (juce::Graphics& g)
     g.setColour (light ? optoText : fetText);
     g.setFont (juce::FontOptions (big ? 12.0f : 11.0f, juce::Font::bold));
     g.drawText (name, getLocalBounds().removeFromTop (16), juce::Justification::centred);
-    g.setFont (juce::FontOptions (11.0f));
+    g.setFont (juce::FontOptions (12.5f));
     g.setColour ((light ? optoText : fetText).withAlpha (0.75f));
     g.drawText (format ? format (slider.getValue()) : juce::String(), getLocalBounds().removeFromBottom (16), juce::Justification::centred);
 }
@@ -350,14 +350,14 @@ void CompressorPanel::paint (juce::Graphics& g)
     g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
     auto title = r.reduced (24.0f, 8.0f).withHeight (18.0f);
     g.drawText (opto ? "OPTICAL LEVELING AMPLIFIER" : "FET LIMITING AMPLIFIER", title, juce::Justification::centredLeft);
-    g.setFont (juce::FontOptions (10.5f));
+    g.setFont (juce::FontOptions (12.0f));
     g.setColour ((opto ? optoText : fetText).withAlpha (0.6f));
     g.drawText (opto ? "LA-2A style" : "1176 style", title, juce::Justification::centredRight);
 
     if (! opto && ! ratioButtons[0].getBounds().isEmpty())
     {
         g.setColour (fetText);
-        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        g.setFont (juce::FontOptions (12.5f, juce::Font::bold));
         g.drawText ("RATIO", ratioButtons[3].getBounds().withY (ratioButtons[3].getY() - 18).withHeight (16), juce::Justification::centred);
     }
 }

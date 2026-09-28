@@ -549,7 +549,7 @@ void ChordEditor::paint (juce::Graphics& g)
     if (! degreeButtons.isEmpty())
     {
         g.setColour (Theme::textDim);
-        g.setFont (juce::FontOptions (12.0f));
+        g.setFont (juce::FontOptions (13.5f));
         g.drawText ("ディグリー"_ju, 10, degreeButtons[0]->getY(), 80, degreeButtons[0]->getHeight(), juce::Justification::centredLeft);
     }
 
@@ -557,7 +557,7 @@ void ChordEditor::paint (juce::Graphics& g)
     if (! showCircle && ! rootButtons.isEmpty())
     {
         g.setColour (Theme::textDim);
-        g.setFont (juce::FontOptions (11.0f));
+        g.setFont (juce::FontOptions (12.5f));
         const int y = rootButtons[0]->getY() - 16;
         const juce::String titles[] = { "ルート"_ju, "タイプ"_ju, "テンション"_ju, "ベース"_ju };
         juce::Component* firsts[] = { rootButtons[0], typeButtons[0], tensionButtons[0], bassButtons[0] };

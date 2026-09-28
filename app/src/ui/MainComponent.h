@@ -58,7 +58,7 @@ private:
 
     EditorState state;
     AudioFileCache audioCache;
-    AppContext ctx { document, state, bridge, library, sync, audioCache, {}, {}, {}, {}, {}, {}, {} };
+    AppContext ctx { document, state, bridge, library, sync, audioCache, {}, {}, {}, {}, {}, {} };
 
     juce::ApplicationCommandManager commandManager;
     ToolBar toolbar { ctx };
@@ -132,24 +132,17 @@ public:
     void showProjectPicker();
 
 private:
-    void pull();
-    void push();
-
     // 同期パネル（右側）から: 画面に出ている差分のまま、すぐに取り込む・アップする
     void toggleSyncPanel();
-    void pullNow (bool quiet = false);
-    void pushFromPanel (const juce::String& message, bool releaseLocks);
+    /** ダウンロード（競合などの選択つき）。quiet なら自動ダウンロード（バックグラウンド）。取り込めたら true。 */
+    bool downloadWithChoices (const std::map<std::string, collab::Resolution>& choices, bool quiet);
+    void uploadFromPanel (const std::set<std::string>& excluded, const juce::String& message,
+                          const std::map<std::string, collab::Resolution>& choices);
     void onIncomingRevisions (const std::vector<SyncManager::RevisionInfo>&);
     void createProjectOnServer();
-    bool pushBlocked (const SyncManager::PushPlan&);
     bool autoPullRunning = false;
     void showHistory();
-    void requestLocks (std::vector<std::string> scopeIds);
-    void lockMenuForScope (const std::string& scopeId, juce::PopupMenu&);
     bool ensureSyncReady (bool needLinked);
     void jumpTo (const collab::Change&);
-    void applyPullPreview (const SyncManager::PullPreview&);
-    void runPushPlan (const SyncManager::PushPlan&, const juce::String& message, bool releaseLocks);
-    void closeDiffWindowAsync();
     void setStatus (const juce::String&);
 };

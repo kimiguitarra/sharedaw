@@ -118,6 +118,10 @@ public:
         bool monitor = false;    // ソフトウェアモニタリング
     };
 
+    /** オーディオ入力（モノラルのチャンネルごと）の前回呼んでからのピーク（dB）。ミキサーの入力ストリップ用。 */
+    struct InputLevel { juce::String name; float peakDb = -100.0f; };
+    std::vector<InputLevel> getInputLevels();
+
     /** 使える入力（モノラルの入力チャンネルごと）。 */
     juce::StringArray getAudioInputs() const;
 
@@ -247,6 +251,20 @@ private:
     float metronomeVolumeDb = -6.0f;
 
     std::map<std::string, TrackInput> trackInputs;
+
+    /** オーディオ機器の入力をそのまま測る（録音やトラックの割り当てに関係なく入力の信号を見る）。 */
+    struct InputMeter  : public juce::AudioIODeviceCallback
+    {
+        static constexpr int maxChannels = 64;
+        std::array<std::atomic<float>, maxChannels> peaks {};
+
+        void audioDeviceIOCallbackWithContext (const float* const* in, int numIn, float* const* out, int numOut,
+                                               int numSamples, const juce::AudioIODeviceCallbackContext&) override;
+        void audioDeviceAboutToStart (juce::AudioIODevice*) override {}
+        void audioDeviceStopped() override {}
+    };
+
+    InputMeter inputMeter;
 
     struct MidiIn
     {

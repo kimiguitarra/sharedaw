@@ -30,12 +30,6 @@ public:
         juce::String userName;
     };
 
-    struct LockInfo
-    {
-        std::string userId;
-        juce::String displayName;
-    };
-
     SyncManager (ProjectDocument&, juce::PropertiesFile& settings);
     ~SyncManager() override;
 
@@ -57,20 +51,11 @@ public:
     /** ベースから変わっているスコープか（トラックヘッダーの「変更あり」マーク用）。 */
     bool hasLocalChanges (const std::string& scopeId) const;
 
-    //==============================================================================
-    // ロック（§4.2）
-    bool isLockedByMe (const std::string& scopeId) const;
-    std::optional<LockInfo> getLock (const std::string& scopeId) const;
+    /** すべてのスコープ（トラック・テンポなど）の同期の状態（この PC の変更・サーバーの変更・競合）。 */
+    std::vector<collab::ScopeSyncState> scopeStates() const;
 
-    /** ロックなしで編集してよいスコープか（未登録・ロック保持・新規作成）。 */
-    bool canEdit (const std::string& scopeId) const;
-
-    juce::Result fetchLocks();
-    juce::Result runAcquireLock (const std::string& scopeId);
-    juce::Result runReleaseLock (const std::string& scopeId, bool force);
-
-    /** 編集がロックのないスコープに触れたときに呼ばれる（メッセージスレッド）。 */
-    std::function<void (std::vector<std::string> scopeIds)> onLockRequired;
+    /** 1 つのスコープの状態（トラックヘッダーの色分け用。軽い）。 */
+    collab::ScopeSyncState scopeState (const std::string& scopeId) const;
 
     //==============================================================================
     // サーバーへの登録（新規作成 + 最初の push）
@@ -86,6 +71,9 @@ public:
     };
 
     juce::Result fetchPullPreview (PullPreview&);
+
+    /** サーバーの最新（ベースより新しいときだけ。なければ nullptr）。 */
+    std::shared_ptr<const PullPreview> headPreview() const;
 
     //==============================================================================
     // サーバーの状況（同期パネル・ツールバーの表示用）。リンク中は定期的にバックグラウンドで確認する。
@@ -119,33 +107,31 @@ public:
     /** 他の人の新しいリビジョンを見つけたとき（メッセージスレッド。同じリビジョンは 1 回だけ）。 */
     std::function<void (const std::vector<RevisionInfo>&)> onIncomingRevisions;
 
-    /** ロックの一覧（同期パネル用）。 */
-    std::map<std::string, LockInfo> getLocks() const;
     juce::Result runDownloadAudio (const collab::Project&, const juce::File& projectDir, const SyncProgress& progress = {});
 
-    struct PullReport
-    {
-        std::vector<std::string> keptLocal, conflicts;
-        juce::File conflictBackup;
-    };
+    /**
+        ダウンロード（取り込み）。スコープごとの選択（競合など）に従ってヘッドと合わせ、ベースをヘッドにする。
+        取り込む前のローカルは .collab/before-download/ に残す。
+    */
+    void applyDownload (const PullPreview&, const std::map<std::string, collab::Resolution>& choices);
 
-    PullReport applyPull (const PullPreview&);
-
-    // push（§4.6）
-    struct PushPlan
+    // アップロード（選んだスコープだけ）
+    struct UploadPlan
     {
         int head = 0;
-        collab::Project snapshot;
-        collab::ProjectDiff diff;                // ベース → ローカル
-        std::vector<std::string> notLocked;      // ロックが必要なのに持っていないスコープ
+        collab::Project snapshot;                // アップする内容（ベースに選んだスコープのローカルを入れたもの）
+        collab::ProjectDiff diff;                // ベース → アップする内容
         std::vector<std::string> staleRenders;   // バウンスが必要・古いトラック
-        bool needsPull = false;
+        bool needsDownload = false;              // サーバーに新しい版がある（先にダウンロード）
     };
 
-    juce::Result fetchPushPlan (const collab::Project& snapshot, PushPlan&);
-    juce::Result runPush (const PushPlan&, const juce::String& message, bool releaseLocks, const juce::File& projectDir, int& newRevision,
-                         const SyncProgress& progress = {});
-    void applyPushed (const PushPlan&, int newRevision);
+    juce::Result fetchUploadPlan (const collab::Project& local, const std::set<std::string>& scopeIds, UploadPlan&);
+    juce::Result runUpload (const UploadPlan&, const juce::String& message, const juce::File& projectDir, int& newRevision,
+                            const SyncProgress& progress = {});
+    void applyUploaded (const UploadPlan&, int newRevision);
+
+    /** サーバーの曲の名前を変える（開いている曲なら、曲の名前も変える）。 */
+    juce::Result runRenameProject (const std::string& projectId, const juce::String& newName);
 
     // サーバーから開く
     juce::Result fetchProjects (nlohmann::json& list);
@@ -190,8 +176,6 @@ private:
     bool linked = false;
     Meta meta;
     std::optional<collab::Project> base;
-    std::map<std::string, LockInfo> locks;
-    juce::CriticalSection lockMapLock;
 
     std::atomic<bool> refreshing { false };
     std::shared_ptr<bool> alive = std::make_shared<bool> (true);
@@ -208,7 +192,6 @@ private:
     static juce::Result buildPreview (const SyncClient&, const std::string& projectId, int head,
                                       const std::optional<collab::Project>& base, PullPreview&);
 
-    bool guardEdit (const collab::Project& before, const collab::Project& after);
     void saveMeta (const juce::File& projectDir) const;
     static void saveBase (const juce::File& projectDir, const collab::Project&);
 

@@ -79,11 +79,6 @@ public:
     /** 場所・ファイルが変わったときに呼ばれる（セッション情報・同期情報の更新用）。 */
     std::vector<std::function<void()>> locationListeners;
 
-    /**
-        編集を許可するか（同期中のロック確認、§4.2）。false を返すと perform() の変更は取り消される。
-    */
-    std::function<bool (const collab::Project& before, const collab::Project& after)> editGuard;
-
     /** 保存・自動保存の直前に呼ばれる（外部プラグインの状態を書き出すため）。 */
     std::function<void()> beforeSave;
 

@@ -76,7 +76,7 @@ ChannelStripEditor::ChannelStripEditor (AppContext& c, std::string id)
 
     eqHint.setText ("点をドラッグ: 周波数・ゲイン　ホイール: Q（LM・M）　ダブルクリック: リセット　LC・HC は端まで動かすとオフ"_ju,
                     juce::dontSendNotification);
-    eqHint.setFont (juce::FontOptions (11.0f));
+    eqHint.setFont (juce::FontOptions (12.5f));
     eqHint.setColour (juce::Label::textColourId, Theme::textDim);
     addAndMakeVisible (eqHint);
 

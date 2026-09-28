@@ -126,69 +126,111 @@ TEST_CASE ("tempo, meter and chord changes")
     CHECK (d.touches (a.chordTrack.id));
 }
 
-TEST_CASE ("pull keeps locally modified locked scopes and adopts head elsewhere")
+TEST_CASE ("sync states: mine, theirs and conflicts per scope")
 {
     auto base = full();
-
     auto local = base;
-    local.findTrack (drums)->volumeDb = -6.0;            // 自分がロック中
-    local.chordTrack.events.clear();                     // 自分がロック中
+    local.findTrack (drums)->volumeDb = -6.0;             // 自分だけ
+    local.findTrack (gt)->volumeDb = -12.0;               // 両方（違う内容）→ 競合
+    local.tempoTrack.events[0].bpm = 99.0;                // 両方（同じ内容）→ 競合ではない
     Track mine;
     mine.id = "local-new";
     mine.name = "New";
-    local.tracks.insert (local.tracks.begin() + 1, mine); // 新規トラック（Drums の後ろ）
+    local.tracks.insert (local.tracks.begin() + 1, mine);
 
-    auto head = base;
-    head.findTrack (gt)->name = "Guitar (head)";         // 他人の変更
-    head.findTrack (drums)->pan = 0.5;                    // 強制解除されて他人が変更した（ローカルを優先）
-    head.tempoTrack.events[0].bpm = 100.0;
-
-    auto r = mergeForPull (base, local, head, { drums, base.chordTrack.id });
-    auto& m = r.merged;
-
-    CHECK (m.findTrack (drums)->volumeDb == -6.0);
-    CHECK (m.findTrack (drums)->pan == 0.0);
-    CHECK (m.chordTrack.events.empty());
-    CHECK (m.findTrack (gt)->name == "Guitar (head)");
-    CHECK (m.tempoTrack.events[0].bpm == 100.0);
-    REQUIRE (m.indexOfTrack ("local-new") == 1);
-    CHECK (r.conflictScopes.empty());
-    CHECK (r.conflictCopyTrackIds.empty());
-}
-
-TEST_CASE ("pull: unlocked local changes become conflict copies")
-{
-    auto base = full();
-    auto local = base;
-    local.findTrack (gt)->volumeDb = -12.0;              // ロックなし（本来起きない）
     auto head = base;
     head.findTrack (gt)->volumeDb = -3.0;
+    head.findTrack (lead)->name = "Lead (head)";          // サーバーだけ
+    head.tempoTrack.events[0].bpm = 99.0;
 
-    auto r = mergeForPull (base, local, head, {});
-    CHECK (r.merged.findTrack (gt)->volumeDb == -3.0);
-    REQUIRE (r.conflictCopyTrackIds.size() == 1);
-    auto* copy = r.merged.findTrack (r.conflictCopyTrackIds[0]);
-    REQUIRE (copy != nullptr);
-    CHECK (copy->name == "Gt（競合コピー）");
-    CHECK (copy->volumeDb == -12.0);
-    CHECK (copy->audioClips[0].id != local.findTrack (gt)->audioClips[0].id);
-    CHECK (r.conflictScopes == std::vector<std::string> { gt });
+    auto states = syncStates (base, local, &head);
+    auto find = [&] (const std::string& id) { return *std::find_if (states.begin(), states.end(), [&] (auto& s) { return s.id == id; }); };
 
-    // 結果はスキーマに適合する
-    CHECK (validateProjectJson (nlohmann::json::parse (serialiseProject (r.merged))).empty());
+    CHECK (find (drums).mine);
+    CHECK_FALSE (find (drums).theirs);
+    CHECK (find (gt).conflict);
+    CHECK (find (lead).theirs);
+    CHECK_FALSE (find (lead).mine);
+    CHECK (find ("local-new").mine);
+    CHECK_FALSE (find ("local-new").inHead);
+    CHECK (find (base.tempoTrack.id).mine);
+    CHECK (find (base.tempoTrack.id).theirs);
+    CHECK_FALSE (find (base.tempoTrack.id).conflict);
+    CHECK (find (base.tempoTrack.id).name == "テンポ");
+    CHECK (find (gt).name == "Gt");
 }
 
-TEST_CASE ("pull: locked local deletion stays deleted, unlocked deletion is restored")
+TEST_CASE ("resolve pull: defaults and per-scope choices")
 {
     auto base = full();
     auto local = base;
-    local.tracks.erase (local.tracks.begin(), local.tracks.begin() + 2);   // Drums と Synth Lead を削除
-    auto head = base;
+    local.findTrack (drums)->volumeDb = -6.0;
+    local.findTrack (gt)->volumeDb = -12.0;
+    local.chordTrack.events.clear();
+    // 新しいトラック（スキーマに合うように、既存のトラックを ID を変えて複製する）
+    Track mine = *base.findTrack (lead);
+    const auto newId = generateUuid();
+    mine.id = newId;
+    mine.name = "New";
+    for (auto& c : mine.midiClips)
+    {
+        c.id = generateUuid();
+        for (auto& n : c.notes)
+            n.id = generateUuid();
+    }
+    local.tracks.insert (local.tracks.begin() + 1, mine);
 
-    auto r = mergeForPull (base, local, head, { drums });
-    CHECK (r.merged.findTrack (drums) == nullptr);
-    CHECK (r.merged.findTrack (lead) != nullptr);
-    CHECK (r.conflictScopes == std::vector<std::string> { lead });
+    auto head = base;
+    head.findTrack (gt)->volumeDb = -3.0;
+    head.findTrack (lead)->name = "Lead (head)";
+    REQUIRE_FALSE (head.chordTrack.events.empty());
+    head.chordTrack.events[0].tick += 960;
+
+    SUBCASE ("no choices: my own changes stay, everything else follows the server")
+    {
+        auto m = resolvePull (base, local, head, {});
+        CHECK (m.findTrack (drums)->volumeDb == -6.0);
+        CHECK (m.findTrack (gt)->volumeDb == -3.0);           // 競合は選ばなければサーバー
+        CHECK (m.findTrack (lead)->name == "Lead (head)");
+        REQUIRE (m.indexOfTrack (newId) == 1);
+        CHECK (m.chordTrack == head.chordTrack);
+    }
+
+    SUBCASE ("choose mine for a conflict, and keep both for another")
+    {
+        auto m = resolvePull (base, local, head, { { gt, Resolution::both }, { base.chordTrack.id, Resolution::mine } });
+        CHECK (m.findTrack (gt)->volumeDb == -3.0);
+        const int at = m.indexOfTrack (gt);
+        REQUIRE (at + 1 < (int) m.tracks.size());
+        const auto& copy = m.tracks[(size_t) at + 1];
+        CHECK (copy.name == "Gt（自分の版）");
+        CHECK (copy.volumeDb == -12.0);
+        CHECK (copy.audioClips[0].id != local.findTrack (gt)->audioClips[0].id);
+        CHECK (m.chordTrack.events.empty());
+        CHECK (validateProjectJson (nlohmann::json::parse (serialiseProject (m))) == "");
+    }
+
+    SUBCASE ("reject the server's change to a track I did not touch")
+    {
+        auto m = resolvePull (base, local, head, { { lead, Resolution::mine } });
+        CHECK (m.findTrack (lead)->name == base.findTrack (lead)->name);
+    }
+}
+
+TEST_CASE ("replace scopes: add, change and delete tracks")
+{
+    auto base = full();
+    auto local = base;
+    local.tracks.erase (local.tracks.begin());           // Drums を削除
+    local.findTrack (gt)->volumeDb = -9.0;
+
+    auto up = replaceScopes (base, local, { drums });
+    CHECK (up.findTrack (drums) == nullptr);
+    CHECK (up.findTrack (gt)->volumeDb == base.findTrack (gt)->volumeDb);   // 選んでいないものはそのまま
+
+    auto up2 = replaceScopes (base, local, { gt });
+    CHECK (up2.findTrack (drums) != nullptr);
+    CHECK (up2.findTrack (gt)->volumeDb == -9.0);
 }
 
 TEST_CASE ("marker track: stable id, JSON round trip, diff and merge")
@@ -208,7 +250,7 @@ TEST_CASE ("marker track: stable id, JSON round trip, diff and merge")
     CHECK (d.changes[0].scopeKind == ScopeKind::marker);
     CHECK (d.changes[0].summary.find ("サビ") != std::string::npos);
 
-    // ロックを持っていればローカルのマーカーを残す
-    auto merged = mergeForPull (a, b, a, { b.markerTrack.id });
-    CHECK (merged.merged.markerTrack == b.markerTrack);
+    // 自分だけが変えたマーカーは取り込んでも残る
+    auto merged = resolvePull (a, b, a, {});
+    CHECK (merged.markerTrack == b.markerTrack);
 }

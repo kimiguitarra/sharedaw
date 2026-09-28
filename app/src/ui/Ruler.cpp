@@ -33,7 +33,7 @@ void Ruler::paint (juce::Graphics& g)
     }
 
     const int step = TimeGrid::barLabelStep (axis, map, 36.0);
-    g.setFont (juce::FontOptions (12.0f));
+    g.setFont (juce::FontOptions (13.5f));
 
     TimeGrid::forEachVisibleBar (axis, map, getWidth(), [&] (int bar, collab::Tick start, collab::TimeSignature sig)
     {

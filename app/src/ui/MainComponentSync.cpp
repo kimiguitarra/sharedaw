@@ -122,7 +122,6 @@ void MainComponent::registerProject()
                                      + "\n\n"_ju + "もう一度「サーバーにアップ」を押すと、続きから登録します。"_ju);
 
     sync.applyRegistered (snapshot, sync.getMeta().baseRevision);
-    SyncUI::runWithProgress ("ロックを確認しています"_ju, [this] { return sync.fetchLocks(); });
     setStatus ("サーバーに登録しました（リビジョン "_ju + juce::String (sync.getMeta().baseRevision) + "）"_ju);
     toast.show ("サーバーにアップしました"_ju, "仲間は「楽曲を選ぶ」からダウンロードして一緒に作業できます。"_ju, {}, {}, Theme::ok);
 
@@ -179,47 +178,104 @@ void MainComponent::onIncomingRevisions (const std::vector<SyncManager::Revision
             messages.add (r.message);
     }
 
-    // 何が変わったか（トラック名など）
+    // 何が変わったか（トラック名など）と、競合があるか
     juce::StringArray scopes;
+    int conflicts = 0;
 
-    if (auto st = sync.getServerStatus(); st.preview != nullptr)
-        for (auto& c : st.preview->diff.changes)
-            scopes.addIfNotAlreadyThere (toJuce (c.scopeName));
+    for (auto& st : sync.scopeStates())
+    {
+        if (st.theirs)
+            scopes.addIfNotAlreadyThere (toJuce (st.name));
+
+        conflicts += st.conflict ? 1 : 0;
+    }
 
     const auto title = authors.joinIntoString ("・"_ju) + " さんがアップしました"_ju;
-    auto body = scopes.isEmpty() ? juce::String() : scopes.joinIntoString ("、"_ju) + " が変わりました"_ju;
+    auto body = scopes.isEmpty() ? juce::String() : scopes.joinIntoString ("、"_ju) + " が新しくなりました"_ju;
 
     if (! messages.isEmpty())
         body = "「"_ju + messages[0] + "」 "_ju + body;
 
-    if (syncPanel.autoPullEnabled())
-        return pullNow (true);
+    // 自動ダウンロードは、競合がなく、再生・録音していないときだけ
+    if (syncPanel.autoPullEnabled() && conflicts == 0 && ! bridge.isPlaying() && ! bridge.isRecording())
+    {
+        downloadWithChoices ({}, true);
+        return;
+    }
 
-    toast.show (title, body, "取り込む"_ju, [this] { pullNow(); }, Theme::accent);
+    if (conflicts > 0)
+        body << "（競合 "_ju << conflicts << " 件: 同期パネルで採用する版を選んでください）"_ju;
+
+    toast.show (title, body, conflicts > 0 ? "同期パネル"_ju : "ダウンロード"_ju, [this, conflicts]
+    {
+        if (conflicts > 0)
+        {
+            if (! syncPanel.isVisible())
+                toggleSyncPanel();
+        }
+        else
+        {
+            downloadWithChoices ({}, false);
+        }
+    }, conflicts > 0 ? Theme::warning : Theme::accent);
 }
 
-void MainComponent::pullNow (bool quiet)
+bool MainComponent::downloadWithChoices (const std::map<std::string, collab::Resolution>& choices, bool quiet)
 {
     if (! ensureSyncReady (true))
-        return;
+        return false;
 
     if (! quiet)
     {
         auto preview = std::make_shared<SyncManager::PullPreview>();
-        auto r = SyncUI::runWithProgress ("サーバーを確認しています"_ju, [&] { return sync.fetchPullPreview (*preview); });
+        const auto dir = document.getProjectDir();
+        auto r = SyncUI::runWithProgress ("サーバーを確認しています"_ju, [&] (const SyncProgress& p)
+        {
+            if (auto res = sync.fetchPullPreview (*preview); res.failed())
+                return res;
+
+            if (preview->head == sync.getMeta().baseRevision)
+                return juce::Result::ok();
+
+            return sync.runDownloadAudio (preview->headProject, dir, p);
+        });
 
         if (r.failed())
-            return Dialogs::showError ("取り込めませんでした"_ju, r.getErrorMessage());
+        {
+            Dialogs::showError ("ダウンロードできませんでした"_ju, r.getErrorMessage());
+            return false;
+        }
 
         if (preview->head == sync.getMeta().baseRevision)
-            return setStatus ("最新です（リビジョン "_ju + juce::String (preview->head) + "）"_ju);
+        {
+            setStatus ("サーバーと同じ状態です"_ju);
+            return true;
+        }
 
-        return applyPullPreview (*preview);
+        // 競合があって選ばれていなければ、同期パネルで選んでもらう
+        if (auto* base = sync.getBase())
+            for (auto& st : collab::syncStates (*base, document.getProject(), &preview->headProject))
+                if (st.conflict && choices.count (st.id) == 0)
+                {
+                    if (! syncPanel.isVisible())
+                        toggleSyncPanel();
+
+                    sync.checkServerNow();
+                    Dialogs::showInfo ("競合があります"_ju, "「"_ju + toJuce (st.name)
+                                         + "」は、あなたとサーバーの両方で変更されています。同期パネルで、採用する版（自分 / サーバー / 両方）を選んでからダウンロードしてください。"_ju);
+                    return false;
+                }
+
+        bridge.stop();
+        sync.applyDownload (*preview, choices);
+        syncPanel.clearAfterSync();
+        setStatus ("サーバーの新しい変更をダウンロードしました"_ju);
+        return true;
     }
 
-    // 自動の取り込み: 画面を止めずにバックグラウンドで準備し、再生・録音中でなければ反映する
+    // 自動: 画面を止めずにバックグラウンドで準備してから反映する
     if (autoPullRunning)
-        return;
+        return false;
 
     autoPullRunning = true;
     auto preview = std::make_shared<SyncManager::PullPreview>();
@@ -242,96 +298,101 @@ void MainComponent::pullNow (bool quiet)
             self.autoPullRunning = false;
 
             if (r.failed())
-                return self.setStatus ("自動の取り込みに失敗しました: "_ju + r.getErrorMessage());
+                return self.setStatus ("自動ダウンロードに失敗しました: "_ju + r.getErrorMessage());
 
             if (preview->head == baseAtStart || self.sync.getMeta().baseRevision != baseAtStart)
                 return;
 
+            // 準備している間に競合ができていたら、自動では取り込まない
+            if (auto* base = self.sync.getBase())
+                for (auto& st : collab::syncStates (*base, self.document.getProject(), &preview->headProject))
+                    if (st.conflict)
+                        return self.toast.show ("競合があります"_ju, "同期パネルで採用する版を選んでください"_ju, "同期パネル"_ju,
+                                                [s = safe] { if (s != nullptr && ! s->syncPanel.isVisible()) s->toggleSyncPanel(); },
+                                                Theme::warning);
+
             if (self.bridge.isPlaying() || self.bridge.isRecording())
-                return self.toast.show ("新しい変更があります"_ju, "再生中なので、止めてから取り込んでください。"_ju, "取り込む"_ju,
-                                        [s = safe] { if (s != nullptr) s->pullNow(); }, Theme::accent);
+                return;
 
-            auto report = self.sync.applyPull (*preview);
             juce::StringArray scopes;
-
             for (auto& c : preview->diff.changes)
                 scopes.addIfNotAlreadyThere (toJuce (c.scopeName));
 
-            self.setStatus ("リビジョン "_ju + juce::String (preview->head) + " を自動で取り込みました"_ju);
-            self.toast.show ("他の人の変更を取り込みました"_ju,
-                             scopes.joinIntoString ("、"_ju) + (report.conflicts.empty() ? juce::String() : "（不整合あり: 取り込む前の状態を保存しました）"_ju),
-                             {}, {}, report.conflicts.empty() ? Theme::ok : Theme::warning);
+            self.sync.applyDownload (*preview, {});
+            self.setStatus ("他の人の変更を自動でダウンロードしました"_ju);
+            self.toast.show ("他の人の変更をダウンロードしました"_ju, scopes.joinIntoString ("、"_ju), {}, {}, Theme::ok);
         });
     });
-}
-
-bool MainComponent::pushBlocked (const SyncManager::PushPlan& plan)
-{
-    if (! plan.notLocked.empty())
-    {
-        Dialogs::showError ("ロックが必要です"_ju, "次のトラックのロックを持っていません: "_ju + joinNames (sync, plan.notLocked));
-        return true;
-    }
-
-    if (! plan.staleRenders.empty())
-    {
-        auto message = "外部プラグインを使うトラックはバウンスしてからアップしてください: "_ju + joinNames (sync, plan.staleRenders);
-
-        for (auto& id : plan.staleRenders)
-            if (bridge.isPlayingRender (id))
-            {
-                message << "\n\n"
-                        << "この環境で鳴らせないプラグインのトラックは、ここではバウンスできません。"_ju
-                        << "ノートなど音の元の変更を元に戻すか、プラグインの持ち主にバウンスしてもらってください。"_ju;
-                break;
-            }
-
-        Dialogs::showError ("バウンスが必要です"_ju, message);
-        return true;
-    }
 
     return false;
 }
 
-void MainComponent::pushFromPanel (const juce::String& message, bool release)
+void MainComponent::uploadFromPanel (const std::set<std::string>& excluded, const juce::String& message,
+                                     const std::map<std::string, collab::Resolution>& choices)
 {
     if (! ensureSyncReady (true))
         return;
 
-    auto plan = std::make_shared<SyncManager::PushPlan>();
-    const auto snapshot = document.getProject();
-    auto r = SyncUI::runWithProgress ("サーバーを確認しています"_ju, [&] { return sync.fetchPushPlan (snapshot, *plan); });
-
-    if (r.failed())
-        return Dialogs::showError ("アップロードできませんでした"_ju, r.getErrorMessage());
-
-    if (plan->diff.empty())
-        return setStatus ("アップロードする変更はありません"_ju);
-
-    if (plan->needsPull)
-    {
-        // 先に取り込んでから、続けてアップする（自分の変更はロックしているので残る）
-        return Dialogs::confirm ("先に取り込みます"_ju,
-                                 "サーバーに新しいリビジョン（"_ju + juce::String (plan->head) + "）があります。取り込んでからアップしますか？"_ju,
-                                 "取り込んでアップ"_ju, [this, message, release, head = plan->head]
-        {
-            pullNow();
-
-            // 取り込めたら（ベースがサーバーのヘッドに追いついたら）続けてアップする
-            if (sync.getMeta().baseRevision >= head)
-                juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<MainComponent> (this), message, release]
-                {
-                    if (safe != nullptr)
-                        safe->pushFromPanel (message, release);
-                });
-        });
-    }
-
-    if (pushBlocked (*plan))
+    // サーバーに新しい版があれば、先に選んだとおりにダウンロードする
+    if (sync.headPreview() != nullptr && ! downloadWithChoices (choices, false))
         return;
 
-    runPushPlan (*plan, message, release);
-    syncPanel.clearComment();
+    std::set<std::string> scopes;
+
+    if (auto* base = sync.getBase())
+        for (auto& st : collab::syncStates (*base, document.getProject(), nullptr))
+            if (st.mine && excluded.count (st.id) == 0)
+                scopes.insert (st.id);
+
+    if (scopes.empty())
+        return setStatus ("アップする変更はありません"_ju);
+
+    auto plan = std::make_shared<SyncManager::UploadPlan>();
+    const auto snapshot = document.getProject();
+    auto r = SyncUI::runWithProgress ("サーバーを確認しています"_ju, [&] { return sync.fetchUploadPlan (snapshot, scopes, *plan); });
+
+    if (r.failed())
+        return Dialogs::showError ("アップできませんでした"_ju, r.getErrorMessage());
+
+    if (plan->needsDownload)
+    {
+        sync.checkServerNow();
+        return Dialogs::showInfo ("アップ"_ju, "たった今、他の人がアップしました。同期パネルで確認してから、もう一度アップしてください。"_ju);
+    }
+
+    if (! plan->staleRenders.empty())
+    {
+        auto text = "外部プラグインを使うトラックはバウンスしてからアップしてください: "_ju + joinNames (sync, plan->staleRenders);
+
+        for (auto& id : plan->staleRenders)
+            if (bridge.isPlayingRender (id))
+            {
+                text << "\n\n"
+                     << "この環境で鳴らせないプラグインのトラックは、ここではバウンスできません。"_ju
+                     << "ノートなど音の元の変更を元に戻すか、プラグインの持ち主にバウンスしてもらってください。"_ju;
+                break;
+            }
+
+        return Dialogs::showError ("バウンスが必要です"_ju, text);
+    }
+
+    if (document.hasLocation())
+        document.save();
+
+    int revision = 0;
+    const auto dir = document.getProjectDir();
+    auto res = SyncUI::runWithProgress ("アップしています"_ju,
+                                        [&] (const SyncProgress& p) { return sync.runUpload (*plan, message, dir, revision, p); });
+
+    if (res.failed())
+    {
+        sync.checkServerNow();
+        return Dialogs::showError ("アップできませんでした"_ju, res.getErrorMessage());
+    }
+
+    sync.applyUploaded (*plan, revision);
+    syncPanel.clearAfterSync();
+    setStatus ("アップしました（"_ju + joinNames (sync, std::vector<std::string> (scopes.begin(), scopes.end())) + "）"_ju);
 }
 
 void MainComponent::showProjectPicker()
@@ -349,7 +410,7 @@ void MainComponent::showProjectPicker()
                 juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<MainComponent> (this)]
                 {
                     if (safe != nullptr)
-                        safe->pull();
+                        safe->downloadWithChoices ({}, false);
                 });
         });
     };
@@ -359,21 +420,7 @@ void MainComponent::showProjectPicker()
         confirmDiscardChanges ([this, projectId] { downloadProject (projectId); });
     };
 
-    cb.newProject = [this] { newProject(); };
     cb.createOnServer = [this] { createProjectOnServer(); };
-    cb.openAndUpload = [this] (const juce::File& folder)
-    {
-        confirmDiscardChanges ([this, folder]
-        {
-            openProjectFolder (folder);
-            juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<MainComponent> (this)]
-            {
-                if (safe != nullptr)
-                    safe->registerProject();
-            });
-        });
-    };
-    cb.openOther = [this] { openProject(); };
     cb.serverSettings = [this] { showServerSettings(); };
 
     juce::DialogWindow::LaunchOptions o;
@@ -406,144 +453,6 @@ void MainComponent::downloadProject (const std::string& projectId)
         return Dialogs::showError ("開けませんでした"_ju, res.getErrorMessage());
 
     openProjectFolder (created);
-    SyncUI::runWithProgress ("ロックを確認しています"_ju, [this] { return sync.fetchLocks(); });
-}
-
-void MainComponent::pull()
-{
-    if (! ensureSyncReady (true))
-        return;
-
-    auto preview = std::make_shared<SyncManager::PullPreview>();
-    auto r = SyncUI::runWithProgress ("サーバーを確認しています"_ju, [&] { return sync.fetchPullPreview (*preview); });
-
-    if (r.failed())
-        return Dialogs::showError ("取り込めませんでした"_ju, r.getErrorMessage());
-
-    if (preview->head == sync.getMeta().baseRevision)
-        return Dialogs::showInfo ("取り込み"_ju, "最新です（リビジョン "_ju + juce::String (preview->head) + "）"_ju);
-
-    const auto headline = "リビジョン "_ju + juce::String (sync.getMeta().baseRevision) + " → "_ju + juce::String (preview->head)
-                            + " の変更（ベース → ヘッド）"_ju;
-
-    auto* view = new SyncUI::DiffView (SyncUI::DiffView::Mode::pull, preview->diff, headline,
-                                       [this] (const collab::Change& c) { jumpTo (c); },
-                                       [this, preview] (const juce::String&, bool)
-    {
-        // ボタンの処理中に自分のウィンドウを消さないよう、次のメッセージで実行する
-        juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<MainComponent> (this), preview]
-        {
-            if (safe != nullptr)
-                safe->applyPullPreview (*preview);
-        });
-    },
-                                       [this] { closeDiffWindowAsync(); });
-
-    diffWindow = makeToolWindow ("取り込み（pull）"_ju, view);
-}
-
-void MainComponent::applyPullPreview (const SyncManager::PullPreview& previewRef)
-{
-    {
-        diffWindow = nullptr;
-        auto preview = &previewRef;
-
-        auto res = SyncUI::runWithProgress ("オーディオをダウンロードしています"_ju,
-                                            [&] (const SyncProgress& p) { return sync.runDownloadAudio (preview->headProject, document.getProjectDir(), p); });
-
-        if (res.failed())
-            return Dialogs::showError ("取り込めませんでした"_ju, res.getErrorMessage());
-
-        bridge.stop();
-        auto report = sync.applyPull (*preview);
-
-        juce::String message = "リビジョン "_ju + juce::String (preview->head) + " を取り込みました。"_ju;
-
-        if (! report.keptLocal.empty())
-            message << "\n" << "ローカルを維持: "_ju << joinNames (sync, report.keptLocal);
-
-        if (! report.conflicts.empty())
-        {
-            message << "\n\n" << "不整合を検知しました: "_ju << joinNames (sync, report.conflicts)
-                    << "\n" << "取り込み前のローカルを保存しました: "_ju << report.conflictBackup.getFullPathName();
-            Dialogs::showError ("取り込み（不整合あり）"_ju, message);
-        }
-        else
-        {
-            setStatus (message.replace ("\n", " "));
-        }
-    }
-}
-
-void MainComponent::push()
-{
-    if (! ensureSyncReady (true))
-        return;
-
-    auto plan = std::make_shared<SyncManager::PushPlan>();
-    const auto snapshot = document.getProject();
-    auto r = SyncUI::runWithProgress ("サーバーを確認しています"_ju, [&] { return sync.fetchPushPlan (snapshot, *plan); });
-
-    if (r.failed())
-        return Dialogs::showError ("アップロードできませんでした"_ju, r.getErrorMessage());
-
-    if (plan->needsPull)
-        return Dialogs::showInfo ("アップロード"_ju, "サーバーに新しいリビジョン（"_ju + juce::String (plan->head)
-                                                     + "）があります。先に取り込んでください。"_ju);
-
-    if (plan->diff.empty())
-        return Dialogs::showInfo ("アップロード"_ju, "アップロードする変更はありません。"_ju);
-
-    if (pushBlocked (*plan))
-        return;
-
-    const auto headline = "リビジョン "_ju + juce::String (sync.getMeta().baseRevision) + " からの変更（ベース → ローカル）"_ju;
-
-    auto* view = new SyncUI::DiffView (SyncUI::DiffView::Mode::push, plan->diff, headline,
-                                       [this] (const collab::Change& c) { jumpTo (c); },
-                                       [this, plan] (const juce::String& message, bool release)
-    {
-        juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<MainComponent> (this), plan, message, release]
-        {
-            if (safe != nullptr)
-                safe->runPushPlan (*plan, message, release);
-        });
-    },
-                                       [this] { closeDiffWindowAsync(); });
-
-    diffWindow = makeToolWindow ("アップロード（push）"_ju, view);
-}
-
-void MainComponent::runPushPlan (const SyncManager::PushPlan& planRef, const juce::String& message, bool release)
-{
-    {
-        diffWindow = nullptr;
-        auto plan = &planRef;
-
-        // ローカルにも保存しておく
-        if (document.hasLocation())
-            document.save();
-
-        int revision = 0;
-        const auto dir = document.getProjectDir();
-        auto res = SyncUI::runWithProgress ("アップロードしています"_ju,
-                                            [&] (const SyncProgress& p) { return sync.runPush (*plan, message, release, dir, revision, p); });
-
-        if (res.failed())
-            return Dialogs::showError ("アップロードできませんでした"_ju, res.getErrorMessage());
-
-        sync.applyPushed (*plan, revision);
-        setStatus ("リビジョン "_ju + juce::String (revision) + " としてアップロードしました"_ju);
-    }
-}
-
-void MainComponent::closeDiffWindowAsync()
-{
-    juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<MainComponent> (this)]
-    {
-        if (safe != nullptr)
-            safe->diffWindow = nullptr;
-    });
 }
 
 void MainComponent::showHistory()
@@ -558,75 +467,6 @@ void MainComponent::showHistory()
         return Dialogs::showError ("取得できませんでした"_ju, r.getErrorMessage());
 
     diffWindow = makeToolWindow ("リビジョン履歴"_ju, SyncUI::createHistoryView (list).release());
-}
-
-void MainComponent::requestLocks (std::vector<std::string> scopeIds)
-{
-    juce::StringArray lines;
-
-    for (auto& id : scopeIds)
-    {
-        auto line = sync.scopeName (id);
-
-        if (auto lock = sync.getLock (id))
-            line << "（"_ju << lock->displayName << " がロック中）"_ju;
-
-        lines.add (line);
-    }
-
-    Dialogs::confirm ("ロックを取得しますか？"_ju,
-                      "このトラックを編集するにはロックが必要です:\n"_ju + lines.joinIntoString ("\n")
-                        + "\n\n"_ju + "取得したら、もう一度操作してください。"_ju,
-                      "ロックを取得"_ju, [this, scopeIds]
-    {
-        for (auto& id : scopeIds)
-        {
-            auto r = SyncUI::runWithProgress ("ロックを取得しています"_ju, [this, scopeId = id] { return sync.runAcquireLock (scopeId); });
-
-            if (r.failed())
-                return Dialogs::showError ("ロックを取得できませんでした"_ju, sync.scopeName (id) + ": " + r.getErrorMessage());
-        }
-
-        setStatus ("ロックを取得しました: "_ju + joinNames (sync, scopeIds));
-    });
-}
-
-void MainComponent::lockMenuForScope (const std::string& scopeId, juce::PopupMenu& menu)
-{
-    if (! sync.isLinked())
-        return;
-
-    const auto lock = sync.getLock (scopeId);
-    const bool mine = sync.isLockedByMe (scopeId);
-
-    menu.addItem ("ロックを取得"_ju, ! lock.has_value(), false, [this, scopeId]
-    {
-        auto r = SyncUI::runWithProgress ("ロックを取得しています"_ju, [&] { return sync.runAcquireLock (scopeId); });
-        if (r.failed()) Dialogs::showError ("ロックを取得できませんでした"_ju, r.getErrorMessage());
-    });
-
-    menu.addItem ("ロックを解除"_ju, mine, false, [this, scopeId]
-    {
-        if (sync.hasLocalChanges (scopeId))
-            Dialogs::showInfo ("ロックの解除"_ju, "未 push の変更があります。解除すると、他の人の変更を取り込んだときに上書きされます。"_ju);
-
-        auto r = SyncUI::runWithProgress ("ロックを解除しています"_ju, [&] { return sync.runReleaseLock (scopeId, false); });
-        if (r.failed()) Dialogs::showError ("ロックを解除できませんでした"_ju, r.getErrorMessage());
-    });
-
-    if (lock && ! mine)
-    {
-        menu.addItem ("ロックを強制解除（"_ju + lock->displayName + "）…"_ju, [this, scopeId, name = lock->displayName]
-        {
-            Dialogs::confirm ("ロックの強制解除"_ju,
-                              name + " のロックを強制的に解除します。相手が解除し忘れた場合だけ使ってください（履歴に記録されます）。"_ju,
-                              "強制解除"_ju, [this, scopeId]
-            {
-                auto r = SyncUI::runWithProgress ("ロックを解除しています"_ju, [&] { return sync.runReleaseLock (scopeId, true); });
-                if (r.failed()) Dialogs::showError ("解除できませんでした"_ju, r.getErrorMessage());
-            });
-        });
-    }
 }
 
 void MainComponent::jumpTo (const collab::Change& c)

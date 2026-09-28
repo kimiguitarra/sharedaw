@@ -17,10 +17,10 @@
 仕様書 §6.5 のとおり。すべて `Authorization: Bearer <token>`。追加したもの:
 
 - `GET /me`、`GET /users`、`POST /projects/:id/members {userId}`
-- `DELETE /projects/:id` … 曲の削除（作った人だけ。リビジョン・ロック・その曲だけのプロジェクト JSON を消す）、`DELETE /projects/:id/members/me` … 参加をやめる
+- `PATCH /projects/:id {name}` … 曲名の変更、`DELETE /projects/:id` … 曲の削除（参加している人なら誰でも。リビジョン・ロック・その曲だけのプロジェクト JSON を消す）、`DELETE /projects/:id/members/me` … 参加をやめる
 - `POST /blobs/:hash/complete` … 署名付き URL でアップロードした後に呼ぶ。サーバーがハッシュとサイズを検証して登録する
 - `GET /projects/:id/lock-events` … ロックの履歴（強制解除の記録）
-- `POST /projects/:id/revisions` は `releaseLocks: true` で、push したトラックのロックを解除する
+- `POST /projects/:id/revisions` はロックを確認しない（親＝ヘッドだけを確認する。競合はアプリがトラックごとに利用者に選んでもらう）
 - `GET /app/latest?platform=windows|mac|linux` … アプリの最新の更新（ビルド番号とマニフェストの転送先）
 - `POST /app/releases {platform, build, version, manifestHash}` … 更新の登録。シークレット `RELEASE_KEY` を
   Bearer トークンとして送る CI だけが使える（このキーでは実体のアップロードと更新の登録しかできない）。

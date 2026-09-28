@@ -52,7 +52,6 @@ namespace
 SyncManager::SyncManager (ProjectDocument& doc, juce::PropertiesFile& props)
     : document (doc), settings (props)
 {
-    document.editGuard = [this] (const collab::Project& before, const collab::Project& after) { return guardEdit (before, after); };
     reloadForDocument();
     startTimer (20 * 1000);   // 他の人のアップロードに早く気付けるように（1 回あたり小さな GET が 3 つ）
 }
@@ -61,7 +60,6 @@ SyncManager::~SyncManager()
 {
     stopTimer();
     *alive = false;
-    document.editGuard = nullptr;
 
     // バックグラウンドの更新が終わるまで待つ
     while (refreshing)
@@ -77,12 +75,6 @@ SyncManager::ServerStatus SyncManager::getServerStatus() const
 {
     const juce::ScopedLock sl (statusLock);
     return serverStatus;
-}
-
-std::map<std::string, SyncManager::LockInfo> SyncManager::getLocks() const
-{
-    const juce::ScopedLock sl (lockMapLock);
-    return locks;
 }
 
 void SyncManager::refreshInBackground()
@@ -123,7 +115,6 @@ void SyncManager::refreshInBackground()
             {
                 st.online = true;
                 st.head = info.body.value ("headRevision", 0);
-                fetchLocks();
 
                 if (auto revs = client.get ("/projects/" + toJuce (projectId) + "/revisions"); revs.ok() && revs.body.is_array())
                 {
@@ -308,11 +299,6 @@ void SyncManager::reloadForDocument()
     meta = {};
     base.reset();
 
-    {
-        const juce::ScopedLock sl (lockMapLock);
-        locks.clear();
-    }
-
     if (document.hasLocation())
     {
         const auto dir = collabDir (document.getProjectDir());
@@ -406,112 +392,6 @@ juce::String SyncManager::scopeName (const std::string& scopeId) const
             return toJuce (t->name);
 
     return toJuce (scopeId);
-}
-
-//==============================================================================
-bool SyncManager::isLockedByMe (const std::string& scopeId) const
-{
-    const juce::ScopedLock sl (lockMapLock);
-    auto it = locks.find (scopeId);
-    return it != locks.end() && it->second.userId == meta.userId;
-}
-
-std::optional<SyncManager::LockInfo> SyncManager::getLock (const std::string& scopeId) const
-{
-    const juce::ScopedLock sl (lockMapLock);
-    auto it = locks.find (scopeId);
-    return it != locks.end() ? std::optional (it->second) : std::nullopt;
-}
-
-bool SyncManager::canEdit (const std::string& scopeId) const
-{
-    if (! linked || ! base)
-        return true;
-
-    // 新規作成したスコープ（ベースにない）は、作成者がロックを持っている扱い（§4.2）
-    // マーカーとマスターは、サーバーでは中身があるときだけスコープとして数える（空・既定値は JSON にない扱い）
-    const bool inBase = scopeId == base->tempoTrack.id || scopeId == base->meterTrack.id || scopeId == base->chordTrack.id
-                          || (scopeId == base->markerTrack.id && ! base->markerTrack.events.empty())
-                          || (scopeId == base->keyTrack.id && ! base->keyTrack.events.empty())
-                          || (scopeId == base->master.id && ! base->master.isDefault())
-                          || base->findTrack (scopeId) != nullptr;
-
-    return ! inBase || isLockedByMe (scopeId);
-}
-
-bool SyncManager::guardEdit (const collab::Project& before, const collab::Project& after)
-{
-    if (! linked || ! base)
-        return true;
-
-    std::vector<std::string> ids = collab::allScopeIds (after);
-
-    for (auto& t : before.tracks)
-        if (after.findTrack (t.id) == nullptr)
-            ids.push_back (t.id);
-
-    std::vector<std::string> denied;
-
-    for (auto& id : ids)
-        if (! collab::scopeEquals (before, after, id) && ! canEdit (id))
-            denied.push_back (id);
-
-    if (denied.empty())
-        return true;
-
-    if (onLockRequired)
-        juce::MessageManager::callAsync ([cb = onLockRequired, denied] { cb (denied); });
-
-    return false;
-}
-
-juce::Result SyncManager::fetchLocks()
-{
-    if (! linked)
-        return juce::Result::ok();
-
-    auto r = makeClient().get ("/projects/" + toJuce (meta.projectId) + "/locks");
-
-    if (! r.ok())
-        return juce::Result::fail (r.message());
-
-    std::map<std::string, LockInfo> fresh;
-
-    for (auto& l : r.body)
-        fresh[l.value ("trackId", std::string())] = { l.value ("userId", std::string()),
-                                                      toJuce (l.contains ("displayName") && l["displayName"].is_string()
-                                                                ? l["displayName"].get<std::string>() : std::string()) };
-
-    {
-        const juce::ScopedLock sl (lockMapLock);
-        locks = std::move (fresh);
-    }
-
-    juce::MessageManager::callAsync ([this, alive = alive] { if (*alive) sendChangeMessage(); });
-    return juce::Result::ok();
-}
-
-juce::Result SyncManager::runAcquireLock (const std::string& scopeId)
-{
-    auto r = makeClient().post ("/projects/" + toJuce (meta.projectId) + "/locks", { { "trackId", scopeId } });
-
-    if (! r.ok())
-    {
-        fetchLocks();
-        return juce::Result::fail (r.message());
-    }
-
-    return fetchLocks();
-}
-
-juce::Result SyncManager::runReleaseLock (const std::string& scopeId, bool force)
-{
-    auto r = makeClient().del ("/projects/" + toJuce (meta.projectId) + "/locks/" + toJuce (scopeId) + (force ? "?force=true" : ""));
-
-    if (! r.ok())
-        return juce::Result::fail (r.message());
-
-    return fetchLocks();
 }
 
 //==============================================================================
@@ -701,10 +581,7 @@ juce::Result SyncManager::fetchPullPreview (PullPreview& preview)
         return juce::Result::ok();
     }
 
-    if (auto r = buildPreview (client, meta.projectId, preview.head, base, preview); r.failed())
-        return r;
-
-    return fetchLocks();
+    return buildPreview (client, meta.projectId, preview.head, base, preview);
 }
 
 juce::Result SyncManager::runDownloadAudio (const collab::Project& p, const juce::File& projectDir, const SyncProgress& progress)
@@ -763,31 +640,21 @@ juce::Result SyncManager::runDownloadAudio (const collab::Project& p, const juce
     return juce::Result::ok();
 }
 
-SyncManager::PullReport SyncManager::applyPull (const PullPreview& preview)
+void SyncManager::applyDownload (const PullPreview& preview, const std::map<std::string, collab::Resolution>& choices)
 {
-    PullReport report;
     const auto& local = document.getProject();
     const auto baseProject = base ? *base : preview.headProject;
 
-    std::set<std::string> mine;
-    for (auto& id : collab::allScopeIds (local))
-        if (isLockedByMe (id))
-            mine.insert (id);
-
-    auto result = collab::mergeForPull (baseProject, local, preview.headProject, mine);
-    report.keptLocal = result.keptLocalScopes;
-    report.conflicts = result.conflictScopes;
-
-    // 不整合があれば、取り込む前のローカルを丸ごと退避しておく（データを失わない）
-    if (! result.conflictScopes.empty())
+    // 取り込む前のローカルを念のため残しておく（競合を自分で選んだとしても、元に戻せるように）
     {
-        report.conflictBackup = collabDir (document.getProjectDir()).getChildFile ("conflicts")
-                                  .getChildFile (juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S") + ".project.json");
+        const auto backup = collabDir (document.getProjectDir()).getChildFile ("before-download")
+                              .getChildFile (juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S") + ".project.json");
         const auto text = collab::serialiseProject (local);
-        writeAtomically (report.conflictBackup, text.data(), text.size());
+        writeAtomically (backup, text.data(), text.size());
     }
 
-    document.replaceFromSync (result.merged);
+    auto merged = collab::resolvePull (baseProject, local, preview.headProject, choices);
+    document.replaceFromSync (merged);
 
     meta.baseRevision = preview.head;
     saveMeta (document.getProjectDir());
@@ -797,7 +664,41 @@ SyncManager::PullReport SyncManager::applyPull (const PullPreview& preview)
     notifiedHead = juce::jmax (notifiedHead, preview.head);
     sendChangeMessage();
     refreshInBackground();
-    return report;
+}
+
+std::shared_ptr<const SyncManager::PullPreview> SyncManager::headPreview() const
+{
+    const auto st = getServerStatus();
+    return st.preview != nullptr && st.base == meta.baseRevision && st.head > meta.baseRevision ? st.preview : nullptr;
+}
+
+std::vector<collab::ScopeSyncState> SyncManager::scopeStates() const
+{
+    if (! linked || ! base)
+        return {};
+
+    const auto preview = headPreview();
+    return collab::syncStates (*base, document.getProject(), preview != nullptr ? &preview->headProject : nullptr);
+}
+
+collab::ScopeSyncState SyncManager::scopeState (const std::string& scopeId) const
+{
+    collab::ScopeSyncState st;
+    st.id = scopeId;
+
+    if (! linked || ! base)
+        return st;
+
+    const auto& local = document.getProject();
+    st.mine = ! collab::scopeEquals (*base, local, scopeId);
+
+    if (const auto preview = headPreview())
+    {
+        st.theirs = ! collab::scopeEquals (*base, preview->headProject, scopeId);
+        st.conflict = st.mine && st.theirs && ! collab::scopeEquals (local, preview->headProject, scopeId);
+    }
+
+    return st;
 }
 
 //==============================================================================
@@ -815,7 +716,7 @@ static bool hasMissingPluginState (const collab::Track& t, const juce::File& dir
     return false;
 }
 
-juce::Result SyncManager::fetchPushPlan (const collab::Project& snapshot, PushPlan& plan)
+juce::Result SyncManager::fetchUploadPlan (const collab::Project& local, const std::set<std::string>& scopeIds, UploadPlan& plan)
 {
     auto client = makeClient();
     auto info = client.get ("/projects/" + toJuce (meta.projectId));
@@ -823,22 +724,19 @@ juce::Result SyncManager::fetchPushPlan (const collab::Project& snapshot, PushPl
     if (! info.ok())
         return juce::Result::fail (info.message());
 
-    if (auto r = fetchLocks(); r.failed())
-        return r;
-
     plan.head = info.body.value ("headRevision", 0);
-    plan.needsPull = plan.head != meta.baseRevision;
-    plan.snapshot = snapshot;
-    plan.diff = collab::diffProjects (base ? *base : snapshot, snapshot);
+    plan.needsDownload = plan.head != meta.baseRevision;
 
-    for (auto& id : plan.diff.changedScopeIds)
-        if (! canEdit (id))
-            plan.notLocked.push_back (id);
+    // アップするもの = ベース（= サーバーの最新）に、選んだスコープだけこの PC の内容を入れたもの
+    const auto& baseProject = base ? *base : local;
+    plan.snapshot = collab::replaceScopes (baseProject, local, scopeIds);
+    plan.snapshot.name = local.name;
+    plan.diff = collab::diffProjects (baseProject, plan.snapshot);
 
-    // 外部プラグインのトラックはバウンスが必須。バウンス後に内容が変わっていたら push できない（§3.7）
+    // 外部プラグインのトラックはバウンスが必須。バウンス後に内容が変わっていたらアップできない（§3.7）
     const auto dir = document.getProjectDir();
 
-    for (auto& t : snapshot.tracks)
+    for (auto& t : plan.snapshot.tracks)
     {
         if (! plan.diff.touches (t.id))
             continue;
@@ -848,7 +746,7 @@ juce::Result SyncManager::fetchPushPlan (const collab::Project& snapshot, PushPl
         auto status = collab::renderStatus (t, fp);
 
         // 他の人のプラグイン（状態ファイルがこの環境にない）は正しいフィンガープリントを計算できない。
-        // 音の元がベースから変わっていなければ、ベースのバウンスがそのまま使える（音量などの変更は push できる）
+        // 音の元がベースから変わっていなければ、ベースのバウンスがそのまま使える（音量などの変更はアップできる）
         if (status == collab::RenderStatus::stale && base && hasMissingPluginState (t, dir))
             if (auto* before = base->findTrack (t.id); before != nullptr && before->render == t.render
                                                         && collab::trackSourceFingerprint (*before, stateHash) == fp)
@@ -861,8 +759,8 @@ juce::Result SyncManager::fetchPushPlan (const collab::Project& snapshot, PushPl
     return juce::Result::ok();
 }
 
-juce::Result SyncManager::runPush (const PushPlan& plan, const juce::String& message, bool releaseLocks,
-                                   const juce::File& projectDir, int& newRevision, const SyncProgress& progress)
+juce::Result SyncManager::runUpload (const UploadPlan& plan, const juce::String& message, const juce::File& projectDir,
+                                     int& newRevision, const SyncProgress& progress)
 {
     auto client = makeClient();
     const auto text = collab::serialiseProject (plan.snapshot);
@@ -883,16 +781,17 @@ juce::Result SyncManager::runPush (const PushPlan& plan, const juce::String& mes
 
     auto r = client.post ("/projects/" + toJuce (meta.projectId) + "/revisions",
                           { { "parentNumber", meta.baseRevision }, { "message", toStd (message) }, { "projectJsonHash", hash },
-                            { "changedTrackIds", changed }, { "releaseLocks", releaseLocks } });
+                            { "changedTrackIds", changed } });
 
     if (! r.ok())
-        return juce::Result::fail (r.message());
+        return juce::Result::fail (r.errorCode() == "not_head" ? "他の人が先にアップしました。ダウンロードしてからもう一度アップしてください"_ju
+                                                               : r.message());
 
     newRevision = r.body.value ("number", meta.baseRevision + 1);
-    return fetchLocks();
+    return juce::Result::ok();
 }
 
-void SyncManager::applyPushed (const PushPlan& plan, int newRevision)
+void SyncManager::applyUploaded (const UploadPlan& plan, int newRevision)
 {
     meta.baseRevision = newRevision;
     saveMeta (document.getProjectDir());
@@ -923,6 +822,25 @@ juce::Result SyncManager::fetchRevisions (nlohmann::json& list)
         return juce::Result::fail (r.message());
 
     list = r.body;
+    return juce::Result::ok();
+}
+
+juce::Result SyncManager::runRenameProject (const std::string& projectId, const juce::String& newName)
+{
+    nlohmann::json body { { "name", toStd (newName.trim()) } };
+    auto client = makeClient();
+    auto r = client.patch ("/projects/" + toJuce (projectId), body);
+
+    if (! r.ok())
+        return juce::Result::fail (r.message());
+
+    // いま開いている曲なら、曲の名前も合わせる（次のアップで他の人にも伝わる）
+    juce::MessageManager::callAsync ([this, alive = alive, projectId, newName]
+    {
+        if (*alive && linked && meta.projectId == projectId)
+            document.perform ("曲名の変更"_ju, [n = toStd (newName.trim())] (collab::Project& p) { p.name = n; });
+    });
+
     return juce::Result::ok();
 }
 

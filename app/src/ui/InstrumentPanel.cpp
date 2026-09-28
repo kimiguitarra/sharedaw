@@ -51,7 +51,7 @@ InstrumentPanel::InstrumentPanel (AppContext& c, const std::string& id)
         addAndMakeVisible (l);
 
     credits.setColour (juce::Label::textColourId, Theme::textDim);
-    credits.setFont (juce::FontOptions (11.0f));
+    credits.setFont (juce::FontOptions (12.5f));
     addAndMakeVisible (credits);
 
     int height = 40 + 3 * rowHeight + 10;
@@ -109,7 +109,7 @@ InstrumentPanel::InstrumentPanel (AppContext& c, const std::string& id)
             PieceRow row;
             row.key = piece.key;
             row.name = std::make_unique<juce::Label> ("", toJuce (piece.displayName) + " (" + juce::String (piece.note) + ")");
-            row.name->setFont (juce::FontOptions (12.0f));
+            row.name->setFont (juce::FontOptions (13.5f));
             row.sample = std::make_unique<juce::ComboBox>();
 
             int sid = 1;
@@ -271,7 +271,7 @@ void InstrumentPanel::paint (juce::Graphics& g)
     if (! rows.empty())
     {
         g.setColour (Theme::textDim);
-        g.setFont (juce::FontOptions (11.0f));
+        g.setFont (juce::FontOptions (12.5f));
         const int y = rows.front().name->getY() - 18;
         g.drawText ("パーツ"_ju, 8, y, 150, 16, juce::Justification::centredLeft);
         g.drawText ("サンプル"_ju, 160, y, 150, 16, juce::Justification::centredLeft);

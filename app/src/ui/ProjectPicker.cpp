@@ -1,11 +1,10 @@
 #include "ProjectPicker.h"
 
+#include "Dialogs.h"
 #include "Theme.h"
 
 namespace
 {
-    enum Column { nameColumn = 1, statusColumn, serverColumn, localColumn };
-
     juce::String normaliseUrl (juce::String url)
     {
         url = url.trim();
@@ -51,26 +50,12 @@ void ProjectPicker::remember (juce::PropertiesFile& settings, const juce::File& 
     settings.setValue ("knownProjects", list.joinIntoString ("\n"));
 }
 
-void ProjectPicker::forget (juce::PropertiesFile& settings, const juce::File& folder)
-{
-    auto list = juce::StringArray::fromLines (settings.getValue ("knownProjects"));
-    list.removeString (folder.getFullPathName());
-    settings.setValue ("knownProjects", list.joinIntoString ("\n"));
-
-    // ダウンロード先のフォルダにあるものは、次に一覧を作るとまた出てくるので、外した印を付ける
-    auto hidden = juce::StringArray::fromLines (settings.getValue ("hiddenProjects"));
-    hidden.addIfNotAlreadyThere (folder.getFullPathName());
-    settings.setValue ("hiddenProjects", hidden.joinIntoString ("\n"));
-}
-
 juce::Array<juce::File> ProjectPicker::knownFolders (juce::PropertiesFile& settings)
 {
     juce::Array<juce::File> result;
-    const auto hidden = juce::StringArray::fromLines (settings.getValue ("hiddenProjects"));
-
     auto add = [&] (const juce::File& f)
     {
-        if (f.getChildFile ("project.json").existsAsFile() && ! result.contains (f) && ! hidden.contains (f.getFullPathName()))
+        if (f.getChildFile ("project.json").existsAsFile() && ! result.contains (f))
             result.add (f);
     };
 
@@ -101,20 +86,15 @@ juce::File ProjectPicker::projectsFolder (juce::PropertiesFile& settings)
 juce::String ProjectPicker::statusText (const Entry& e)
 {
     const int changes = e.local ? e.local->changedScopes : 0;
-    const int base = e.local ? e.local->baseRevision : 0;
 
     switch (e.status)
     {
-        case Status::upToDate:     return "最新（サーバーとこの PC が同じ）"_ju;
-        case Status::localChanges: return "この PC に未送信の変更 "_ju + juce::String (changes) + " 件（送信 = push してください）"_ju;
-        case Status::serverNewer:  return "サーバーに新しい版（rev "_ju + juce::String (base) + " → "_ju + juce::String (e.headRevision) + "。開くと取り込みます）"_ju;
-        case Status::both:         return "両方に変更あり（取り込んでから送信してください）"_ju;
-        case Status::serverOnly:   return "サーバーだけ（開くとダウンロードします）"_ju;
-        case Status::localOnly:    return "この PC だけ（サーバー未登録）"_ju;
-        case Status::unchecked:    return changes > 0 ? "サーバー未確認（この PC に未送信の変更 "_ju + juce::String (changes) + " 件）"_ju
-                                                      : "サーバー未確認"_ju;
-        case Status::otherServer:  return "別のサーバーの曲"_ju;
-        case Status::notOnServer:  return "サーバーに見当たりません（削除されたか、参加していません）"_ju;
+        case Status::upToDate:     return "最新"_ju;
+        case Status::localChanges: return "この PC に変更あり（"_ju + juce::String (changes) + " 件、まだアップしていません）"_ju;
+        case Status::serverNewer:  return "新しい変更があります（開くとダウンロード）"_ju;
+        case Status::both:         return "この PC とサーバーの両方に変更があります"_ju;
+        case Status::serverOnly:   return "まだダウンロードしていません（開くとダウンロード）"_ju;
+        case Status::offline:      return "サーバーを確認できません（この PC のコピーを開けます）"_ju;
     }
 
     return {};
@@ -124,15 +104,12 @@ juce::Colour ProjectPicker::statusColour (Status s)
 {
     switch (s)
     {
-        case Status::upToDate:     return juce::Colour (0xff66bb6a);
-        case Status::localChanges: return juce::Colour (0xffffb74d);
-        case Status::serverNewer:  return juce::Colour (0xff4fc3f7);
-        case Status::both:         return juce::Colour (0xffef5350);
-        case Status::serverOnly:   return juce::Colour (0xffba68c8);
-        case Status::localOnly:
-        case Status::unchecked:
-        case Status::otherServer:
-        case Status::notOnServer:  return Theme::textDim;
+        case Status::upToDate:     return Theme::ok;
+        case Status::localChanges: return Theme::warning;
+        case Status::serverNewer:  return Theme::accent;
+        case Status::both:         return Theme::warning;
+        case Status::serverOnly:   return Theme::textDim;
+        case Status::offline:      return Theme::textDim;
     }
 
     return Theme::textDim;
@@ -142,32 +119,26 @@ juce::Colour ProjectPicker::statusColour (Status s)
 ProjectPicker::ProjectPicker (SyncManager& s, juce::PropertiesFile& p, juce::File current, Callbacks cb)
     : sync (s), settings (p), currentFolder (std::move (current)), callbacks (std::move (cb))
 {
-    title.setText ("楽曲を選ぶ"_ju, juce::dontSendNotification);
-    title.setFont (juce::FontOptions (20.0f, juce::Font::bold));
-    addAndMakeVisible (title);
-
-    serverLine.setFont (juce::FontOptions (12.5f));
+    serverLine.setFont (juce::FontOptions (14.0f));
     addAndMakeVisible (serverLine);
-    folderLine.setFont (juce::FontOptions (12.0f));
+    folderLine.setFont (juce::FontOptions (13.0f));
     folderLine.setColour (juce::Label::textColourId, Theme::textDim);
     addAndMakeVisible (folderLine);
 
-    auto& header = table.getHeader();
-    header.addColumn ("曲名"_ju, nameColumn, 220, 120, 400, juce::TableHeaderComponent::notSortable);
-    header.addColumn ("状況"_ju, statusColumn, 330, 160, 600, juce::TableHeaderComponent::notSortable);
-    header.addColumn ("サーバー"_ju, serverColumn, 190, 120, 400, juce::TableHeaderComponent::notSortable);
-    header.addColumn ("この PC"_ju, localColumn, 260, 120, 600, juce::TableHeaderComponent::notSortable);
-    header.setColour (juce::TableHeaderComponent::backgroundColourId, Theme::panelLight);
-    header.setColour (juce::TableHeaderComponent::textColourId, Theme::text);
-    header.setColour (juce::TableHeaderComponent::outlineColourId, Theme::background);
-    table.setRowHeight (46);
-    table.setColour (juce::ListBox::backgroundColourId, Theme::background);
-    table.setMultipleSelectionEnabled (false);
-    addAndMakeVisible (table);
+    list.setRowHeight (68);
+    list.setColour (juce::ListBox::backgroundColourId, juce::Colours::transparentBlack);
+    list.setMultipleSelectionEnabled (false);
+    addAndMakeVisible (list);
+
+    const auto primary = Theme::accent.darker (0.45f);
+    createButton.setColour (juce::TextButton::buttonColourId, primary);
+    openButton.setColour (juce::TextButton::buttonColourId, primary);
+    createButton.setTooltip ("サーバーに曲を作って、ダウンロードして開きます"_ju);
+    createButton.onClick = [this] { auto fn = callbacks.createOnServer; close(); if (fn) fn(); };
 
     refreshButton.onClick = [this] { refresh(); };
     serverButton.onClick = [this] { if (callbacks.serverSettings) callbacks.serverSettings(); };
-    folderButton.setTooltip ("サーバーからダウンロードした曲を置くフォルダを変える"_ju);
+    folderButton.setTooltip ("ダウンロードした曲を置くフォルダを変える"_ju);
     folderButton.onClick = [this]
     {
         auto chooser = std::make_shared<juce::FileChooser> ("ダウンロード先のフォルダ"_ju, projectsFolder (settings));
@@ -182,33 +153,14 @@ ProjectPicker::ProjectPicker (SyncManager& s, juce::PropertiesFile& p, juce::Fil
         });
     };
 
-    createButton.setTooltip ("サーバーに曲を作り、この PC（ダウンロード先のフォルダ）にも置いて開きます"_ju);
-    createButton.onClick = [this] { auto fn = callbacks.createOnServer; close(); if (fn) fn(); };
-    deleteButton.setTooltip ("サーバーから曲を削除します（作った人だけ）。この PC のフォルダは消しません"_ju);
-    deleteButton.onClick = [this] { deleteSelected(); };
-
-    newButton.onClick = [this] { auto fn = callbacks.newProject; close(); if (fn) fn(); };
-    otherButton.onClick = [this] { auto fn = callbacks.openOther; close(); if (fn) fn(); };
-    forgetButton.setTooltip ("この PC の一覧から外す（フォルダは消しません）"_ju);
-    forgetButton.onClick = [this]
-    {
-        const int row = table.getSelectedRow();
-
-        if (row >= 0 && row < (int) entries.size() && entries[(size_t) row].local)
-        {
-            forget (settings, entries[(size_t) row].local->folder);
-            refresh();
-        }
-    };
-
     openButton.onClick = [this] { openSelected(); };
     closeButton.onClick = [this] { close(); };
 
-    for (auto* b : { &refreshButton, &serverButton, &folderButton, &createButton, &newButton, &otherButton, &forgetButton, &deleteButton,
-                     &openButton, &closeButton })
+    for (auto* b : { &createButton, &refreshButton, &serverButton, &folderButton, &openButton, &closeButton })
         addAndMakeVisible (b);
 
-    setSize (1180, 580);
+    setWantsKeyboardFocus (true);
+    setSize (900, 600);
     refresh();
 }
 
@@ -219,26 +171,25 @@ ProjectPicker::~ProjectPicker()
 
 void ProjectPicker::refresh()
 {
-    // この PC の曲（すぐに読める）
+    // この PC にダウンロードしてある曲
     locals.clear();
 
     for (auto& f : knownFolders (settings))
     {
         auto info = SyncManager::inspectFolder (f);
 
-        if (info.valid)
+        if (info.valid && info.linked)
             locals.push_back (info);
     }
 
     folderLine.setText ("ダウンロード先: "_ju + projectsFolder (settings).getFullPathName(), juce::dontSendNotification);
 
-    // サーバー（バックグラウンドで取得）
     serverList.reset();
     serverError = {};
 
     if (! sync.hasCredentials())
     {
-        serverError = "サーバー未設定（「サーバー設定…」で URL とトークンを入れると、サーバーの曲が出ます）"_ju;
+        serverError = "サーバーが設定されていません（「サーバー設定…」で URL とトークンを入れてください）"_ju;
         loadingServer = false;
     }
     else
@@ -247,10 +198,10 @@ void ProjectPicker::refresh()
 
         juce::Thread::launch ([this, flag = alive]
         {
-            nlohmann::json list;
-            auto r = sync.fetchProjects (list);
+            nlohmann::json result;
+            auto r = sync.fetchProjects (result);
 
-            juce::MessageManager::callAsync ([this, flag, r, list]
+            juce::MessageManager::callAsync ([this, flag, r, result]
             {
                 if (! *flag)
                     return;
@@ -260,7 +211,7 @@ void ProjectPicker::refresh()
                 if (r.failed())
                     serverError = "サーバーに接続できません: "_ju + r.getErrorMessage();
                 else
-                    serverList = list;
+                    serverList = result;
 
                 rebuildEntries();
             });
@@ -272,136 +223,72 @@ void ProjectPicker::refresh()
 
 void ProjectPicker::rebuildEntries()
 {
-    // 選択を保つ
-    std::string selectedKey;
-
-    if (const int row = table.getSelectedRow(); row >= 0 && row < (int) entries.size())
-        selectedKey = entries[(size_t) row].local ? entries[(size_t) row].local->folder.getFullPathName().toStdString()
-                                                  : entries[(size_t) row].projectId;
+    const auto* sel = selected();
+    const auto selectedId = sel != nullptr ? sel->projectId : std::string();
 
     entries.clear();
     const auto currentServer = normaliseUrl (sync.getServerUrl());
 
-    struct ServerItem { juce::String name; int head = 0; juce::Time updatedAt; juce::String updatedBy; };
-    std::map<std::string, ServerItem> server;
-    std::vector<std::string> serverOrder;
+    // この PC のコピー（同じサーバーのもの。同じ曲が複数あれば最近保存したもの）
+    auto localFor = [&] (const std::string& id) -> std::optional<SyncManager::LocalInfo>
+    {
+        std::optional<SyncManager::LocalInfo> best;
+
+        for (auto& l : locals)
+            if (l.projectId == id && normaliseUrl (l.serverUrl) == currentServer
+                && (! best || l.savedAt > best->savedAt))
+                best = l;
+
+        return best;
+    };
 
     if (serverList)
     {
         for (auto& p : *serverList)
         {
-            ServerItem item;
-            item.name = toJuce (p.value ("name", std::string()));
-            item.head = p.value ("headRevision", 0);
-            item.updatedAt = juce::Time::fromISO8601 (toJuce (p.value ("updatedAt", std::string())));
+            Entry e;
+            e.projectId = p.value ("id", std::string());
+            e.name = toJuce (p.value ("name", std::string()));
+            e.headRevision = p.value ("headRevision", 0);
+            e.updatedAt = juce::Time::fromISO8601 (toJuce (p.value ("updatedAt", std::string())));
 
             if (p.contains ("updatedBy") && p["updatedBy"].is_string())
-                item.updatedBy = toJuce (p["updatedBy"].get<std::string>());
+                e.updatedBy = toJuce (p["updatedBy"].get<std::string>());
 
-            const auto id = p.value ("id", std::string());
-            server[id] = item;
-            serverOrder.push_back (id);
+            e.local = localFor (e.projectId);
+
+            if (! e.local)
+            {
+                e.status = Status::serverOnly;
+            }
+            else
+            {
+                const bool newer = e.headRevision > e.local->baseRevision;
+                const bool changed = e.local->changedScopes > 0;
+                e.status = newer && changed ? Status::both : newer ? Status::serverNewer : changed ? Status::localChanges : Status::upToDate;
+            }
+
+            entries.push_back (e);
         }
     }
-
-    std::set<std::string> localIds;
-
-    for (auto& l : locals)
+    else if (! loadingServer)
     {
-        Entry e;
-        e.local = l;
-        e.name = l.name;
-        e.projectId = l.projectId;
-
-        if (! l.linked)
-        {
-            e.status = Status::localOnly;
-        }
-        else if (normaliseUrl (l.serverUrl) != currentServer)
-        {
-            e.status = Status::otherServer;
-        }
-        else if (! serverList)
-        {
-            e.status = Status::unchecked;
-        }
-        else if (auto it = server.find (l.projectId); it == server.end())
-        {
-            e.status = Status::notOnServer;
-        }
-        else
-        {
-            e.onServer = true;
-            e.headRevision = it->second.head;
-            e.updatedAt = it->second.updatedAt;
-            e.updatedBy = it->second.updatedBy;
-            const bool newer = it->second.head > l.baseRevision;
-            const bool changed = l.changedScopes > 0;
-            e.status = newer && changed ? Status::both : newer ? Status::serverNewer : changed ? Status::localChanges : Status::upToDate;
-            localIds.insert (l.projectId);
-        }
-
-        entries.push_back (e);
-    }
-
-    // サーバーだけにある曲
-    for (auto& id : serverOrder)
-    {
-        if (localIds.count (id) > 0)
-            continue;
-
-        bool hasLocalCopy = false;
-
+        // オフライン: この PC のコピーだけ開ける
         for (auto& l : locals)
-            hasLocalCopy = hasLocalCopy || (l.projectId == id && l.linked);
-
-        if (hasLocalCopy)
-            continue;
-
-        const auto& item = server[id];
-        Entry e;
-        e.status = Status::serverOnly;
-        e.name = item.name;
-        e.projectId = id;
-        e.onServer = true;
-        e.headRevision = item.head;
-        e.updatedAt = item.updatedAt;
-        e.updatedBy = item.updatedBy;
-        entries.push_back (e);
-    }
-
-    // 並び順: 手を付けるべきもの（変更あり・新しい版）→ 最新 → サーバーだけ → その他。同じなら新しい順
-    auto rank = [] (Status s)
-    {
-        switch (s)
         {
-            case Status::both:          return 0;
-            case Status::serverNewer:   return 1;
-            case Status::localChanges:  return 2;
-            case Status::upToDate:      return 3;
-            case Status::serverOnly:    return 4;
-            case Status::unchecked:     return 5;
-            case Status::localOnly:     return 6;
-            case Status::otherServer:
-            case Status::notOnServer:   return 7;
+            Entry e;
+            e.status = Status::offline;
+            e.name = l.name;
+            e.projectId = l.projectId;
+            e.local = l;
+            entries.push_back (e);
         }
-
-        return 8;
-    };
-
-    std::stable_sort (entries.begin(), entries.end(), [&] (const Entry& a, const Entry& b)
-    {
-        if (rank (a.status) != rank (b.status))
-            return rank (a.status) < rank (b.status);
-
-        auto time = [] (const Entry& e) { return std::max (e.updatedAt.toMilliseconds(), e.local ? e.local->savedAt.toMilliseconds() : 0); };
-        return time (a) > time (b);
-    });
+    }
 
     // サーバーの状態の行
     if (loadingServer)
     {
-        serverLine.setText ("サーバーを確認しています…（"_ju + sync.getServerUrl() + "）"_ju, juce::dontSendNotification);
+        serverLine.setText ("サーバーを確認しています…"_ju, juce::dontSendNotification);
         serverLine.setColour (juce::Label::textColourId, Theme::textDim);
     }
     else if (serverError.isNotEmpty())
@@ -411,12 +298,11 @@ void ProjectPicker::rebuildEntries()
     }
     else
     {
-        serverLine.setText ("サーバー: "_ju + sync.getServerUrl() + "（参加している曲 "_ju + juce::String ((int) serverOrder.size()) + " 曲）"_ju,
-                            juce::dontSendNotification);
-        serverLine.setColour (juce::Label::textColourId, juce::Colour (0xff66bb6a));
+        serverLine.setText (juce::String ((int) entries.size()) + " 曲（"_ju + sync.getServerUrl() + "）"_ju, juce::dontSendNotification);
+        serverLine.setColour (juce::Label::textColourId, Theme::textDim);
     }
 
-    table.updateContent();
+    list.updateContent();
 
     // 選択を戻す（なければ、いま開いている曲かいちばん上）
     int select = entries.empty() ? -1 : 0;
@@ -424,87 +310,111 @@ void ProjectPicker::rebuildEntries()
     for (size_t i = 0; i < entries.size(); ++i)
     {
         const auto& e = entries[i];
-        const auto key = e.local ? e.local->folder.getFullPathName().toStdString() : e.projectId;
 
-        if ((! selectedKey.empty() && key == selectedKey)
-            || (selectedKey.empty() && e.local && e.local->folder == currentFolder))
+        if ((! selectedId.empty() && e.projectId == selectedId)
+            || (selectedId.empty() && e.local && e.local->folder == currentFolder))
             select = (int) i;
     }
 
     if (select >= 0)
-        table.selectRow (select);
+        list.selectRow (select);
 
-    table.repaint();
+    list.repaint();
     updateButtons();
+}
+
+const ProjectPicker::Entry* ProjectPicker::selected() const
+{
+    const int row = list.getSelectedRow();
+    return row >= 0 && row < (int) entries.size() ? &entries[(size_t) row] : nullptr;
 }
 
 void ProjectPicker::updateButtons()
 {
-    const int row = table.getSelectedRow();
-    const auto* e = row >= 0 && row < (int) entries.size() ? &entries[(size_t) row] : nullptr;
-
+    const auto* e = selected();
     openButton.setEnabled (e != nullptr);
-    forgetButton.setEnabled (e != nullptr && e->local.has_value());
-    deleteButton.setEnabled (e != nullptr && e->onServer);
     createButton.setEnabled (sync.hasCredentials());
-
-    if (e == nullptr)
-        openButton.setButtonText ("開く"_ju);
-    else if (e->status == Status::serverOnly)
-        openButton.setButtonText ("ダウンロードして開く"_ju);
-    else if (e->status == Status::serverNewer || e->status == Status::both)
-        openButton.setButtonText ("開いて取り込む"_ju);
-    else if (e->status == Status::localOnly && sync.hasCredentials())
-        openButton.setButtonText ("開いてサーバーにアップ"_ju);
-    else
-        openButton.setButtonText ("開く"_ju);
+    openButton.setButtonText (e != nullptr && ! e->local ? "ダウンロードして開く"_ju : "開く"_ju);
 }
 
 void ProjectPicker::openSelected()
 {
-    const int row = table.getSelectedRow();
+    const auto* sel = selected();
 
-    if (row < 0 || row >= (int) entries.size())
+    if (sel == nullptr)
         return;
 
-    const auto e = entries[(size_t) row];
+    const auto e = *sel;
     auto cb = callbacks;
     close();
 
-    if (e.status == Status::serverOnly)
+    if (! e.local)
     {
         if (cb.download)
             cb.download (e.projectId);
     }
-    else if (e.status == Status::localOnly && e.local && sync.hasCredentials() && cb.openAndUpload)
-    {
-        cb.openAndUpload (e.local->folder);
-    }
-    else if (e.local && cb.openLocal)
+    else if (cb.openLocal)
     {
         cb.openLocal (e.local->folder, e.status == Status::serverNewer || e.status == Status::both);
     }
 }
 
-void ProjectPicker::deleteSelected()
+void ProjectPicker::renameSelected()
 {
-    const int row = table.getSelectedRow();
+    const auto* sel = selected();
 
-    if (row < 0 || row >= (int) entries.size() || ! entries[(size_t) row].onServer)
+    if (sel == nullptr || sel->status == Status::offline)
         return;
 
-    const auto e = entries[(size_t) row];
-    const auto name = e.name.isEmpty() ? "（名前なし）"_ju : e.name;
+    const auto e = *sel;
 
-    // 取り返しがつかないので、何が消えて何が残るかをはっきり書く
+    Dialogs::askText ("名前を変更"_ju, "新しい曲名"_ju, e.name, [this, flag = alive, e] (const juce::String& entered)
+    {
+        const auto name = entered.trim();
+
+        if (! *flag || name.isEmpty() || name == e.name)
+            return;
+
+        juce::Thread::launch ([this, flag, e, name]
+        {
+            auto r = sync.runRenameProject (e.projectId, name);
+
+            juce::MessageManager::callAsync ([this, flag, r]
+            {
+                if (! *flag)
+                    return;
+
+                if (r.failed())
+                    Dialogs::showError ("名前を変更できませんでした"_ju, r.getErrorMessage());
+
+                refresh();
+            });
+        });
+    });
+}
+
+void ProjectPicker::deleteSelected()
+{
+    const auto* sel = selected();
+
+    if (sel == nullptr || sel->status == Status::offline)
+        return;
+
+    const auto e = *sel;
+
+    if (e.local && e.local->folder == currentFolder)
+    {
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "削除"_ju,
+                                                "いま開いている曲は削除できません。別の曲を開いてから削除してください。"_ju, {}, this);
+        return;
+    }
+
     auto options = juce::MessageBoxOptions()
                      .withIconType (juce::MessageBoxIconType::WarningIcon)
-                     .withTitle ("サーバーから削除"_ju)
-                     .withMessage ("「"_ju + name + "」をサーバーから削除します。\n\n"_ju
-                                   + "・サーバーのリビジョン（履歴）とロックがすべて消え、仲間も開けなくなります。\n"_ju
-                                   + "・元に戻せません。\n"_ju
-                                   + "・この PC のフォルダは消しません（あとで「開いてサーバーにアップ」で上げ直せます）。\n\n"_ju
-                                   + "削除できるのは曲を作った人だけです。"_ju)
+                     .withTitle ("曲を削除"_ju)
+                     .withMessage ("「"_ju + e.name + "」を削除します。\n\n"_ju
+                                   + "・サーバーから消え、仲間も開けなくなります（履歴も消えます）。元に戻せません。\n"_ju
+                                   + (e.local ? "・この PC のコピーはゴミ箱に移します。"_ju : juce::String()))
                      .withButton ("削除する"_ju)
                      .withButton ("やめる"_ju)
                      .withAssociatedComponent (this);
@@ -516,20 +426,60 @@ void ProjectPicker::deleteSelected()
 
         juce::Thread::launch ([this, flag, e]
         {
-            auto r = sync.runDeleteProject (e.projectId, e.local ? e.local->folder : juce::File());
+            const auto folder = e.local ? e.local->folder : juce::File();
+            auto r = sync.runDeleteProject (e.projectId, folder);
 
-            juce::MessageManager::callAsync ([this, flag, r]
+            juce::MessageManager::callAsync ([this, flag, r, folder]
             {
                 if (! *flag)
                     return;
 
                 if (r.failed())
                     juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "削除できませんでした"_ju, r.getErrorMessage(), {}, this);
+                else if (folder != juce::File())
+                    folder.moveToTrash();
 
                 refresh();
             });
         });
     });
+}
+
+void ProjectPicker::showMenu (int row)
+{
+    if (row < 0 || row >= (int) entries.size())
+        return;
+
+    list.selectRow (row);
+    const auto& e = entries[(size_t) row];
+    juce::PopupMenu m;
+    m.addItem (e.local ? "開く"_ju : "ダウンロードして開く"_ju, [this] { openSelected(); });
+    m.addSeparator();
+    m.addItem ("名前を変更…"_ju, e.status != Status::offline, false, [this] { renameSelected(); });
+
+    if (e.local)
+        m.addItem ("フォルダを表示"_ju, [folder = e.local->folder] { folder.revealToUser(); });
+
+    m.addSeparator();
+    m.addItem ("削除…"_ju, e.status != Status::offline, false, [this] { deleteSelected(); });
+    m.showMenuAsync (juce::PopupMenu::Options());
+}
+
+void ProjectPicker::listBoxItemClicked (int row, const juce::MouseEvent& e)
+{
+    if (e.mods.isPopupMenu())
+        showMenu (row);
+}
+
+bool ProjectPicker::keyPressed (const juce::KeyPress& key)
+{
+    if (key == juce::KeyPress::F2Key)
+    {
+        renameSelected();
+        return true;
+    }
+
+    return false;
 }
 
 void ProjectPicker::close()
@@ -539,124 +489,83 @@ void ProjectPicker::close()
 }
 
 //==============================================================================
-void ProjectPicker::paintRowBackground (juce::Graphics& g, int row, int, int height, bool selected)
-{
-    g.fillAll (selected ? Theme::accent.withAlpha (0.25f) : (row % 2 ? Theme::laneAlt : Theme::lane));
-    juce::ignoreUnused (height);
-}
-
-void ProjectPicker::paintCell (juce::Graphics& g, int row, int column, int width, int height, bool)
+void ProjectPicker::paintListBoxItem (int row, juce::Graphics& g, int width, int height, bool isSelected)
 {
     if (row < 0 || row >= (int) entries.size())
         return;
 
     const auto& e = entries[(size_t) row];
-    auto area = juce::Rectangle<int> (0, 0, width, height).reduced (8, 4);
-    auto top = area.removeFromTop (area.getHeight() / 2);
+    auto card = juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height).reduced (6.0f, 4.0f);
+    Theme::drawGlass (g, card, 12.0f, isSelected ? Theme::accent.withAlpha (0.22f) : juce::Colour());
 
-    auto line = [&] (juce::Rectangle<int> r, const juce::String& text, juce::Colour colour, float size, bool bold)
+    auto area = card.reduced (18.0f, 10.0f);
+    auto right = area.removeFromRight (230.0f);
+
+    // 曲名と、いま開いている印
+    auto line1 = area.removeFromTop (26.0f);
+    g.setColour (Theme::text);
+    g.setFont (juce::FontOptions (18.0f, juce::Font::bold));
+    g.drawText (e.name.isEmpty() ? "（名前なし）"_ju : e.name, line1, juce::Justification::centredLeft, true);
+
+    // 状況（色の丸と文）
+    auto line2 = area.removeFromTop (22.0f);
+    Theme::drawStatusDot (g, line2.removeFromLeft (12.0f).withSizeKeepingCentre (9.0f, 9.0f), statusColour (e.status));
+    line2.removeFromLeft (6.0f);
+    g.setColour (e.status == Status::serverOnly || e.status == Status::offline ? Theme::textDim : Theme::text);
+    g.setFont (juce::FontOptions (14.5f));
+    juce::String text = statusText (e);
+
+    if (e.local && e.local->folder == currentFolder)
+        text = "いま開いている曲・"_ju + text;
+
+    g.drawText (text, line2, juce::Justification::centredLeft, true);
+
+    // 右: 最後にアップした人と日時
+    if (e.updatedAt.toMilliseconds() > 0)
     {
-        g.setColour (colour);
-        g.setFont (juce::FontOptions (size, bold ? juce::Font::bold : juce::Font::plain));
-        g.drawText (text, r, juce::Justification::centredLeft, true);
-    };
-
-    switch (column)
-    {
-        case nameColumn:
-        {
-            const bool isCurrent = e.local && e.local->folder == currentFolder;
-            line (top, e.name.isEmpty() ? "（名前なし）"_ju : e.name, Theme::text, 15.0f, true);
-            line (area, isCurrent ? "いま開いている曲"_ju : juce::String(), Theme::accent, 11.0f, false);
-            break;
-        }
-
-        case statusColumn:
-        {
-            // 色の付いた丸と状況
-            g.setColour (statusColour (e.status));
-            g.fillEllipse (juce::Rectangle<float> (8.0f, 8.0f, 10.0f, 10.0f).withY ((float) top.getCentreY() - 5.0f));
-            line (top.withTrimmedLeft (16), statusText (e), statusColour (e.status).brighter (0.2f), 13.0f, true);
-
-            if (e.local && e.local->changedScopes > 0)
-                line (area.withTrimmedLeft (16), "変更: "_ju + e.local->changedNames.joinIntoString ("、"_ju)
-                                                 + (e.local->changedScopes > e.local->changedNames.size() ? " ほか"_ju : juce::String()),
-                      Theme::textDim, 11.5f, false);
-            break;
-        }
-
-        case serverColumn:
-        {
-            if (! e.onServer)
-            {
-                line (top, e.local && e.local->linked ? "—"_ju : "未登録"_ju, Theme::textDim, 12.5f, false);
-                break;
-            }
-
-            line (top, "rev "_ju + juce::String (e.headRevision), Theme::text, 13.0f, true);
-            line (area, relativeTime (e.updatedAt) + (e.updatedBy.isNotEmpty() ? "　"_ju + e.updatedBy : juce::String()),
-                  Theme::textDim, 11.5f, false);
-            break;
-        }
-
-        case localColumn:
-        {
-            if (! e.local)
-            {
-                line (top, "この PC にはありません"_ju, Theme::textDim, 12.5f, false);
-                break;
-            }
-
-            line (top, (e.local->linked ? "rev "_ju + juce::String (e.local->baseRevision) + "　"_ju : juce::String())
-                          + "保存 "_ju + relativeTime (e.local->savedAt),
-                  Theme::text, 13.0f, e.local->linked);
-            line (area, e.local->folder.getFullPathName(), Theme::textDim, 11.0f, false);
-            break;
-        }
-
-        default:
-            break;
+        g.setColour (Theme::textDim);
+        g.setFont (juce::FontOptions (13.5f));
+        g.drawText (relativeTime (e.updatedAt) + (e.updatedBy.isNotEmpty() ? "　"_ju + e.updatedBy : juce::String()),
+                    right.removeFromTop (26.0f), juce::Justification::centredRight, true);
+        g.drawText (e.local ? "この PC にダウンロード済み"_ju : juce::String(), right.removeFromTop (22.0f), juce::Justification::centredRight, true);
     }
 }
 
-//==============================================================================
 void ProjectPicker::paint (juce::Graphics& g)
 {
-    g.fillAll (Theme::panel);
+    g.fillAll (Theme::background);
+    g.setColour (Theme::text);
+    g.setFont (juce::FontOptions (24.0f, juce::Font::bold));
+    g.drawText ("楽曲"_ju, 22, 14, 200, 36, juce::Justification::centredLeft);
+
+    g.setColour (Theme::textDim);
+    g.setFont (juce::FontOptions (13.0f));
+    g.drawText ("右クリック（または Delete / F2）で、名前の変更・削除"_ju, getLocalBounds().reduced (22, 0).withTop (getHeight() - 96).withHeight (20),
+                juce::Justification::centredLeft);
 }
 
 void ProjectPicker::resized()
 {
-    auto area = getLocalBounds().reduced (14);
+    auto area = getLocalBounds().reduced (16, 12);
 
-    auto top = area.removeFromTop (30);
-    title.setBounds (top.removeFromLeft (200));
-    serverButton.setBounds (top.removeFromRight (120).reduced (0, 2));
-    top.removeFromRight (6);
-    refreshButton.setBounds (top.removeFromRight (80).reduced (0, 2));
+    auto top = area.removeFromTop (40);
+    top.removeFromLeft (120);
+    serverButton.setBounds (top.removeFromRight (130).reduced (0, 4));
+    top.removeFromRight (8);
+    refreshButton.setBounds (top.removeFromRight (80).reduced (0, 4));
+    top.removeFromRight (8);
+    createButton.setBounds (top.removeFromRight (140).reduced (0, 2));
 
-    serverLine.setBounds (area.removeFromTop (22));
+    serverLine.setBounds (area.removeFromTop (24));
     area.removeFromTop (6);
 
-    auto bottom = area.removeFromBottom (32);
-    openButton.setBounds (bottom.removeFromRight (180));
-    bottom.removeFromRight (6);
+    auto bottom = area.removeFromBottom (40).withTrimmedTop (6);
+    openButton.setBounds (bottom.removeFromRight (190));
+    bottom.removeFromRight (8);
     closeButton.setBounds (bottom.removeFromRight (100));
-    createButton.setBounds (bottom.removeFromLeft (190));
-    bottom.removeFromLeft (6);
-    newButton.setBounds (bottom.removeFromLeft (170));
-    bottom.removeFromLeft (6);
-    otherButton.setBounds (bottom.removeFromLeft (140));
-    bottom.removeFromLeft (16);
-    forgetButton.setBounds (bottom.removeFromLeft (110));
-    bottom.removeFromLeft (6);
-    deleteButton.setBounds (bottom.removeFromLeft (140));
+    folderButton.setBounds (bottom.removeFromRight (70).reduced (0, 3));
+    folderLine.setBounds (bottom);
 
-    area.removeFromBottom (6);
-    auto folderRow = area.removeFromBottom (24);
-    folderButton.setBounds (folderRow.removeFromRight (70).reduced (0, 1));
-    folderLine.setBounds (folderRow);
-    area.removeFromBottom (4);
-
-    table.setBounds (area);
+    area.removeFromBottom (30);
+    list.setBounds (area);
 }

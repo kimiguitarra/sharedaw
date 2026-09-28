@@ -185,6 +185,18 @@ void TrackHeader::paint (juce::Graphics& g)
 
     g.fillAll (selected ? Theme::panelLight : Theme::panel);
 
+    // 他の人がアップして新しくなったトラックは青、競合は橙をうっすら重ねて、ダウンロードを促す
+    if (ctx.sync.isLinked())
+    {
+        const auto st = ctx.sync.scopeState (trackId);
+
+        if (st.conflict || st.theirs)
+        {
+            g.setColour ((st.conflict ? Theme::warning : Theme::accent).withAlpha (0.16f));
+            g.fillAll();
+        }
+    }
+
     if (t != nullptr)
     {
         g.setColour (Theme::parseColour (t->color));
@@ -194,28 +206,26 @@ void TrackHeader::paint (juce::Graphics& g)
     g.setColour (Theme::background);
     g.drawHorizontalLine (getHeight() - 1, 0.0f, (float) getWidth());
 
-    // 同期中: ロックと未送信の変更（§4.2, §4.4）。名前の右に小さな文字で（ボタンと重ならない場所）
+    // 同期: この PC の変更・サーバーで更新・競合（名前の右に小さな文字で）
     if (ctx.sync.isLinked() && ! badgeArea.isEmpty())
     {
+        const auto st = ctx.sync.scopeState (trackId);
         juce::String label;
         auto colour = Theme::textDim;
 
-        if (ctx.sync.isLockedByMe (trackId))             { label = "ロック中"_ju; colour = Theme::ok; }
-        else if (auto lock = ctx.sync.getLock (trackId)) { label = lock->displayName; colour = Theme::warning; }
-        else if (! ctx.sync.canEdit (trackId))           { label = "閲覧のみ"_ju; }
+        if (st.conflict)          { label = "競合"_ju;   colour = Theme::warning; }
+        else if (st.theirs)       { label = "新着"_ju;   colour = Theme::accent; }
+        else if (st.mine)         { label = "変更"_ju;   colour = Theme::text; }
 
-        auto r = badgeArea.toFloat();
-
-        if (ctx.sync.hasLocalChanges (trackId))
+        if (label.isNotEmpty())
         {
-            // 未送信の変更: 右端に点
-            Theme::drawStatusDot (g, r.removeFromRight (8.0f).withSizeKeepingCentre (6.0f, 6.0f), Theme::warning);
-            r.removeFromRight (3.0f);
+            auto r = badgeArea.toFloat();
+            Theme::drawStatusDot (g, r.removeFromLeft (8.0f).withSizeKeepingCentre (7.0f, 7.0f), colour);
+            r.removeFromLeft (4.0f);
+            g.setColour (colour);
+            g.setFont (juce::FontOptions (13.5f));
+            g.drawText (label, r, juce::Justification::centredLeft, true);
         }
-
-        g.setColour (colour);
-        g.setFont (juce::FontOptions (11.0f));
-        g.drawText (label, r, juce::Justification::centredRight, true);
     }
 
     // バウンスの状態（§3.7）
@@ -237,7 +247,7 @@ void TrackHeader::paint (juce::Graphics& g)
         if (renderBadge.isNotEmpty())
         {
             g.setColour (Theme::warning);
-            g.setFont (juce::FontOptions (10.5f));
+            g.setFont (juce::FontOptions (12.0f));
             g.drawText (renderBadge, getLocalBounds().withTrimmedLeft (10).withTrimmedRight (10).removeFromBottom (32).removeFromTop (12),
                         juce::Justification::centredRight, true);
         }
@@ -247,7 +257,7 @@ void TrackHeader::paint (juce::Graphics& g)
         return;
 
     g.setColour (Theme::textDim);
-    g.setFont (juce::FontOptions (11.0f));
+    g.setFont (juce::FontOptions (12.5f));
     auto area = getLocalBounds().reduced (10, 4);
     auto sliderRow = area.removeFromBottom (18);
     g.drawText ("Vol", sliderRow.removeFromLeft (26), juce::Justification::centredLeft);
@@ -533,12 +543,6 @@ void TrackHeader::showMenu()
 
         if (t->type == collab::TrackType::midi || ! t->effects.empty())
             m.addItem ("バウンス（オーディオに書き出す）"_ju, [this] { ctx.bounceTrack (trackId); });
-    }
-
-    if (ctx.addLockMenuItems)
-    {
-        m.addSeparator();
-        ctx.addLockMenuItems (trackId, m);
     }
 
     m.addSeparator();

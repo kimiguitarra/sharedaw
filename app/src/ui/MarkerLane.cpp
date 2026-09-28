@@ -54,7 +54,7 @@ void MarkerLane::addMarker (AppContext& ctx, collab::Tick tick)
 juce::Rectangle<float> MarkerLane::labelBounds (const collab::Marker& m, int number) const
 {
     const float x = (float) ctx.state.timeline.tickToX ((double) m.tick);
-    const auto font = juce::Font (juce::FontOptions (12.5f, juce::Font::bold));
+    const auto font = juce::Font (juce::FontOptions (13.5f, juce::Font::bold));
     const float w = juce::GlyphArrangement::getStringWidth (font, labelText (m, number)) + 12.0f;
     return { x, 2.0f, juce::jmax (18.0f, w), (float) getHeight() - 4.0f };
 }
@@ -64,7 +64,7 @@ void MarkerLane::paint (juce::Graphics& g)
     const auto& axis = ctx.state.timeline;
     g.fillAll (Theme::laneAlt);
     TimeGrid::drawGrid (g, getLocalBounds(), axis, ctx.document.getTempoMap(), nullptr);
-    g.setFont (juce::FontOptions (12.5f, juce::Font::bold));
+    g.setFont (juce::FontOptions (13.5f, juce::Font::bold));
 
     const auto markers = sorted (ctx.document.getProject());
 

@@ -114,8 +114,15 @@ target_link_libraries(ShareDAW PRIVATE
     juce::juce_audio_devices
     juce::juce_audio_processors
     juce::juce_audio_utils
-    juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags)
+
+# JUCE の推奨フラグは MSVC で /MP を付けるが、Ninja + sccache（CI のコンパイルキャッシュ）では不要で、キャッシュの邪魔になる。
+# MSVC は同じ最適化だけを自前で付ける
+if(MSVC)
+    target_compile_options(ShareDAW PRIVATE $<$<CONFIG:Release>:/Ox> /EHsc)
+else()
+    target_link_libraries(ShareDAW PRIVATE juce::juce_recommended_config_flags)
+endif()
 
 set_target_properties(ShareDAW PROPERTIES
     C_VISIBILITY_PRESET hidden

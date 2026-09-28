@@ -4,34 +4,31 @@
 #include "sync/SyncManager.h"
 
 /**
-    「楽曲を選ぶ」画面（起動時・ファイル → 楽曲を選ぶ）。
-    サーバーの曲とこの PC の曲を 1 つの一覧にまとめ、それぞれの状況（最新・未 push・サーバーに新しい版など）を見せる。
-    曲は基本的にサーバーで管理し、この PC にはダウンロードしたフォルダを置く。
+    「楽曲」画面（起動時・ファイル → 楽曲を選ぶ）。Google Drive のように、サーバーにある曲の一覧から開く。
+
+    曲はサーバーで作り、ダウンロードして編集する（この PC だけにある曲という考え方はない）。
+    曲を右クリック（または Delete / F2）で、開く・名前を変更・削除。
 */
 class ProjectPicker  : public juce::Component,
-                       private juce::TableListBoxModel
+                       private juce::ListBoxModel
 {
 public:
     enum class Status
     {
         upToDate,        // 最新
-        localChanges,    // この PC に未送信の変更
-        serverNewer,     // サーバーに新しい版
+        localChanges,    // この PC に、まだアップしていない変更
+        serverNewer,     // サーバーに新しい変更
         both,            // 両方に変更
-        serverOnly,      // サーバーだけ（ダウンロードして開く）
-        localOnly,       // この PC だけ（サーバー未登録）
-        unchecked,       // サーバーを確認できない（未設定・オフライン）
-        otherServer,     // 別のサーバーの曲
-        notOnServer      // サーバーに見当たらない（削除された・参加していない）
+        serverOnly,      // まだダウンロードしていない
+        offline          // サーバーを確認できない（この PC のコピーを開ける）
     };
 
     struct Entry
     {
-        Status status = Status::localOnly;
+        Status status = Status::serverOnly;
         juce::String name;
         std::string projectId;
-        std::optional<SyncManager::LocalInfo> local;
-        bool onServer = false;
+        std::optional<SyncManager::LocalInfo> local;   // ダウンロード済みなら、この PC のフォルダ
         int headRevision = 0;
         juce::Time updatedAt;
         juce::String updatedBy;
@@ -39,10 +36,9 @@ public:
 
     struct Callbacks
     {
-        std::function<void (const juce::File& folder, bool pullAfterOpen)> openLocal;
+        std::function<void (const juce::File& folder, bool downloadAfterOpen)> openLocal;
         std::function<void (const std::string& projectId)> download;
-        std::function<void()> newProject, openOther, serverSettings, createOnServer;
-        std::function<void (const juce::File& folder)> openAndUpload;   // この PC だけの曲を開いてサーバーにアップする
+        std::function<void()> createOnServer, serverSettings;
     };
 
     ProjectPicker (SyncManager&, juce::PropertiesFile& settings, juce::File currentFolder, Callbacks);
@@ -53,11 +49,11 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    bool keyPressed (const juce::KeyPress&) override;
 
     //==============================================================================
-    // この PC にある曲のフォルダ（開いた・保存した・ダウンロードしたもの）
+    // この PC にある曲のフォルダ（開いた・ダウンロードしたもの）
     static void remember (juce::PropertiesFile&, const juce::File& projectFolder);
-    static void forget (juce::PropertiesFile&, const juce::File& projectFolder);
     static juce::Array<juce::File> knownFolders (juce::PropertiesFile&);
 
     /** サーバーからダウンロードした曲を置くフォルダ（既定: ドキュメント/ShareDAW）。 */
@@ -72,13 +68,10 @@ private:
     juce::File currentFolder;
     Callbacks callbacks;
 
-    juce::Label title, serverLine, folderLine;
-    juce::TableListBox table { {}, this };
-    juce::TextButton refreshButton { "更新"_ju }, serverButton { "サーバー設定…"_ju }, folderButton { "変更…"_ju };
-    juce::TextButton createButton { "サーバーに新しい曲を作る…"_ju };
-    juce::TextButton newButton { "この PC だけで新規作成"_ju }, otherButton { "フォルダから開く…"_ju }, forgetButton { "一覧から外す"_ju };
-    juce::TextButton deleteButton { "サーバーから削除…"_ju };
-    juce::TextButton openButton { "開く"_ju }, closeButton { "閉じる"_ju };
+    juce::Label serverLine, folderLine;
+    juce::ListBox list { {}, this };
+    juce::TextButton createButton { "＋ 新しい曲"_ju }, refreshButton { "更新"_ju }, serverButton { "サーバー設定…"_ju };
+    juce::TextButton folderButton { "変更…"_ju }, openButton { "開く"_ju }, closeButton { "閉じる"_ju };
 
     std::vector<SyncManager::LocalInfo> locals;
     std::optional<nlohmann::json> serverList;
@@ -89,14 +82,18 @@ private:
 
     void rebuildEntries();
     void updateButtons();
+    const Entry* selected() const;
     void openSelected();
+    void renameSelected();
     void deleteSelected();
+    void showMenu (int row);
     void close();
 
     int getNumRows() override                            { return (int) entries.size(); }
-    void paintRowBackground (juce::Graphics&, int row, int width, int height, bool selected) override;
-    void paintCell (juce::Graphics&, int row, int column, int width, int height, bool selected) override;
+    void paintListBoxItem (int row, juce::Graphics&, int width, int height, bool selected) override;
     void selectedRowsChanged (int) override              { updateButtons(); }
-    void cellDoubleClicked (int, int, const juce::MouseEvent&) override   { openSelected(); }
+    void listBoxItemClicked (int row, const juce::MouseEvent&) override;
+    void listBoxItemDoubleClicked (int, const juce::MouseEvent&) override   { openSelected(); }
     void returnKeyPressed (int) override                 { openSelected(); }
+    void deleteKeyPressed (int) override                 { deleteSelected(); }
 };

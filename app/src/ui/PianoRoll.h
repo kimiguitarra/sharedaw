@@ -136,8 +136,26 @@ public:
     /** ドラムのキットでこのノートに割り当てた音の名前（キットにない＝鳴らないなら空）。 */
     juce::String drumPieceName (int note) const;
 
-    float pitchToY (int pitch) const       { return (float) ((127 - pitch) * noteHeight - scrollY); }
-    int yToPitch (float y) const           { return juce::jlimit (0, 127, 127 - (int) std::floor ((y + (float) scrollY) / (float) noteHeight)); }
+    // ドラムのときは、キットの音だけを行にする（EZ Drummer のように、キック・スネア・ハイハット・タム・シンバルの順）
+    std::vector<int> drumRows;            // 上からの行のピッチ（ドラム以外は空）
+    int rowOfPitch (int pitch) const
+    {
+        if (drumRows.empty())
+            return 127 - pitch;
+
+        auto it = std::find (drumRows.begin(), drumRows.end(), pitch);
+        return it == drumRows.end() ? -1000 : (int) (it - drumRows.begin());
+    }
+    int numRows() const                    { return drumRows.empty() ? 128 : (int) drumRows.size(); }
+    float pitchToY (int pitch) const       { return (float) (rowOfPitch (pitch) * noteHeight - scrollY); }
+    int yToPitch (float y) const
+    {
+        const int row = juce::jlimit (0, numRows() - 1, (int) std::floor ((y + (float) scrollY) / (float) noteHeight));
+        return drumRows.empty() ? 127 - row : drumRows[(size_t) row];
+    }
+
+    /** ドラムの行を作り直す（キットが変わったとき・ノートがキットにない音にあるとき）。 */
+    void rebuildDrumRows();
     TimeAxis& axis()                       { return ctx.state.pianoRoll; }
     const TimeAxis& axis() const           { return ctx.state.pianoRoll; }
 
@@ -171,5 +189,5 @@ private:
     void scrollBarMoved (juce::ScrollBar*, double) override;
     void clipChanged();
     void updateTitle();
-    int keyboardWidth() const              { return getAudioClip() != nullptr ? 0 : (isDrumTrack() ? 170 : 70); }
+    int keyboardWidth() const              { return getAudioClip() != nullptr ? 0 : (isDrumTrack() ? 220 : 70); }
 };

@@ -8,6 +8,20 @@
 
 namespace
 {
+    /** ドラムの音の仲間（行の区切り線用）: 0 キック, 1 スネア, 2 ハイハット, 3 タム, 4 シンバル, 5 その他 */
+    int drumFamily (int pitch)
+    {
+        switch (pitch)
+        {
+            case 35: case 36:                                   return 0;
+            case 37: case 38: case 39: case 40:                 return 1;
+            case 42: case 44: case 46:                          return 2;
+            case 41: case 43: case 45: case 47: case 48: case 50: return 3;
+            case 49: case 51: case 52: case 53: case 55: case 57: case 59: return 4;
+            default:                                            return 5;
+        }
+    }
+
     constexpr int toolbarHeight = 30;
     constexpr int rulerHeight = 24;
     constexpr int velocityHeight = 70;
@@ -31,7 +45,7 @@ void PianoKeyboard::paint (juce::Graphics& g)
 {
     const bool drums = owner.isDrumTrack();
     g.fillAll (Theme::panel);
-    g.setFont (juce::FontOptions (11.0f));
+    g.setFont (juce::FontOptions (12.5f));
 
     for (int p = 0; p < 128; ++p)
     {
@@ -44,16 +58,28 @@ void PianoKeyboard::paint (juce::Graphics& g)
 
         if (drums)
         {
-            // キットにある音は明るく、キットにない音（GM の名前だけあるもの）は暗く「音なし」と出す
+            // EZ Drummer のように、音色の名前を大きく。キットにない音（ノートだけある）は暗く「音なし」
             const auto name = owner.drumPieceName (p);
             const auto gmName = toJuce (collab::gmDrumName (p));
-            g.setColour (name.isNotEmpty() ? Theme::panelLight : Theme::panel);
+            const int rowIndex = owner.rowOfPitch (p);
+            g.setColour (name.isEmpty() ? Theme::panel : (rowIndex % 2 == 0 ? Theme::panelLight : Theme::panelLight.darker (0.12f)));
             g.fillRect (row.reduced (0.0f, 0.5f));
-            g.setColour (name.isNotEmpty() ? Theme::text : Theme::textDim.withAlpha (0.6f));
-            const auto label = name.isNotEmpty() ? juce::String (p) + " " + name
-                             : gmName.isNotEmpty() ? juce::String (p) + " " + gmName + "（音なし）"_ju
-                             : juce::String (p);
-            g.drawText (label, row.withTrimmedLeft (4.0f), juce::Justification::centredLeft, true);
+            g.setColour (name.isNotEmpty() ? Theme::text : Theme::textDim.withAlpha (0.7f));
+            g.setFont (juce::FontOptions (14.5f, name.isNotEmpty() ? juce::Font::bold : juce::Font::plain));
+            g.drawText (name.isNotEmpty() ? name : (gmName.isNotEmpty() ? gmName : juce::String (p)) + "（音なし）"_ju,
+                        row.withTrimmedLeft (10.0f).withTrimmedRight (40.0f), juce::Justification::centredLeft, true);
+            g.setColour (Theme::textDim);
+            g.setFont (juce::FontOptions (12.0f));
+            g.drawText (toJuce (collab::midiNoteName (p)), row.withTrimmedRight (6.0f), juce::Justification::centredRight, false);
+
+            // 仲間（キック・スネア・ハイハット…）の境目
+            if (rowIndex + 1 < (int) owner.drumRows.size() && drumFamily (owner.drumRows[(size_t) rowIndex + 1]) != drumFamily (p))
+            {
+                g.setColour (Theme::background);
+                g.fillRect (row.getX(), row.getBottom() - 2.0f, row.getWidth(), 2.0f);
+            }
+
+            continue;
         }
         else
         {
@@ -96,12 +122,16 @@ const collab::Note* NoteGrid::hitNote (juce::Point<float> p, bool& nearRightEdge
     for (auto it = clip->notes.rbegin(); it != clip->notes.rend(); ++it)
     {
         const float x1 = (float) axis.tickToX ((double) (clip->startTick + it->tick));
-        const float x2 = (float) axis.tickToX ((double) (clip->startTick + it->endTick()));
+        float x2 = (float) axis.tickToX ((double) (clip->startTick + it->endTick()));
         const float y = owner.pitchToY (it->pitch);
+
+        // ドラムは、描いているブロック（グリッド 1 マス分）の大きさで当たりを取る
+        if (! owner.drumRows.empty())
+            x2 = x1 + juce::jlimit (6.0f, 40.0f, (float) (juce::jmax<collab::Tick> (30, owner.ctx.state.grid.stepTicks()) * axis.pixelsPerTick()) - 2.0f);
 
         if (p.x >= x1 && p.x <= juce::jmax (x2, x1 + 3.0f) && p.y >= y && p.y < y + (float) owner.noteHeight)
         {
-            nearRightEdge = x2 - p.x <= edgeGrab && x2 - x1 > edgeGrab * 1.5f;
+            nearRightEdge = owner.drumRows.empty() && x2 - p.x <= edgeGrab && x2 - x1 > edgeGrab * 1.5f;   // ドラムは長さを変えない
             return &*it;
         }
     }
@@ -126,11 +156,28 @@ void NoteGrid::paint (juce::Graphics& g)
         if (y + (float) owner.noteHeight < 0 || y > (float) getHeight())
             continue;
 
-        const bool shaded = drums ? owner.drumPieceName (p).isEmpty() : isBlackKey (p);
-        g.setColour (shaded ? Theme::laneAlt : Theme::lane);
+        if (drums)
+        {
+            // 行ごとに縞、仲間の境目は太い線
+            const int rowIndex = owner.rowOfPitch (p);
+            g.setColour (owner.drumPieceName (p).isEmpty() ? Theme::laneAlt.darker (0.2f) : (rowIndex % 2 == 0 ? Theme::lane : Theme::laneAlt));
+            g.fillRect (0.0f, y, (float) getWidth(), (float) owner.noteHeight);
+            g.setColour (Theme::gridSub);
+            g.drawHorizontalLine ((int) (y + (float) owner.noteHeight) - 1, 0.0f, (float) getWidth());
+
+            if (rowIndex + 1 < (int) owner.drumRows.size() && drumFamily (owner.drumRows[(size_t) rowIndex + 1]) != drumFamily (p))
+            {
+                g.setColour (Theme::gridBar);
+                g.fillRect (0.0f, y + (float) owner.noteHeight - 2.0f, (float) getWidth(), 2.0f);
+            }
+
+            continue;
+        }
+
+        g.setColour (isBlackKey (p) ? Theme::laneAlt : Theme::lane);
         g.fillRect (0.0f, y, (float) getWidth(), (float) owner.noteHeight);
 
-        if (p % 12 == 0 || (drums && p % 12 == 11))
+        if (p % 12 == 0)
         {
             g.setColour (Theme::gridBeat);
             g.drawHorizontalLine ((int) (y + (float) owner.noteHeight) - 1, 0.0f, (float) getWidth());
@@ -165,21 +212,44 @@ void NoteGrid::paint (juce::Graphics& g)
         if (x2 < 0 || x1 > (float) getWidth() || y + (float) owner.noteHeight < 0 || y > (float) getHeight())
             continue;
 
-        const auto r = juce::Rectangle<float> (x1, y + 1.0f, juce::jmax (3.0f, x2 - x1), (float) owner.noteHeight - 2.0f);
         const bool selected = owner.selectedNotes.count (n.id) > 0;
         const bool outside = n.tick < 0 || n.tick >= clip->lengthTick;
         const bool silent = drums && owner.drumPieceName (n.pitch).isEmpty();   // キットにない音（鳴らない）
 
-        g.setColour (velocityColour (n.velocity, base).withAlpha (outside || silent ? 0.3f : 1.0f));
-        g.fillRoundedRectangle (r, 2.0f);
-
-        if (silent)
+        if (drums)
         {
-            g.setColour (Theme::warning);
-            g.drawLine (r.getX(), r.getBottom(), r.getRight(), r.getY(), 1.0f);
+            // ドラム: 叩いた場所を、グリッド 1 マス分のブロックで（強さ = 濃さ・高さ）
+            const float step = (float) (juce::jmax<collab::Tick> (30, owner.ctx.state.grid.stepTicks()) * axis.pixelsPerTick());
+            const float w = juce::jlimit (6.0f, 40.0f, step - 2.0f);
+            const float h = ((float) owner.noteHeight - 6.0f) * (0.45f + 0.55f * (float) n.velocity / 127.0f);
+            const auto hit = juce::Rectangle<float> (x1 + 1.0f, y + ((float) owner.noteHeight - h) * 0.5f, w, h);
+            g.setColour (velocityColour (n.velocity, base).withAlpha (outside || silent ? 0.3f : 1.0f));
+            g.fillRoundedRectangle (hit, 3.0f);
+            g.setColour (selected ? Theme::selection : juce::Colours::white.withAlpha (0.25f));
+            g.drawRoundedRectangle (hit, 3.0f, selected ? 2.0f : 1.0f);
+
+            if (silent)
+            {
+                g.setColour (Theme::warning);
+                g.drawLine (hit.getX(), hit.getBottom(), hit.getRight(), hit.getY(), 1.0f);
+            }
+
+            continue;
         }
+
+        const auto r = juce::Rectangle<float> (x1, y + 1.0f, juce::jmax (3.0f, x2 - x1), (float) owner.noteHeight - 2.0f);
+        g.setColour (velocityColour (n.velocity, base).withAlpha (outside ? 0.3f : 1.0f));
+        g.fillRoundedRectangle (r, 2.0f);
         g.setColour (selected ? Theme::selection : juce::Colours::black.withAlpha (0.5f));
         g.drawRoundedRectangle (r, 2.0f, selected ? 2.0f : 1.0f);
+
+        // 音名（C4 など）をノートの左端に
+        if (r.getWidth() >= 20.0f)
+        {
+            g.setColour (juce::Colours::black.withAlpha (0.8f));
+            g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
+            g.drawText (toJuce (collab::midiNoteName (n.pitch)), r.withTrimmedLeft (3.0f), juce::Justification::centredLeft, false);
+        }
     }
 
     if (mode == Mode::rubberBand)
@@ -447,22 +517,33 @@ void NoteGrid::mouseDrag (const juce::MouseEvent& e)
         const auto anchorAbs = clipStart + anchor->second.tick;
         const auto newAbs = owner.snap ((double) anchorAbs + delta, false, e.mods);
         auto dt = newAbs - anchorAbs;
-        int dp = owner.yToPitch (e.position.y) - downPitch;
+        // ドラムは行（音色）単位で動かす。それ以外は半音単位
+        const auto& rows = owner.drumRows;
+        int dp = rows.empty() ? owner.yToPitch (e.position.y) - downPitch
+                              : owner.rowOfPitch (owner.yToPitch (e.position.y)) - owner.rowOfPitch (downPitch);
 
-        // 全ノートがクリップ・音域の範囲に収まるように制限する
+        // 全ノートがクリップ・音域（行）の範囲に収まるように制限する
         for (auto& [id, o] : origs)
         {
             dt = juce::jlimit (-o.tick, clipLength - 1 - o.tick, dt);
-            dp = juce::jlimit (-o.pitch, 127 - o.pitch, dp);
+
+            if (rows.empty())
+                dp = juce::jlimit (-o.pitch, 127 - o.pitch, dp);
+            else if (const int r = owner.rowOfPitch (o.pitch); r >= 0)
+                dp = juce::jlimit (-r, (int) rows.size() - 1 - r, dp);
         }
 
-        owner.editNotes ("ノートの移動"_ju, [origs, dt, dp] (collab::MidiClip& c)
+        owner.editNotes ("ノートの移動"_ju, [origs, dt, dp, rows, &owner = owner] (collab::MidiClip& c)
         {
             for (auto& n : c.notes)
                 if (auto it = origs.find (n.id); it != origs.end())
                 {
                     n.tick = it->second.tick + dt;
-                    n.pitch = it->second.pitch + dp;
+
+                    if (rows.empty())
+                        n.pitch = it->second.pitch + dp;
+                    else if (const int r = owner.rowOfPitch (it->second.pitch); r >= 0)
+                        n.pitch = rows[(size_t) juce::jlimit (0, (int) rows.size() - 1, r + dp)];
                 }
         }, mergeId);
     }
@@ -685,7 +766,7 @@ void AudioClipGrid::paint (juce::Graphics& g)
     g.drawRect (r, 1.0f);
 
     g.setColour (Theme::text);
-    g.setFont (juce::FontOptions (12.0f));
+    g.setFont (juce::FontOptions (13.5f));
     auto label = toJuce (clip->displayName);
     if (std::abs (clip->gainDb) > 0.05)
         label << "  " << juce::String (clip->gainDb, 1) << " dB";
@@ -743,7 +824,7 @@ PianoRollView::PianoRollView (AppContext& c)
     hintLabel.setText ("鉛筆: クリックでノート追加（ドラッグで長さ）・ノートをクリックで削除　選択: ドラッグで移動・範囲選択、右端で長さ　↑↓: 移調　Del: 削除"_ju,
                        juce::dontSendNotification);
     hintLabel.setColour (juce::Label::textColourId, Theme::textDim);
-    hintLabel.setFont (juce::FontOptions (12.0f));
+    hintLabel.setFont (juce::FontOptions (13.5f));
     hintLabel.setMinimumHorizontalScale (0.5f);
     addAndMakeVisible (hintLabel);
 
@@ -795,6 +876,34 @@ const collab::AudioClip* PianoRollView::getAudioClip() const
     return nullptr;
 }
 
+void PianoRollView::rebuildDrumRows()
+{
+    drumRows.clear();
+
+    if (! isDrumTrack())
+        return;
+
+    // 叩く頻度の高い順（EZ Drummer の並びに近い）: キック → スネア → ハイハット → タム（高い順）→ シンバル
+    const int order[] = { 36, 35, 38, 40, 37, 39, 42, 44, 46, 50, 48, 47, 45, 43, 41, 51, 59, 53, 49, 57, 55, 52 };
+
+    for (int p : order)
+        if (drumPieceName (p).isNotEmpty())
+            drumRows.push_back (p);
+
+    // キットにあるが上の並びにない音と、キットにないのにノートがある音（消せるように）は後ろに
+    for (int p = 0; p < 128; ++p)
+    {
+        const bool listed = std::find (drumRows.begin(), drumRows.end(), p) != drumRows.end();
+        bool used = false;
+
+        if (auto* clip = getClip())
+            used = std::any_of (clip->notes.begin(), clip->notes.end(), [p] (auto& n) { return n.pitch == p; });
+
+        if (! listed && (drumPieceName (p).isNotEmpty() || used))
+            drumRows.push_back (p);
+    }
+}
+
 juce::String PianoRollView::drumPieceName (int note) const
 {
     auto* t = getTrack();
@@ -827,6 +936,8 @@ void PianoRollView::paint (juce::Graphics& g)
 void PianoRollView::resized()
 {
     shownAsDrums = isDrumTrack();
+    noteHeight = shownAsDrums ? 26 : 14;
+    rebuildDrumRows();
     shownAsAudio = getAudioClip() != nullptr;
 
     for (auto* c : std::initializer_list<juce::Component*> { &keyboard, &grid, &velocity, &vScroll, &snapToggle, &quantiseButton })
@@ -1078,7 +1189,7 @@ void PianoRollView::handleWheel (const juce::MouseEvent& e, const juce::MouseWhe
     }
     else
     {
-        scrollY = juce::jlimit (0, juce::jmax (0, 128 * noteHeight - grid.getHeight()), scrollY - (int) (w.deltaY * 200.0f));
+        scrollY = juce::jlimit (0, juce::jmax (0, numRows() * noteHeight - grid.getHeight()), scrollY - (int) (w.deltaY * 200.0f));
         updateScrollBars();
         repaint();
         return;
@@ -1096,8 +1207,8 @@ void PianoRollView::updateScrollBars()
     hScroll.setRangeLimits (0.0, juce::jmax (end, axis().scrollTick + visible));
     hScroll.setCurrentRange (axis().scrollTick, visible, juce::dontSendNotification);
 
-    scrollY = juce::jlimit (0, juce::jmax (0, 128 * noteHeight - grid.getHeight()), scrollY);
-    vScroll.setRangeLimits (0.0, 128.0 * noteHeight);
+    scrollY = juce::jlimit (0, juce::jmax (0, numRows() * noteHeight - grid.getHeight()), scrollY);
+    vScroll.setRangeLimits (0.0, (double) (numRows() * noteHeight));
     vScroll.setCurrentRange (scrollY, grid.getHeight(), juce::dontSendNotification);
 }
 
@@ -1167,8 +1278,9 @@ void PianoRollView::clipChanged()
         centre = sum / (int) clip->notes.size();
     }
 
-    scrollY = (127 - centre) * noteHeight - grid.getHeight() / 2;
-    resized();
+    resized();   // ドラムかどうか（行の高さ・並び）を先に決める
+    scrollY = isDrumTrack() ? 0 : (127 - centre) * noteHeight - grid.getHeight() / 2;
+    updateScrollBars();
     repaint();
 }
 
@@ -1184,6 +1296,8 @@ void PianoRollView::updateTitle()
 
     hintLabel.setText (getAudioClip() != nullptr
                          ? "オーディオクリップの拡大表示　クリック: 再生位置　Ctrl+ホイール: ズーム　ホイール: 横スクロール"_ju
+                     : isDrumTrack()
+                         ? "鉛筆: マスをクリックで叩く（もう一度クリックで消す）　選択: ドラッグで移動（行 = 音色）・範囲選択　下の棒: 強さ　Del: 削除"_ju
                          : "鉛筆: クリックでノート追加（ドラッグで長さ）・ノートをクリックで削除　選択: ドラッグで移動・範囲選択、右端で長さ　↑↓: 移調　Del: 削除"_ju,
                        juce::dontSendNotification);
 }

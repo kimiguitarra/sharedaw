@@ -592,114 +592,159 @@ ProjectDiff diffProjects (const Project& beforeIn, const Project& afterIn)
 }
 
 //==============================================================================
-PullResult mergeForPull (const Project& base, const Project& local, const Project& head, const std::set<std::string>& lockedByMe)
+//==============================================================================
+namespace
 {
-    PullResult result;
-    Project merged = head;
-
-    auto localChanged = [&] (const std::string& id) { return ! scopeEquals (base, local, id); };
-
-    // テンポ・拍子・コード
-    auto mergeSpecial = [&] (const std::string& id, auto member)
+    std::string scopeLabel (const Project& p, const std::string& id, ScopeKind& kind)
     {
-        if (! localChanged (id))
-            return;
+        if (id == p.tempoTrack.id)  { kind = ScopeKind::tempo;  return "テンポ"; }
+        if (id == p.meterTrack.id)  { kind = ScopeKind::meter;  return "拍子"; }
+        if (id == p.chordTrack.id)  { kind = ScopeKind::chord;  return "コード"; }
+        if (id == p.markerTrack.id) { kind = ScopeKind::marker; return "マーカー"; }
+        if (id == p.keyTrack.id)    { kind = ScopeKind::key;    return "キー"; }
+        if (id == p.master.id)      { kind = ScopeKind::master; return "マスター"; }
 
-        if (lockedByMe.count (id) > 0)
-        {
-            merged.*member = local.*member;
-            result.keptLocalScopes.push_back (id);
-        }
-        else
-        {
-            result.conflictScopes.push_back (id);   // ヘッドを採用（ローカルはアプリ側で退避する）
-        }
-    };
+        kind = ScopeKind::track;
+        auto* t = p.findTrack (id);
+        return t != nullptr ? t->name : std::string();
+    }
 
-    mergeSpecial (local.tempoTrack.id, &Project::tempoTrack);
-    mergeSpecial (local.meterTrack.id, &Project::meterTrack);
-    mergeSpecial (local.chordTrack.id, &Project::chordTrack);
-    mergeSpecial (local.markerTrack.id, &Project::markerTrack);
-    mergeSpecial (local.keyTrack.id, &Project::keyTrack);
-    mergeSpecial (local.master.id, &Project::master);
-
-    // トラック
-    for (auto& lt : local.tracks)
+    bool isSpecialScope (const Project& p, const std::string& id)
     {
-        const bool inBase = base.findTrack (lt.id) != nullptr;
-        const bool changed = localChanged (lt.id);
+        return id == p.tempoTrack.id || id == p.meterTrack.id || id == p.chordTrack.id
+            || id == p.markerTrack.id || id == p.keyTrack.id || id == p.master.id;
+    }
 
-        if (! changed)
-            continue;
+    /** トラックの別のコピー（ID を振り直す。「両方残す」用）。 */
+    Track copyWithNewIds (const Track& t, const std::string& suffix)
+    {
+        Track copy = t;
+        copy.id = generateUuid();
+        copy.name = t.name + suffix;
 
-        const bool mine = lockedByMe.count (lt.id) > 0 || ! inBase;   // 新規作成したトラックは自分のもの
-
-        if (mine)
+        for (auto& c : copy.midiClips)
         {
-            if (auto* ht = merged.findTrack (lt.id))
+            c.id = generateUuid();
+            for (auto& n : c.notes)
+                n.id = generateUuid();
+        }
+
+        for (auto& c : copy.audioClips)
+            c.id = generateUuid();
+
+        return copy;   // エフェクト・センドの ID はトラックごとなので、そのままでよい
+    }
+}
+
+std::vector<ScopeSyncState> syncStates (const Project& base, const Project& local, const Project* head)
+{
+    std::vector<ScopeSyncState> states;
+    std::vector<std::string> ids = allScopeIds (local);
+
+    if (head != nullptr)
+        for (auto& id : allScopeIds (*head))
+            if (std::find (ids.begin(), ids.end(), id) == ids.end())
+                ids.push_back (id);
+
+    // ベースにだけある（両方で削除された）トラックは出さない
+    for (auto& id : ids)
+    {
+        ScopeSyncState st;
+        st.id = id;
+        st.inLocal = isSpecialScope (local, id) || local.findTrack (id) != nullptr;
+        st.inHead = head != nullptr && (isSpecialScope (*head, id) || head->findTrack (id) != nullptr);
+
+        const auto& named = st.inLocal ? local : (head != nullptr ? *head : base);
+        st.name = scopeLabel (named, id, st.kind);
+
+        st.mine = ! scopeEquals (base, local, id);
+        st.theirs = head != nullptr && ! scopeEquals (base, *head, id);
+        st.conflict = st.mine && st.theirs && ! scopeEquals (local, *head, id);
+        states.push_back (st);
+    }
+
+    return states;
+}
+
+Project replaceScopes (const Project& from, const Project& source, const std::set<std::string>& scopeIds)
+{
+    Project result = from;
+
+    for (auto& id : scopeIds)
+    {
+        if (id == source.tempoTrack.id)  { result.tempoTrack = source.tempoTrack;   continue; }
+        if (id == source.meterTrack.id)  { result.meterTrack = source.meterTrack;   continue; }
+        if (id == source.chordTrack.id)  { result.chordTrack = source.chordTrack;   continue; }
+        if (id == source.markerTrack.id) { result.markerTrack = source.markerTrack; continue; }
+        if (id == source.keyTrack.id)    { result.keyTrack = source.keyTrack;       continue; }
+        if (id == source.master.id)      { result.master = source.master;           continue; }
+
+        if (auto* st = source.findTrack (id))
+        {
+            if (auto* rt = result.findTrack (id))
             {
-                *ht = lt;
+                *rt = *st;
             }
             else
             {
-                // ローカルの直前のトラックの後ろに入れる
-                const int li = local.indexOfTrack (lt.id);
-                int insertAt = (int) merged.tracks.size();
+                // source で直前にあるトラックの後ろに入れる
+                const int si = source.indexOfTrack (id);
+                int insertAt = (int) result.tracks.size();
 
-                for (int j = li - 1; j >= 0; --j)
-                    if (int mi = merged.indexOfTrack (local.tracks[(size_t) j].id); mi >= 0)
+                for (int j = si - 1; j >= 0; --j)
+                    if (int ri = result.indexOfTrack (source.tracks[(size_t) j].id); ri >= 0)
                     {
-                        insertAt = mi + 1;
+                        insertAt = ri + 1;
                         break;
                     }
 
-                merged.tracks.insert (merged.tracks.begin() + insertAt, lt);
+                result.tracks.insert (result.tracks.begin() + insertAt, *st);
             }
-
-            result.keptLocalScopes.push_back (lt.id);
         }
         else
         {
-            // ロックを持っていないのに変わっていた: ヘッドを採用し、ローカルを競合コピーとして残す
-            result.conflictScopes.push_back (lt.id);
-
-            Track copy = lt;
-            copy.id = generateUuid();
-            copy.name = lt.name + "（競合コピー）";
-
-            for (auto& c : copy.midiClips)
-            {
-                c.id = generateUuid();
-                for (auto& n : c.notes)
-                    n.id = generateUuid();
-            }
-
-            for (auto& c : copy.audioClips)
-                c.id = generateUuid();
-
-            merged.tracks.push_back (copy);
-            result.conflictCopyTrackIds.push_back (copy.id);
+            result.tracks.erase (std::remove_if (result.tracks.begin(), result.tracks.end(), [&] (const Track& t) { return t.id == id; }),
+                                 result.tracks.end());
         }
     }
 
-    // ローカルで削除したトラック（自分のロックがあるもの）
-    for (auto& bt : base.tracks)
-        if (local.findTrack (bt.id) == nullptr)
-        {
-            if (lockedByMe.count (bt.id) > 0)
-            {
-                merged.tracks.erase (std::remove_if (merged.tracks.begin(), merged.tracks.end(), [&] (auto& t) { return t.id == bt.id; }),
-                                     merged.tracks.end());
-                result.keptLocalScopes.push_back (bt.id);
-            }
-            else if (head.findTrack (bt.id) != nullptr)
-            {
-                result.conflictScopes.push_back (bt.id);   // ヘッドを採用（削除は取り消される）
-            }
-        }
-
-    result.merged = merged;
     return result;
+}
+
+Project resolvePull (const Project& base, const Project& local, const Project& head, const std::map<std::string, Resolution>& choices)
+{
+    std::set<std::string> takeLocal;
+    std::vector<const Track*> keepBoth;
+
+    for (auto& st : syncStates (base, local, &head))
+    {
+        auto it = choices.find (st.id);
+        Resolution r = st.mine && ! st.theirs ? Resolution::mine : Resolution::theirs;
+
+        if (it != choices.end())
+            r = it->second;
+
+        if (r == Resolution::both && st.kind != ScopeKind::track)
+            r = Resolution::mine;   // テンポなどは 1 つしか持てない
+
+        if (r == Resolution::mine)
+            takeLocal.insert (st.id);
+        else if (r == Resolution::both)
+            if (auto* t = local.findTrack (st.id))
+                keepBoth.push_back (t);
+    }
+
+    Project merged = replaceScopes (head, local, takeLocal);
+
+    for (auto* t : keepBoth)
+    {
+        // サーバーの版のすぐ後ろに、自分の版を別のトラックとして置く
+        auto copy = copyWithNewIds (*t, "（自分の版）");
+        const int at = merged.indexOfTrack (t->id);
+        merged.tracks.insert (at >= 0 ? merged.tracks.begin() + at + 1 : merged.tracks.end(), copy);
+    }
+
+    return merged;
 }
 
 } // namespace collab

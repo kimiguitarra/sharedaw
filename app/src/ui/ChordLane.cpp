@@ -53,7 +53,7 @@ std::vector<ChordLane::Box> ChordLane::layoutBoxes() const
     std::stable_sort (events.begin(), events.end(), [] (auto& a, auto& b) { return a.tick < b.tick; });
 
     const juce::Font nameFont (juce::FontOptions (14.0f, juce::Font::bold));
-    const juce::Font degreeFont (juce::FontOptions (11.5f));
+    const juce::Font degreeFont (juce::FontOptions (13.0f));
     std::vector<Box> boxes;
 
     for (size_t i = 0; i < events.size(); ++i)
@@ -128,7 +128,7 @@ void ChordLane::paint (juce::Graphics& g)
             g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
             g.drawText (b.name, textArea.removeFromTop (textArea.getHeight() * 0.55f), juce::Justification::bottomLeft, true);
             g.setColour (chordColour.brighter (0.3f));
-            g.setFont (juce::FontOptions (11.5f));
+            g.setFont (juce::FontOptions (13.0f));
             g.drawText (b.degree, textArea, juce::Justification::topLeft, true);
         }
         else
