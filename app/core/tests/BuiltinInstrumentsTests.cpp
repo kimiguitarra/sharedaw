@@ -24,14 +24,15 @@ namespace
 TEST_CASE ("bundled manifests are valid and reference existing files")
 {
     for (auto [id, version] : { std::pair (builtin::drums, "0.1.0"), std::pair (builtin::bass, "0.1.0"), std::pair (builtin::piano, "0.1.0"),
-                                std::pair (builtin::drums, "1.0.0"), std::pair (builtin::bass, "1.0.0"), std::pair (builtin::piano, "1.0.0") })
+                                std::pair (builtin::drums, "1.0.0"), std::pair (builtin::bass, "1.0.0"), std::pair (builtin::piano, "1.0.0"),
+                                std::pair (builtin::drums, "1.1.0") })
     {
         CAPTURE (id);
         CAPTURE (version);
         auto m = loadManifest (id, version);
         CHECK (m.id == id);
         CHECK (m.version == version);
-        const auto dir = std::string (COLLAB_ASSETS_DIR) + "/instruments/" + id + "/" + version + "/";
+        const auto dir = std::string (COLLAB_ASSETS_DIR) + "/instruments/" + id + "/" + m.sampleVersion() + "/";
 
         if (m.type == "melodic" && ! m.mainSfz.empty())
             CHECK (fileExists (dir + m.mainSfz));

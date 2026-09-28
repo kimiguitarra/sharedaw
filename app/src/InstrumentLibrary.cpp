@@ -53,12 +53,13 @@ const collab::BuiltinInstrumentManifest* InstrumentLibrary::findLatest (const st
 
 juce::File InstrumentLibrary::getInstrumentDir (const collab::BuiltinInstrumentManifest& m) const
 {
-    return assetsDir.getChildFile ("instruments").getChildFile (toJuce (m.id)).getChildFile (toJuce (m.version));
+    return assetsDir.getChildFile ("instruments").getChildFile (toJuce (m.id)).getChildFile (toJuce (m.sampleVersion()));
 }
 
 juce::File InstrumentLibrary::getVirtualSfzPath (const collab::BuiltinInstrumentManifest& m) const
 {
-    return getInstrumentDir (m).getChildFile ("_sharedaw_generated.sfz");
+    // サンプルのあるフォルダに置いたことにする（前の版のサンプルを使う版でも、相対パスがそこから解決される）
+    return getInstrumentDir (m).getChildFile ("_sharedaw_generated_" + toJuce (m.version) + ".sfz");
 }
 
 std::vector<const collab::BuiltinInstrumentManifest*> InstrumentLibrary::getAll() const

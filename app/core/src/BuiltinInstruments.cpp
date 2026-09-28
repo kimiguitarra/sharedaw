@@ -26,6 +26,7 @@ BuiltinInstrumentManifest BuiltinInstrumentManifest::fromJson (const json& j)
         BuiltinInstrumentManifest m;
         m.id = j.at ("id").get<std::string>();
         m.version = j.at ("version").get<std::string>();
+        m.samplesFrom = j.value ("samplesFrom", std::string());
         m.displayName = j.value ("displayName", m.id);
         m.type = j.at ("type").get<std::string>();
         m.mainSfz = j.value ("main", std::string());

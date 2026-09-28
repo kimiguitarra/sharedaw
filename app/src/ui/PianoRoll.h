@@ -133,6 +133,8 @@ public:
     /** 選択中のオーディオクリップ（あればピアノロールの代わりに波形を拡大表示する）。 */
     const collab::AudioClip* getAudioClip() const;
     bool isDrumTrack() const;
+    /** ドラムのキットでこのノートに割り当てた音の名前（キットにない＝鳴らないなら空）。 */
+    juce::String drumPieceName (int note) const;
 
     float pitchToY (int pitch) const       { return (float) ((127 - pitch) * noteHeight - scrollY); }
     int yToPitch (float y) const           { return juce::jlimit (0, 127, 127 - (int) std::floor ((y + (float) scrollY) / (float) noteHeight)); }

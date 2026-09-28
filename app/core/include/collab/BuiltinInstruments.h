@@ -34,6 +34,7 @@ struct BuiltinInstrumentManifest
 {
     std::string id;           // "builtin.drums"
     std::string version;      // "0.1.0"
+    std::string samplesFrom;  // サンプルを置いている版（空なら version。前の版のサンプルをそのまま使う新しい版で指定する）
     std::string displayName;
     std::string type;         // "drums" | "melodic"
     std::string mainSfz;      // melodic のときのメイン SFZ（相対パス。presets があれば不要）
@@ -45,6 +46,7 @@ struct BuiltinInstrumentManifest
     nlohmann::json defaultParams = nlohmann::json::object();
 
     InstrumentRef ref() const     { return { id, version }; }
+    const std::string& sampleVersion() const   { return samplesFrom.empty() ? version : samplesFrom; }
     const DrumPiece* findPiece (const std::string& key) const;
 
     /** manifest.json の内容から読み込む。不正なら std::runtime_error。 */

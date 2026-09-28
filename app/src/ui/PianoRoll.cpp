@@ -44,12 +44,16 @@ void PianoKeyboard::paint (juce::Graphics& g)
 
         if (drums)
         {
-            const auto name = toJuce (collab::gmDrumName (p));
+            // キットにある音は明るく、キットにない音（GM の名前だけあるもの）は暗く「音なし」と出す
+            const auto name = owner.drumPieceName (p);
+            const auto gmName = toJuce (collab::gmDrumName (p));
             g.setColour (name.isNotEmpty() ? Theme::panelLight : Theme::panel);
             g.fillRect (row.reduced (0.0f, 0.5f));
-            g.setColour (name.isNotEmpty() ? Theme::text : Theme::textDim);
-            g.drawText (name.isNotEmpty() ? juce::String (p) + " " + name : juce::String (p),
-                        row.withTrimmedLeft (4.0f), juce::Justification::centredLeft, true);
+            g.setColour (name.isNotEmpty() ? Theme::text : Theme::textDim.withAlpha (0.6f));
+            const auto label = name.isNotEmpty() ? juce::String (p) + " " + name
+                             : gmName.isNotEmpty() ? juce::String (p) + " " + gmName + "（音なし）"_ju
+                             : juce::String (p);
+            g.drawText (label, row.withTrimmedLeft (4.0f), juce::Justification::centredLeft, true);
         }
         else
         {
@@ -122,7 +126,7 @@ void NoteGrid::paint (juce::Graphics& g)
         if (y + (float) owner.noteHeight < 0 || y > (float) getHeight())
             continue;
 
-        const bool shaded = drums ? collab::gmDrumName (p).empty() : isBlackKey (p);
+        const bool shaded = drums ? owner.drumPieceName (p).isEmpty() : isBlackKey (p);
         g.setColour (shaded ? Theme::laneAlt : Theme::lane);
         g.fillRect (0.0f, y, (float) getWidth(), (float) owner.noteHeight);
 
@@ -164,9 +168,16 @@ void NoteGrid::paint (juce::Graphics& g)
         const auto r = juce::Rectangle<float> (x1, y + 1.0f, juce::jmax (3.0f, x2 - x1), (float) owner.noteHeight - 2.0f);
         const bool selected = owner.selectedNotes.count (n.id) > 0;
         const bool outside = n.tick < 0 || n.tick >= clip->lengthTick;
+        const bool silent = drums && owner.drumPieceName (n.pitch).isEmpty();   // キットにない音（鳴らない）
 
-        g.setColour (velocityColour (n.velocity, base).withAlpha (outside ? 0.3f : 1.0f));
+        g.setColour (velocityColour (n.velocity, base).withAlpha (outside || silent ? 0.3f : 1.0f));
         g.fillRoundedRectangle (r, 2.0f);
+
+        if (silent)
+        {
+            g.setColour (Theme::warning);
+            g.drawLine (r.getX(), r.getBottom(), r.getRight(), r.getY(), 1.0f);
+        }
         g.setColour (selected ? Theme::selection : juce::Colours::black.withAlpha (0.5f));
         g.drawRoundedRectangle (r, 2.0f, selected ? 2.0f : 1.0f);
     }
@@ -782,6 +793,21 @@ const collab::AudioClip* PianoRollView::getAudioClip() const
                 return &c;
 
     return nullptr;
+}
+
+juce::String PianoRollView::drumPieceName (int note) const
+{
+    auto* t = getTrack();
+
+    if (t == nullptr || ! t->instrument)
+        return {};
+
+    if (auto* m = ctx.library.find (t->instrument->id, t->instrument->version))
+        for (auto& piece : m->pieces)
+            if (piece.note == note)
+                return toJuce (piece.displayName);
+
+    return {};
 }
 
 bool PianoRollView::isDrumTrack() const
