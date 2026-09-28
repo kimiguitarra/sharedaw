@@ -8,6 +8,9 @@
 #include "Dialogs.h"
 #include "audio/AudioFiles.h"
 
+#include <algorithm>
+#include <vector>
+
 namespace
 {
     constexpr int rulerHeight = 26;
@@ -1713,7 +1716,7 @@ bool TimelineView::pasteRange (double playheadTick)
         for (auto& c : clip.chords)
         {
             auto& ev = p.chordTrack.events;
-            ev.erase (std::remove_if (ev.begin(), ev.end(), [&] (auto& x) { return x.tick == c.tick; }), ev.end());
+            std::erase_if (ev, [tick = c.tick] (const collab::ChordEvent& x) { return x.tick == tick; });
             ev.push_back (c);
         }
 
@@ -1741,9 +1744,9 @@ bool TimelineView::deleteRange()
     ctx.document.perform ("コード・マーカーの削除"_ju, [chords, markers] (collab::Project& p)
     {
         auto& ev = p.chordTrack.events;
-        ev.erase (std::remove_if (ev.begin(), ev.end(), [&] (auto& x) { return chords.count (x.id) > 0; }), ev.end());
+        std::erase_if (ev, [&chords] (const collab::ChordEvent& x) { return chords.count (x.id) > 0; });
         auto& mk = p.markerTrack.events;
-        mk.erase (std::remove_if (mk.begin(), mk.end(), [&] (auto& x) { return markers.count (x.id) > 0; }), mk.end());
+        std::erase_if (mk, [&markers] (const collab::Marker& x) { return markers.count (x.id) > 0; });
     });
 
     st.rangeChordIds.clear();
