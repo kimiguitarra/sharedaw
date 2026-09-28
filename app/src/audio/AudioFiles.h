@@ -15,6 +15,7 @@ namespace AudioFiles
         std::string hash;
         juce::int64 lengthSamples = 0;
         juce::String displayName;
+        int numChannels = 2;   // 1 = モノ、2 = ステレオ（読み込んだトラックの入出力を合わせる）
     };
 
     /** 読み込めるファイルの拡張子（ファイル選択用）。 */
@@ -30,6 +31,13 @@ namespace AudioFiles
     std::string hashFile (const juce::File&);
 
     juce::File fileForHash (const juce::File& projectDir, const std::string& hash);
+
+    /**
+        波形を描く（一般的な DAW と同じく、チャンネルごとに中心線から上下に塗りつぶした形。不透明）。
+        start〜end は元ファイルの秒。拡大しても点々にならないよう、ピクセルごとの最大・最小を線でつないで塗る。
+    */
+    void drawWaveform (juce::Graphics&, juce::AudioThumbnail&, juce::Rectangle<float> area,
+                       double startSeconds, double endSeconds, float gain, juce::Colour);
 }
 
 /** 波形表示と長さのキャッシュ（ハッシュ単位）。メッセージスレッドで使う。 */

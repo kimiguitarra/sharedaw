@@ -33,6 +33,9 @@ public:
     void setStrip (const collab::ChannelStrip&);
     const collab::ChannelStrip& getStrip() const noexcept       { return current; }
 
+    /** 出力をモノにする（トラックの outputChannels = 1）。 */
+    void setMonoOutput (bool mono) noexcept                     { monoOutput = mono; }
+
     /** 直近のゲインリダクション（dB）。メーター表示用。 */
     float getGainReductionDb() const noexcept                   { return dsp.getGainReductionDb(); }
 
@@ -53,7 +56,7 @@ private:
     static constexpr int ringSize = 8192;
     std::array<float, ringSize> ring {};
     std::atomic<int> ringWrite { 0 };
-    std::atomic<bool> spectrumEnabled { false };
+    std::atomic<bool> spectrumEnabled { false }, monoOutput { false };
     double sampleRate = 48000.0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ChannelStripPlugin)

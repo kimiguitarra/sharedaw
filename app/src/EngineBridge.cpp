@@ -1,4 +1,5 @@
 #include "EngineBridge.h"
+#include "collab/ClipEditing.h"
 
 #include <sstream>
 
@@ -427,28 +428,38 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
     }
 
     // オーディオクリップ（非破壊: 実体は audio/<hash>.wav、クリップはオフセット・長さ・音量・フェードの参照）
-    for (auto& c : t.audioClips)
+    // 重なっているときは Pro Tools と同じく新しい（後ろの）クリップだけが鳴る。切れ目には短いフェードを付ける
+    for (size_t i = 0; i < t.audioClips.size(); ++i)
     {
+        auto& c = t.audioClips[i];
         auto file = document.getProjectDir().getChildFile ("audio").getChildFile (toJuce (c.audioHash) + ".wav");
 
         if (! document.hasLocation() || ! file.existsAsFile())
-        {
             ++b.missingAudio;
-            continue;
-        }
+    }
 
-        const double start = map.tickToSeconds ((double) c.startTick);
-        const double length = (double) c.lengthSamples / collab::kSampleRate;
-        const te::ClipPosition pos { te::TimeRange (secondsToTime (start), te::TimeDuration::fromSeconds (length)),
-                                     te::TimeDuration::fromSeconds ((double) c.sourceOffsetSamples / collab::kSampleRate) };
+    constexpr double cutFadeSeconds = 0.005;
+
+    for (auto& seg : collab::audibleSegments (t.audioClips, map))
+    {
+        auto& c = t.audioClips[seg.clipIndex];
+        auto file = document.getProjectDir().getChildFile ("audio").getChildFile (toJuce (c.audioHash) + ".wav");
+
+        if (! document.hasLocation() || ! file.existsAsFile())
+            continue;
+
+        const te::ClipPosition pos { te::TimeRange (secondsToTime (seg.startSeconds), te::TimeDuration::fromSeconds (seg.lengthSeconds)),
+                                     te::TimeDuration::fromSeconds (seg.offsetSeconds) };
 
         if (auto clip = track.insertWaveClip (toJuce (c.displayName), file, pos, false))
         {
             clip->setAutoTempo (false);
             clip->setAutoPitch (false);
             clip->setGainDB ((float) c.gainDb);
-            clip->setFadeIn (te::TimeDuration::fromSeconds ((double) c.fadeInSamples / collab::kSampleRate));
-            clip->setFadeOut (te::TimeDuration::fromSeconds ((double) c.fadeOutSamples / collab::kSampleRate));
+            clip->setFadeIn (te::TimeDuration::fromSeconds (seg.clipStart ? (double) c.fadeInSamples / collab::kSampleRate
+                                                                          : juce::jmin (cutFadeSeconds, seg.lengthSeconds * 0.5)));
+            clip->setFadeOut (te::TimeDuration::fromSeconds (seg.clipEnd ? (double) c.fadeOutSamples / collab::kSampleRate
+                                                                        : juce::jmin (cutFadeSeconds, seg.lengthSeconds * 0.5)));
         }
     }
 
@@ -724,7 +735,10 @@ void EngineBridge::syncStrip (const collab::Track& t, Binding& b)
     }
 
     if (b.strip != nullptr)
+    {
         b.strip->setStrip (t.strip);
+        b.strip->setMonoOutput (t.outputChannels == 1);
+    }
 }
 
 void EngineBridge::setSpectrumTrack (const std::string& trackId)
@@ -1442,10 +1456,11 @@ EngineBridge::TrackInput EngineBridge::getTrackInput (const std::string& trackId
 void EngineBridge::setTrackInput (const std::string& trackId, const TrackInput& input)
 {
     // 1 つの入力は 1 つのトラックにだけ割り当てる
-    if (input.device.isNotEmpty())
-        for (auto& [id, other] : trackInputs)
-            if (id != trackId && other.device == input.device)
-                other = {};
+    for (auto& [id, other] : trackInputs)
+        if (id != trackId)
+            for (auto& name : { input.device, input.deviceRight })
+                if (name.isNotEmpty() && (other.device == name || other.deviceRight == name))
+                    other = {};
 
     trackInputs[trackId] = input;
     applyInputs();
@@ -1493,7 +1508,7 @@ void EngineBridge::applyInputs()
         {
             auto b = bindings.find (id);
 
-            if (ti.device == name && (ti.armed || ti.monitor) && b != bindings.end() && b->second.track != nullptr)
+            if ((ti.device == name || ti.deviceRight == name) && (ti.armed || ti.monitor) && b != bindings.end() && b->second.track != nullptr)
             {
                 target = b->second.track.get();
                 setting = ti;
@@ -1632,7 +1647,7 @@ void EngineBridge::recordingStopped (te::SyncPoint, bool)
     });
 }
 
-void EngineBridge::recordingFinished (te::InputDeviceInstance&, te::EditItemID targetID,
+void EngineBridge::recordingFinished (te::InputDeviceInstance& input, te::EditItemID targetID,
                                       const juce::ReferenceCountedArray<te::Clip>& recordedClips)
 {
     std::string trackId;
@@ -1684,6 +1699,12 @@ void EngineBridge::recordingFinished (te::InputDeviceInstance&, te::EditItemID t
             take.offsetSeconds = pos.getOffset().inSeconds();
             take.lengthSeconds = pos.getLength().inSeconds();
             take.punchInSeconds = punchInSeconds;
+
+            if (auto ti = trackInputs.find (trackId); ti != trackInputs.end() && ti->second.deviceRight.isNotEmpty())
+            {
+                take.stereo = true;
+                take.channel = input.getInputDevice().getName() == ti->second.deviceRight ? 1 : 0;
+            }
 
             if (! trackId.empty() && take.file.existsAsFile())
                 pendingTakes.push_back (take);

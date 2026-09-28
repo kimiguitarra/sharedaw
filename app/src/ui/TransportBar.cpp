@@ -340,13 +340,11 @@ TransportBar::TransportBar (AppContext& c) : ctx (c)
             else
                 refreshLoop();
         };
-        l->onWheel = [this, isStart] (int dir)
+        // ホイール: マウスの下が小節なら 1 小節、拍なら 1 拍、tick ならクオンタイズ値ずつ
+        l->onWheelPart = [this, isStart] (int dir, int part)
         {
-            const auto& map = ctx.document.getTempoMap();
             const auto current = isStart ? ctx.state.loopStart : ctx.state.loopEnd;
-            const int bar = map.tickToBar (current);
-            const bool onBar = map.barToTick (bar) == current;
-            setLoopEdge (isStart, map.barToTick (juce::jmax (1, dir > 0 ? bar + 1 : (onBar ? bar - 1 : bar))));
+            setLoopEdge (isStart, stepPosition (current, dir, part));
         };
     }
 
@@ -389,6 +387,10 @@ TransportBar::TransportBar (AppContext& c) : ctx (c)
     styleValue (barBeatLabel, 22.0f, true, false);
     barBeatLabel.setFont (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 22.0f, juce::Font::bold));
     barBeatLabel.setTooltip ("再生位置"_ju);
+    barBeatLabel.onWheelPart = [this] (int dir, int part)
+    {
+        ctx.engine.setPositionTick ((double) stepPosition ((collab::Tick) juce::jmax (0.0, ctx.engine.getPositionTick()), dir, part));
+    };
     addAndMakeVisible (barBeatLabel);
 
     ctx.state.addChangeListener (this);
@@ -434,6 +436,26 @@ std::optional<collab::Tick> TransportBar::parsePosition (const juce::String& tex
     const int beat = juce::jlimit (1, sig.numerator, parts.size() > 1 ? parts[1].getIntValue() : 1);
     const auto tick = juce::jlimit<collab::Tick> (0, sig.ticksPerBeat() - 1, parts.size() > 2 ? parts[2].getIntValue() : 0);
     return map.barToTick (bar) + (collab::Tick) (beat - 1) * sig.ticksPerBeat() + tick;
+}
+
+collab::Tick TransportBar::stepPosition (collab::Tick from, int direction, int part) const
+{
+    const auto& map = ctx.document.getTempoMap();
+    const auto bb = map.tickToBarBeat (from);
+    const auto barStart = map.barToTick (bb.bar);
+    const auto sig = map.timeSignatureAtTick (from);
+
+    if (part == 0)
+    {
+        // 小節だけ変える（拍・tick はそのまま。短い小節に入るときは小節の中に収める）
+        const int bar = juce::jmax (1, bb.bar + direction);
+        const auto start = map.barToTick (bar);
+        return start + juce::jmin (from - barStart, map.timeSignatureAtTick (start).ticksPerBar() - 1);
+    }
+
+    const collab::Tick step = part == 1 ? sig.ticksPerBeat()
+                                        : juce::jmax<collab::Tick> (1, (collab::Tick) std::llround (ctx.state.grid.stepExact()));
+    return juce::jmax<collab::Tick> (0, from + direction * step);
 }
 
 void TransportBar::setLoopEdge (bool start, collab::Tick t)

@@ -110,8 +110,10 @@ collab::Tick MarkerLane::snap (double tick, const juce::ModifierKeys& mods) cons
 void MarkerLane::mouseMove (const juce::MouseEvent& e)
 {
     setGhost (ctx.state.pencil() && findHit (e.position.x).empty() ? (double) snap (ctx.state.timeline.xToTick (e.position.x), e.mods) : -1.0);
-    setMouseCursor (ctx.state.pencil() && findHit (e.position.x).empty() ? Theme::pencilCursor()
-                                                                        : juce::MouseCursor::NormalCursor);
+    // マーカーの上は矢印、何もない所は I 字（クリックで再生位置）
+    const bool empty = findHit (e.position.x).empty();
+    setMouseCursor (! empty ? juce::MouseCursor::NormalCursor
+                            : ctx.state.pencil() ? Theme::pencilCursor() : juce::MouseCursor::IBeamCursor);
 }
 
 void MarkerLane::mouseDown (const juce::MouseEvent& e)

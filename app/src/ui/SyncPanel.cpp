@@ -473,58 +473,63 @@ std::set<std::string> SyncPanel::currentExcluded() const
 //==============================================================================
 void SyncPanel::paintCounts (juce::Graphics& g, juce::Rectangle<int> area, bool vertical) const
 {
-    struct Item { juce::String text; juce::Colour colour; };
+    // 通知の数（スマホのアプリのバッジと同じく、赤い丸に白い数字）。やることがあると一目で分かるように、ガラスにはしない
+    struct Item { juce::String label; int count = 0; juce::Colour colour; };
     std::vector<Item> items;
+    juce::String word;
+    juce::Colour wordColour = Theme::textDim;
 
     if (! sync.hasCredentials())
-        items.push_back ({ "未設定"_ju, Theme::textDim });
+        word = "未設定"_ju;
     else if (! sync.isLinked())
-        items.push_back ({ "未登録"_ju, Theme::textDim });
+        word = "未登録"_ju;
     else if (offline)
-        items.push_back ({ "オフライン"_ju, Theme::danger });
+    {
+        word = "オフライン"_ju;
+        wordColour = Theme::danger;
+    }
     else
     {
-        if (conflictCount > 0)   items.push_back ({ "!" + juce::String (conflictCount), Theme::warning });
-        if (downloadCount > 0)   items.push_back ({ arrow (true) + juce::String (downloadCount), downloadColour });
-        if (uploadCount > 0)     items.push_back ({ arrow (false) + juce::String (uploadCount), uploadColour });
-
-        if (items.empty())
-            items.push_back ({ juce::String::fromUTF8 ("\xE2\x9C\x93"), Theme::ok });   // ✓ 最新
+        if (conflictCount > 0)   items.push_back ({ "!", conflictCount, juce::Colour (0xffef6c00) });
+        if (downloadCount > 0)   items.push_back ({ arrow (true), downloadCount, juce::Colour (0xffe53935) });
+        if (uploadCount > 0)     items.push_back ({ arrow (false), uploadCount, juce::Colour (0xffe53935) });
     }
 
-    g.setFont (juce::FontOptions (vertical ? 15.0f : 15.5f, juce::Font::bold));
+    if (word.isNotEmpty() || items.empty())
+    {
+        // 何もしなくてよいとき（最新）は目立たせない
+        g.setColour (word.isNotEmpty() ? wordColour : Theme::textDim);
+        g.setFont (juce::FontOptions (vertical ? 12.5f : 14.5f, juce::Font::bold));
+        auto r = vertical ? area.removeFromTop (36) : area;
+        g.drawFittedText (word.isNotEmpty() ? word : "最新"_ju, r, vertical ? juce::Justification::centredTop : juce::Justification::centredRight,
+                          2, 0.6f);
+        return;
+    }
+
+    auto badge = [&] (juce::Rectangle<int> r, const Item& it)
+    {
+        // 矢印（黒っぽい文字）＋ 赤い丸の数字
+        const auto text = it.count > 99 ? juce::String ("99+") : juce::String (it.count);
+        g.setFont (juce::FontOptions (13.5f, juce::Font::bold));
+        const float d = juce::jmax (20.0f, juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), text) + 10.0f);
+        auto circle = juce::Rectangle<float> (d, 20.0f).withCentre (r.toFloat().getCentre().translated (7.0f, 0.0f));
+        g.setColour (Theme::text);
+        g.setFont (juce::FontOptions (16.0f, juce::Font::bold));
+        g.drawText (it.label, juce::Rectangle<float> (circle.getX() - 16.0f, circle.getY(), 15.0f, circle.getHeight()),
+                    juce::Justification::centredRight);
+        g.setColour (it.colour);
+        g.fillRoundedRectangle (circle, 10.0f);
+        g.setColour (juce::Colours::white);
+        g.setFont (juce::FontOptions (13.5f, juce::Font::bold));
+        g.drawText (text, circle, juce::Justification::centred);
+    };
 
     for (auto& it : items)
     {
-        const bool word = it.text.length() > 3;
-        juce::Rectangle<int> r;
-
         if (vertical)
-        {
-            // 縦の帯: 1 つずつ下へ（長い言葉も横書きのまま、幅に収まるように縮めて 2 行まで）
-            r = area.removeFromTop (word ? 36 : 28);
-
-            if (word)
-            {
-                g.setColour (it.colour);
-                g.setFont (juce::FontOptions (12.5f, juce::Font::bold));
-                g.drawFittedText (it.text, r, juce::Justification::centred, 2, 0.6f);
-                continue;
-            }
-        }
+            badge (area.removeFromTop (28), it);
         else
-        {
-            const int w = (int) juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), it.text) + 16;
-            r = area.removeFromRight (w);
-        }
-
-        g.setColour (it.colour.withAlpha (0.18f));
-        g.fillRoundedRectangle (r.toFloat().reduced (2.0f, 3.0f), 6.0f);
-        g.setColour (it.colour);
-        g.drawText (it.text, r, juce::Justification::centred);
-
-        if (! vertical)
-            area.removeFromRight (2);
+            badge (area.removeFromRight (58), it);
     }
 }
 

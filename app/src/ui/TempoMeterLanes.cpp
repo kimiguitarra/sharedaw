@@ -89,9 +89,10 @@ void TempoLane::mouseMove (const juce::MouseEvent& e)
     setGhost (state.pencil() && findHit (e.position.x).empty()
                 ? (double) state.timelineGrid.snap ((collab::Tick) juce::jmax (0.0, state.timeline.xToTick (e.position.x)), document.getTempoMap())
                 : -1.0);
+    // 何もない所は I 字（クリックで再生位置）、テンポ・拍子の上は矢印
     setMouseCursor (state.pencil() ? Theme::pencilCursor()
-                                   : ! findHit (e.position.x).empty() ? juce::MouseCursor::LeftRightResizeCursor
-                                                                      : juce::MouseCursor::NormalCursor);
+                                   : ! findHit (e.position.x).empty() ? juce::MouseCursor::NormalCursor
+                                                                      : juce::MouseCursor::IBeamCursor);
 }
 
 void TempoLane::mouseDown (const juce::MouseEvent& e)
@@ -352,9 +353,10 @@ std::string MeterLane::findHit (float x) const
 void MeterLane::mouseMove (const juce::MouseEvent& e)
 {
     setGhost (state.pencil() && findHit (e.position.x).empty() ? (double) document.getTempoMap().barToTick (barAt (e.position.x)) : -1.0);
+    // 何もない所は I 字（クリックで再生位置）、テンポ・拍子の上は矢印
     setMouseCursor (state.pencil() ? Theme::pencilCursor()
-                                   : ! findHit (e.position.x).empty() ? juce::MouseCursor::LeftRightResizeCursor
-                                                                      : juce::MouseCursor::NormalCursor);
+                                   : ! findHit (e.position.x).empty() ? juce::MouseCursor::NormalCursor
+                                                                      : juce::MouseCursor::IBeamCursor);
 }
 
 int MeterLane::barAt (float x) const

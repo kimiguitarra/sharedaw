@@ -2299,6 +2299,10 @@ var project_schema_default = {
             output: {
               $ref: "#/definitions/uuid"
             },
+            outputChannels: {
+              description: "1 = mono (L+R summed before pan), 2 = stereo. Omitted when 2.",
+              enum: [1, 2]
+            },
             sends: {
               type: "array",
               items: {
@@ -2369,6 +2373,14 @@ var project_schema_default = {
             output: {
               $ref: "#/definitions/uuid"
             },
+            inputChannels: {
+              description: "Recording input: 1 = mono, 2 = stereo (two input channels). Omitted when 2.",
+              enum: [1, 2]
+            },
+            outputChannels: {
+              description: "1 = mono (L+R summed before pan), 2 = stereo. Omitted when 2.",
+              enum: [1, 2]
+            },
             sends: {
               type: "array",
               items: {
@@ -2438,6 +2450,10 @@ var project_schema_default = {
             },
             output: {
               $ref: "#/definitions/uuid"
+            },
+            outputChannels: {
+              description: "1 = mono (L+R summed before pan), 2 = stereo. Omitted when 2.",
+              enum: [1, 2]
             },
             sends: {
               type: "array",

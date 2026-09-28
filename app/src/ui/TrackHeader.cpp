@@ -26,17 +26,6 @@ TrackHeader::TrackHeader (AppContext& c, const std::string& id)
     addAndMakeVisible (nameLabel);
     nameLabel.setInterceptsMouseClicks (false, false);   // 名前の上でも選択・ドラッグ（並べ替え）・右クリックが効くように
 
-    instrumentButton.setTooltip ("音源"_ju);
-    instrumentButton.onClick = [this]
-    {
-        select();
-
-        if (isAudioTrack())
-            showInputMenu();
-        else
-            showInstrumentMenu();
-    };
-
     // 録音待機（オーディオトラックと MIDI トラック）
     armButton.setButtonText ("●"_ju);
     armButton.setWantsKeyboardFocus (false);
@@ -47,40 +36,9 @@ TrackHeader::TrackHeader (AppContext& c, const std::string& id)
     armButton.onClick = [this]
     {
         select();
-
-        // MIDI トラック: MIDI キーボードで弾いたものを録音する（録音待機にできる MIDI トラックは 1 つ）
-        if (! isAudioTrack())
-        {
-            const bool arm = ctx.state.midiArmedTrackId != trackId;
-            ctx.state.midiArmedTrackId = arm ? trackId : std::string();
-            ctx.state.changed();
-
-            const auto inputs = ctx.engine.getMidiInputs();
-
-            if (arm && std::none_of (inputs.begin(), inputs.end(), [] (auto& m) { return m.enabled; }))
-                Dialogs::showInfo ("録音待機"_ju, "MIDI キーボードが見つかりません。つないでから、設定 → オーディオ・MIDI の設定で有効にしてください。"_ju);
-
-            return;
-        }
-
-        auto in = ctx.engine.getTrackInput (trackId);
-
-        if (in.device.isEmpty())
-        {
-            const auto inputs = ctx.engine.getAudioInputs();
-
-            if (inputs.isEmpty())
-                return Dialogs::showInfo ("録音待機"_ju, "録音できる入力がありません。オーディオ設定で入力デバイスを選んでください。"_ju);
-
-            in.device = inputs[0];
-        }
-
-        in.armed = ! in.armed;
-        ctx.engine.setTrackInput (trackId, in);
-        ctx.state.changed();   // 他のトラックの表示も更新（入力は 1 つのトラックにだけ割り当てる）
+        ctx.toggleRecordArm (trackId);
     };
     addChildComponent (armButton);
-    addAndMakeVisible (instrumentButton);
 
     for (auto* b : { &muteButton, &soloButton })
     {
@@ -95,66 +53,6 @@ TrackHeader::TrackHeader (AppContext& c, const std::string& id)
     soloButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffffd54f).darker (0.2f));
     muteButton.onClick = [this] { editTrack ("ミュート"_ju, [] (collab::Track& t) { t.mute = ! t.mute; }); };
     soloButton.onClick = [this] { editTrack ("ソロ"_ju, [] (collab::Track& t) { t.solo = ! t.solo; }); };
-
-    volumeSlider.setRange (-60.0, 6.0, 0.1);
-    volumeSlider.setSkewFactorFromMidPoint (-12.0);
-    volumeSlider.setDoubleClickReturnValue (true, 0.0);
-    volumeSlider.setTooltip ("音量"_ju);
-
-    panSlider.setRange (-1.0, 1.0, 0.01);
-    panSlider.setDoubleClickReturnValue (true, 0.0);
-    panSlider.setTooltip ("パン"_ju);
-
-    // 値は横に数字で出す（クリックで打ち込める）
-    for (auto* l : { &volumeValue, &panValue })
-    {
-        l->setEditable (true, true, true);
-        l->setJustificationType (juce::Justification::centred);
-        l->setFont (juce::FontOptions (15.0f));
-        l->setColour (juce::Label::textColourId, Theme::text);
-        l->setColour (juce::Label::backgroundColourId, Theme::field);
-        l->setColour (juce::Label::outlineColourId, Theme::fieldOutline);
-        l->setColour (juce::Label::backgroundWhenEditingColourId, Theme::field);
-        l->setColour (juce::Label::textWhenEditingColourId, Theme::text);
-        l->setColour (juce::Label::outlineWhenEditingColourId, Theme::accent);
-        addAndMakeVisible (l);
-    }
-
-    volumeValue.setTooltip ("音量"_ju);
-    panValue.setTooltip ("パン"_ju);
-    volumeValue.onTextChange = [this]
-    {
-        if (auto db = ValueText::parseDb (volumeValue.getText(), -60.0, 6.0))
-            editTrack ("音量"_ju, [v = *db] (collab::Track& t) { t.volumeDb = v; });
-
-        update();
-    };
-    panValue.onTextChange = [this]
-    {
-        if (auto v = ValueText::parsePan (panValue.getText()))
-            editTrack ("パン"_ju, [v = *v] (collab::Track& t) { t.pan = v; });
-
-        update();
-    };
-
-    for (auto* s : { &volumeSlider, &panSlider })
-    {
-        s->onDragStart = [this] { dragMergeId = juce::Uuid().toString(); };
-        s->onDragEnd = [this] { ctx.document.endMerge(); dragMergeId = {}; };
-        addAndMakeVisible (s);
-    }
-
-    volumeSlider.onValueChange = [this]
-    {
-        const double v = volumeSlider.getValue();
-        editTrack ("音量"_ju, [v] (collab::Track& t) { t.volumeDb = v; }, dragMergeId);
-    };
-
-    panSlider.onValueChange = [this]
-    {
-        const double v = panSlider.getValue();
-        editTrack ("パン"_ju, [v] (collab::Track& t) { t.pan = v; }, dragMergeId);
-    };
 
     update();
 }
@@ -182,44 +80,12 @@ void TrackHeader::update()
     nameLabel.setText (toJuce (t->name), juce::dontSendNotification);
     muteButton.setToggleState (t->mute, juce::dontSendNotification);
     soloButton.setToggleState (t->solo, juce::dontSendNotification);
-    volumeSlider.setValue (t->volumeDb, juce::dontSendNotification);
-    panSlider.setValue (t->pan, juce::dontSendNotification);
-
-    if (! volumeValue.isBeingEdited())
-        volumeValue.setText (ValueText::formatDb (t->volumeDb), juce::dontSendNotification);
-
-    if (! panValue.isBeingEdited())
-        panValue.setText (ValueText::formatPan (t->pan), juce::dontSendNotification);
-
-    juce::String instName = t->type == collab::TrackType::audio ? "オーディオ"_ju
-                          : t->type == collab::TrackType::bus ? "バス（出力: "_ju + ctx.outputName (*t) + "）"_ju
-                                                              : "音源なし"_ju;
-
-    if (t->instrument)
-    {
-        if (t->instrument->kind == collab::Instrument::Kind::builtin)
-        {
-            auto* m = ctx.library.find (t->instrument->id, t->instrument->version);
-            instName = m != nullptr ? toJuce (m->displayName) : toJuce (t->instrument->id);
-        }
-        else
-        {
-            instName = toJuce (t->instrument->plugin.name);
-        }
-    }
-
     if (t->type == collab::TrackType::audio)
-    {
-        const auto in = ctx.engine.getTrackInput (trackId);
-        instName = in.device.isEmpty() ? "入力: なし"_ju : "入力: "_ju + in.device + (in.monitor ? "（モニター）"_ju : juce::String());
-        armButton.setToggleState (in.armed, juce::dontSendNotification);
-        armButton.setTooltip ("録音待機"_ju);
-    }
+        armButton.setToggleState (ctx.engine.getTrackInput (trackId).armed, juce::dontSendNotification);
     else if (t->type == collab::TrackType::midi)
-    {
         armButton.setToggleState (ctx.state.midiArmedTrackId == trackId, juce::dontSendNotification);
-        armButton.setTooltip ("録音待機"_ju);
-    }
+
+    armButton.setTooltip ("録音待機（R）"_ju);
 
     const bool canArm = t->type == collab::TrackType::audio || t->type == collab::TrackType::midi;
 
@@ -228,13 +94,10 @@ void TrackHeader::update()
         armButton.setVisible (canArm);
         resized();
     }
-    instrumentButton.setButtonText (instName);
-    instrumentButton.setTooltip (t->type == collab::TrackType::audio ? "録音の入力とモニタリング"_ju : "音源の調整"_ju);
+    // 音源が読めないなど: 名前を橙にして、マウスを乗せると理由を出す
     problem = ctx.engine.getInstrumentProblem (trackId);
-    instrumentButton.setColour (juce::TextButton::textColourOffId, problem.isEmpty() ? Theme::text : Theme::warning);
-
-    if (problem.isNotEmpty())
-        instrumentButton.setTooltip (problem);
+    nameLabel.setColour (juce::Label::textColourId, problem.isEmpty() ? Theme::text : Theme::warning);
+    setTooltip (problem);
 
     repaint();
 }
@@ -246,9 +109,16 @@ void TrackHeader::paint (juce::Graphics& g)
 
     g.fillAll (Theme::panel);
 
-    // ガラスのカード（選択中は少し明るく）
+    // 不透明のカード（選択中は明るく。ガラスにはしない: 内容の面なので読みやすさを優先）
     const auto card = getLocalBounds().toFloat().reduced (3.0f, 2.0f);
-    Theme::drawGlass (g, card, 7.0f, selected ? juce::Colours::white.withAlpha (0.08f) : juce::Colour());
+    g.setColour (selected ? Theme::panelLight.brighter (0.12f) : Theme::panelLight.darker (0.08f));
+    g.fillRoundedRectangle (card, 6.0f);
+
+    if (selected)
+    {
+        g.setColour (Theme::text.withAlpha (0.55f));
+        g.drawRoundedRectangle (card.reduced (0.5f), 6.0f, 1.0f);
+    }
 
     // 他の人がアップして新しくなったトラックは青、競合は橙をうっすら重ねて、ダウンロードを促す
     if (ctx.sync.isLinked())
@@ -323,11 +193,8 @@ void TrackHeader::paint (juce::Graphics& g)
 
 void TrackHeader::resized()
 {
-    // 低くしたときは、音量・パン → 音源のボタンの順に隠す
+    // 名前と ●・M・S だけ（音源・入出力・音量・パンは左のインスペクター）
     auto area = getLocalBounds().reduced (10, 4).withTrimmedLeft (5);   // 左はトラックの色の棒
-    const bool showInstrument = getHeight() >= 52;
-    const bool showSliders = getHeight() >= 68;
-
     auto top = area.removeFromTop (juce::jmin (22, area.getHeight()));
     soloButton.setBounds (top.removeFromRight (24));
     top.removeFromRight (3);
@@ -340,7 +207,7 @@ void TrackHeader::resized()
         top.removeFromRight (4);
     }
 
-    // 同期中はロックのバッジの場所を空ける
+    // 同期の印（名前の右）
     badgeShown = ctx.sync.isLinked() && top.getWidth() > 110;
     badgeArea = badgeShown ? top.removeFromRight (juce::jmin (70, top.getWidth() / 2)).reduced (0, 2) : juce::Rectangle<int>();
 
@@ -348,102 +215,12 @@ void TrackHeader::resized()
         top.removeFromRight (4);
 
     nameLabel.setBounds (top);
-
-    instrumentButton.setVisible (showInstrument);
-    for (auto* c : std::initializer_list<juce::Component*> { &volumeSlider, &panSlider, &volumeValue, &panValue })
-        c->setVisible (showSliders);
-
-    area.removeFromTop (3);
-
-    if (showInstrument)
-        instrumentButton.setBounds (area.removeFromTop (20));
-
-    if (showSliders)
-    {
-        // 音量 [スライダー][-6.0]  パン [スライダー][L30]
-        auto sliderRow = area.removeFromBottom (20);
-        auto volArea = sliderRow.removeFromLeft ((int) (sliderRow.getWidth() * 0.6f));
-        volumeValue.setBounds (volArea.removeFromRight (44));
-        volumeSlider.setBounds (volArea.withTrimmedRight (2));
-        sliderRow.removeFromLeft (6);
-        panValue.setBounds (sliderRow.removeFromRight (38));
-        panSlider.setBounds (sliderRow.withTrimmedRight (2));
-    }
 }
 
 bool TrackHeader::isAudioTrack() const
 {
     auto* t = ctx.document.getProject().findTrack (trackId);
     return t != nullptr && t->type == collab::TrackType::audio;
-}
-
-void TrackHeader::showInputMenu()
-{
-    const auto current = ctx.engine.getTrackInput (trackId);
-    juce::PopupMenu m;
-
-    m.addItem ("なし"_ju, true, current.device.isEmpty(), [this]
-    {
-        ctx.engine.setTrackInput (trackId, {});
-        ctx.state.changed();
-    });
-
-    for (auto& name : ctx.engine.getAudioInputs())
-        m.addItem (name, true, current.device == name, [this, name]
-        {
-            auto in = ctx.engine.getTrackInput (trackId);
-            in.device = name;
-            ctx.engine.setTrackInput (trackId, in);
-            ctx.state.changed();
-        });
-
-    m.addSeparator();
-    m.addItem ("ソフトウェアモニタリング（入力の音をこのトラックで鳴らす）"_ju, current.device.isNotEmpty(), current.monitor, [this]
-    {
-        auto in = ctx.engine.getTrackInput (trackId);
-        in.monitor = ! in.monitor;
-        ctx.engine.setTrackInput (trackId, in);
-        ctx.state.changed();
-    });
-    m.addItem ("（オーディオインターフェースのダイレクトモニタリングがおすすめです）"_ju, false, false, nullptr);
-
-    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&instrumentButton));
-}
-
-void TrackHeader::showInstrumentMenu()
-{
-    auto* t = ctx.document.getProject().findTrack (trackId);
-
-    if (t == nullptr || t->type != collab::TrackType::midi)
-        return;
-
-    juce::PopupMenu m;
-    const bool builtin = t->instrument && t->instrument->kind == collab::Instrument::Kind::builtin;
-    const bool external = t->instrument && t->instrument->kind == collab::Instrument::Kind::external;
-
-    if (builtin)
-        m.addItem ("音源の調整…"_ju, [this] { InstrumentPanel::show (ctx, trackId, instrumentButton); });
-
-    if (external)
-        m.addItem ("プラグインの画面を開く"_ju, [this] { if (ctx.openPluginEditor) ctx.openPluginEditor (trackId, {}); });
-
-    m.addSeparator();
-
-    juce::PopupMenu builtins;
-    for (auto [id, name] : { std::pair (collab::builtin::drums, "ドラム"_ju), std::pair (collab::builtin::bass, "ベース"_ju),
-                             std::pair (collab::builtin::piano, "ピアノ"_ju), std::pair (collab::builtin::epiano, "エレピ"_ju) })
-        builtins.addItem (name, [this, id = std::string (id)] { ctx.setBuiltinInstrument (trackId, id); });
-
-    juce::PopupMenu plugins;
-    for (auto& d : PluginHost::list (ctx.engine.getEngine(), true))
-        plugins.addItem (d.name + " (" + d.manufacturerName + ")", [this, d] { ctx.setExternalInstrument (trackId, d); });
-
-    if (plugins.getNumItems() == 0)
-        plugins.addItem ("プラグインがありません（オプション → プラグイン… でスキャン）"_ju, false, false, nullptr);
-
-    m.addSubMenu ("内蔵音源に変更"_ju, builtins);
-    m.addSubMenu ("外部プラグインに変更"_ju, plugins);
-    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&instrumentButton));
 }
 
 void TrackHeader::select()

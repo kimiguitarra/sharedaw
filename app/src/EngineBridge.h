@@ -113,7 +113,8 @@ public:
     // 録音（§3.5）。入力の割り当て・録音待機・モニタリングはこの環境だけの設定なので JSON には入れない。
     struct TrackInput
     {
-        juce::String device;     // 入力デバイス名（空なら未割り当て）
+        juce::String device;     // 入力デバイス名（空なら未割り当て）。ステレオのトラックでは左
+        juce::String deviceRight;// ステレオのトラックの右の入力（モノのトラックでは空）
         bool armed = false;      // 録音待機
         bool monitor = false;    // ソフトウェアモニタリング
     };
@@ -141,6 +142,8 @@ public:
         juce::File file;
         double startSeconds = 0, offsetSeconds = 0, lengthSeconds = 0;
         double punchInSeconds = 0;   // 録音を始めた位置（これより前はカウントイン）
+        int channel = 0;             // ステレオのトラック: 0 = 左の入力、1 = 右の入力（取り込むときに 1 つのステレオのファイルにする）
+        bool stereo = false;
     };
 
     /** 録音が終わったとき（メッセージスレッド）。受け取った側で audio/ に取り込み、元のファイルを消す。 */

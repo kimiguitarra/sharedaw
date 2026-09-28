@@ -349,6 +349,8 @@ struct Track
     std::vector<Effect> effects;
     ChannelStrip strip;
     std::string output;                     // 出力先のバストラックの ID（空ならマスター）
+    int inputChannels = 2;                  // 録音の入力: 1 = モノ、2 = ステレオ（audio のみ）
+    int outputChannels = 2;                 // 出力: 1 = モノ（L と R を混ぜてからパン）、2 = ステレオ
     std::vector<Send> sends;
     std::optional<Render> render;
 

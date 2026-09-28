@@ -750,10 +750,11 @@ void AudioClipGrid::paint (juce::Graphics& g)
     const auto colour = Theme::parseColour (track->color);
     const auto r = juce::Rectangle<float> (x1, 4.0f, juce::jmax (2.0f, x2 - x1), (float) getHeight() - 8.0f);
 
-    g.setColour (colour.withAlpha (0.18f));
-    g.fillRect (r);
-
     TimeGrid::drawGrid (g, getLocalBounds(), axis, map, &owner.ctx.state.grid);
+
+    // クリップは不透明（タイムラインと同じ見た目）
+    g.setColour (colour.withMultipliedSaturation (0.55f).withMultipliedBrightness (0.42f));
+    g.fillRect (r);
 
     // 中心線
     g.setColour (Theme::gridBeat);
@@ -761,11 +762,10 @@ void AudioClipGrid::paint (juce::Graphics& g)
 
     if (auto* thumb = owner.ctx.audioCache.getThumbnail (owner.ctx.document.getProjectDir(), clip->audioHash))
     {
-        g.setColour (colour.brighter (0.6f));
         const double start = (double) clip->sourceOffsetSamples / collab::kSampleRate;
         const double end = start + (double) clip->lengthSamples / collab::kSampleRate;
-        thumb->drawChannels (g, r.reduced (0.0f, 6.0f).toNearestInt(), start, end,
-                             juce::Decibels::decibelsToGain ((float) clip->gainDb));
+        AudioFiles::drawWaveform (g, *thumb, r.reduced (0.0f, 6.0f), start, end,
+                                  juce::Decibels::decibelsToGain ((float) clip->gainDb), colour.brighter (0.6f));
     }
     else
     {
@@ -841,12 +841,6 @@ PianoRollView::PianoRollView (AppContext& c)
     quantiseButton.onClick = [this] { quantiseSelection(); };
     addAndMakeVisible (quantiseButton);
 
-    hintLabel.setText ("鉛筆: クリックでノート追加（ドラッグで長さ）・ノートをクリックで削除　選択: ドラッグで移動・範囲選択、右端で長さ　↑↓: 移調　Del: 削除"_ju,
-                       juce::dontSendNotification);
-    hintLabel.setColour (juce::Label::textColourId, Theme::textDim);
-    hintLabel.setFont (juce::FontOptions (15.0f));
-    hintLabel.setMinimumHorizontalScale (0.5f);
-    addAndMakeVisible (hintLabel);
 
     addAndMakeVisible (ruler);
     addAndMakeVisible (keyboard);
@@ -975,7 +969,6 @@ void PianoRollView::resized()
     snapToggle.setBounds (toolbar.removeFromLeft (90));
     quantiseButton.setBounds (toolbar.removeFromLeft (100));
     toolbar.removeFromLeft (10);
-    hintLabel.setBounds (toolbar);
 
     if (shownAsAudio)
     {
@@ -1015,10 +1008,12 @@ void PianoRollView::setPlayheadTick (double tick)
 
 void PianoRollView::followPlayhead (double tick)
 {
+    // クリップを選んでいなくても（トラックだけ・オーディオの表示でも）再生位置を追う
     auto& a = axis();
-    const double visible = grid.getWidth() / a.pixelsPerTick();
+    const int width = shownAsAudio ? audioGrid.getWidth() : grid.getWidth();
+    const double visible = width / a.pixelsPerTick();
 
-    if (getClip() != nullptr && grid.getWidth() > 0 && (tick < a.scrollTick || tick > a.scrollTick + visible * 0.95))
+    if (isShowing() && width > 0 && (tick < a.scrollTick || tick > a.scrollTick + visible * 0.95))
     {
         a.scrollTick = juce::jmax (0.0, tick - visible * 0.05);
         ctx.state.changed();
@@ -1403,12 +1398,6 @@ void PianoRollView::updateTitle()
     else if (auto* audio = getAudioClip(); t != nullptr && audio != nullptr)
         titleLabel.setText (toJuce (t->name) + "  " + juce::String (map.tickToBar (audio->startTick)) + "小節〜（オーディオ）"_ju, juce::dontSendNotification);
 
-    hintLabel.setText (getAudioClip() != nullptr
-                         ? "オーディオクリップの拡大表示　クリック: 再生位置　Ctrl+ホイール: ズーム　ホイール: 横スクロール"_ju
-                     : isDrumTrack()
-                         ? "鉛筆: マスをクリックで叩く（もう一度クリックで消す）　選択: ドラッグで移動（行 = 音色）・範囲選択　下の棒: 強さ　Del: 削除"_ju
-                         : "鉛筆: クリックでノート追加（ドラッグで長さ）・ノートをクリックで削除　選択: ドラッグで移動・範囲選択、右端で長さ　↑↓: 移調　Del: 削除"_ju,
-                       juce::dontSendNotification);
 }
 
 void PianoRollView::changeListenerCallback (juce::ChangeBroadcaster*)

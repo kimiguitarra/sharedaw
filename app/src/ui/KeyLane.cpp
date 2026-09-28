@@ -140,9 +140,10 @@ int KeyLane::barAt (float x) const
 void KeyLane::mouseMove (const juce::MouseEvent& e)
 {
     setGhost (ctx.state.pencil() && findHit (e.position.x).empty() ? (double) ctx.document.getTempoMap().barToTick (barAt (e.position.x)) : -1.0);
+    // 何もない所は I 字（クリックで再生位置）、キーの上は矢印
     setMouseCursor (ctx.state.pencil() ? Theme::pencilCursor()
-                                       : ! findHit (e.position.x).empty() ? juce::MouseCursor::LeftRightResizeCursor
-                                                                          : juce::MouseCursor::NormalCursor);
+                                       : ! findHit (e.position.x).empty() ? juce::MouseCursor::NormalCursor
+                                                                          : juce::MouseCursor::IBeamCursor);
 }
 
 void KeyLane::mouseDown (const juce::MouseEvent& e)

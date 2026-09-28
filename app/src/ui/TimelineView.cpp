@@ -269,18 +269,40 @@ void TrackLanes::paintMidiClip (juce::Graphics& g, const collab::MidiClip& c, ju
 void TrackLanes::paintAudioClip (juce::Graphics& g, const collab::AudioClip& c, juce::Rectangle<float> r,
                                  juce::Colour colour, bool selected)
 {
-    g.setColour (colour.withAlpha (0.28f));
+    // 不透明（重なったとき、上の新しいテイクで下が隠れる。Pro Tools と同じく鳴るのも上だけ）
+    const auto body = colour.withMultipliedSaturation (0.55f).withMultipliedBrightness (0.42f);
+    g.setColour (body);
     g.fillRoundedRectangle (r, 3.0f);
 
-    // 波形（元ファイルの offset 〜 offset + length の範囲）
-    const auto gain = juce::Decibels::decibelsToGain ((float) c.gainDb);
+    // 上に名前の帯
+    const float nameHeight = r.getHeight() >= 40.0f ? 15.0f : 0.0f;
+    auto wave = r.withTrimmedTop (nameHeight).reduced (1.0f, 2.0f);
 
+    if (nameHeight > 0.0f)
+    {
+        g.setColour (colour.withMultipliedBrightness (0.8f));
+        g.fillRoundedRectangle (r.withHeight (nameHeight + 3.0f), 3.0f);
+        g.setColour (body);
+        g.fillRect (r.withTrimmedTop (nameHeight).withHeight (3.0f));
+        g.setColour (colour.getPerceivedBrightness() > 0.6f ? juce::Colours::black : juce::Colours::white);
+        g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+        auto label = toJuce (c.displayName);
+
+        if (std::abs (c.gainDb) > 0.05)
+            label << "  " << juce::String (c.gainDb, 1) << " dB";
+
+        g.drawText (label, r.withHeight (nameHeight).reduced (5.0f, 0.0f), juce::Justification::centredLeft, true);
+    }
+
+    // 波形（元ファイルの offset 〜 offset + length の範囲）
     if (auto* thumb = ctx.audioCache.getThumbnail (ctx.document.getProjectDir(), c.audioHash))
     {
-        g.setColour (colour.brighter (0.5f));
+        juce::Graphics::ScopedSaveState save (g);
+        g.reduceClipRegion (r.toNearestInt());
         const double start = (double) c.sourceOffsetSamples / collab::kSampleRate;
         const double end = start + (double) c.lengthSamples / collab::kSampleRate;
-        thumb->drawChannels (g, r.reduced (1.0f, 12.0f).toNearestInt(), start, end, gain);
+        AudioFiles::drawWaveform (g, *thumb, wave, start, end, juce::Decibels::decibelsToGain ((float) c.gainDb),
+                                  colour.brighter (0.55f));
     }
     else
     {
@@ -309,17 +331,8 @@ void TrackLanes::paintAudioClip (juce::Graphics& g, const collab::AudioClip& c, 
     g.fillRect (juce::Rectangle<float> (r.getX() + juce::jmax (4.0f, fadeInW) - 3.0f, r.getY(), 6.0f, 6.0f));
     g.fillRect (juce::Rectangle<float> (r.getRight() - juce::jmax (4.0f, fadeOutW) - 3.0f, r.getY(), 6.0f, 6.0f));
 
-    g.setColour (selected ? Theme::selection : colour);
+    g.setColour (selected ? Theme::selection : colour.darker (0.3f));
     g.drawRoundedRectangle (r, 3.0f, selected ? 2.0f : 1.0f);
-
-    g.setColour (Theme::text);
-    g.setFont (juce::FontOptions (14.0f));
-    auto label = toJuce (c.displayName);
-
-    if (std::abs (c.gainDb) > 0.05)
-        label << "  " << juce::String (c.gainDb, 1) << " dB";
-
-    g.drawText (label, r.reduced (6.0f, 0.0f).removeFromBottom (14.0f), juce::Justification::centredLeft, true);
 }
 
 void TrackLanes::mouseMove (const juce::MouseEvent& e)
@@ -1520,11 +1533,6 @@ void TimelineView::LaneHeaders::paint (juce::Graphics& g)
         g.setFont (juce::FontOptions (16.0f, juce::Font::bold));
         g.drawText (laneTitle (key), 12, y, w, h, juce::Justification::centredLeft);
 
-        // 並べ替えのつまみ（≡）
-        g.setColour (Theme::textDim.withAlpha (0.6f));
-        for (int k = 0; k < 3; ++k)
-            g.fillRect (getWidth() - (key == "chord" ? 60 : 22), y + h / 2 - 4 + k * 4, 12, 1);
-
         y += h;
         ++i;
     }
@@ -1564,7 +1572,7 @@ void TimelineView::LaneHeaders::resized()
 
 void TimelineView::LaneHeaders::mouseMove (const juce::MouseEvent&)
 {
-    setMouseCursor (juce::MouseCursor::DraggingHandCursor);
+    setMouseCursor (juce::MouseCursor::NormalCursor);   // 見出しをドラッグで並べ替えられる（印は出さない）
 }
 
 void TimelineView::LaneHeaders::mouseDown (const juce::MouseEvent& e)

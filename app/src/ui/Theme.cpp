@@ -172,18 +172,21 @@ void LookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& b, cons
     const float radius = juce::jmin (r.getHeight() * 0.5f, 10.0f);
     const bool plain = backgroundColour == findColour (juce::TextButton::buttonColourId);   // 色を指定していないボタン
 
-    // 色付きのボタン（押されている・主な操作）は、その色を下に敷いてからガラスを重ねる
-    if (! plain)
-    {
-        g.setColour (backgroundColour.withMultipliedAlpha (b.isEnabled() ? 0.85f : 0.35f));
-        g.fillRoundedRectangle (r, radius);
-    }
+    // ボタンは不透明（ガラスにすると色が薄く見えて押せるものか分かりにくい）。
+    // ガラスはツールバー・トランスポートのまとまり（浮いている操作面）だけに使う
+    const auto fill = plain ? panelLight : backgroundColour;
+    g.setColour (b.isEnabled() ? fill : fill.withMultipliedAlpha (0.45f));
+    g.fillRoundedRectangle (r, radius);
 
-    drawGlass (g, r, radius, {});
+    // 上の縁に細い光、下に影（立体に見えて押せると分かる）
+    g.setColour (juce::Colours::white.withAlpha (b.isEnabled() ? 0.14f : 0.05f));
+    g.drawHorizontalLine ((int) r.getY() + 1, r.getX() + radius * 0.6f, r.getRight() - radius * 0.6f);
+    g.setColour (juce::Colours::black.withAlpha (0.35f));
+    g.drawRoundedRectangle (r, radius, 1.0f);
 
     if (highlighted && b.isEnabled())
     {
-        g.setColour (juce::Colours::white.withAlpha (0.06f));
+        g.setColour (juce::Colours::white.withAlpha (0.08f));
         g.fillRoundedRectangle (r, radius);
     }
 
@@ -198,7 +201,10 @@ void LookAndFeel::drawComboBox (juce::Graphics& g, int width, int height, bool, 
 {
     auto r = juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height).reduced (1.0f, 1.5f);
     const float radius = juce::jmin (r.getHeight() * 0.5f, 10.0f);
-    drawGlass (g, r, radius, {});
+    g.setColour (panelLight);
+    g.fillRoundedRectangle (r, radius);
+    g.setColour (juce::Colours::black.withAlpha (0.35f));
+    g.drawRoundedRectangle (r, radius, 1.0f);
 
     if (box.hasKeyboardFocus (true))
     {

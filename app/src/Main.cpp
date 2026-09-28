@@ -389,9 +389,10 @@ private:
         track.type = collab::TrackType::audio;
         track.name = "Rec";
         track.color = "#4FC3F7";
+        track.inputChannels = 1;
         document->perform ("track", [track] (collab::Project& p) { p.tracks.push_back (track); });
         bridge->sync();
-        bridge->setTrackInput (track.id, { inputs[0], true, false });
+        bridge->setTrackInput (track.id, { inputs[0], {}, true, false });
 
         bridge->onRecordingFinished = [this, finish] (std::vector<EngineBridge::RecordedTake> takes)
         {

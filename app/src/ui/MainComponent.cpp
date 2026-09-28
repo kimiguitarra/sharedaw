@@ -26,19 +26,18 @@ namespace
         cmdAudioSettings, cmdCredits, cmdAbout, cmdCheckUpdate,
         cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
         cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory,
-        cmdAddAudioTrack, cmdImportAudio, cmdImportMidi, cmdExportMixdown, cmdSplit, cmdMuteTrack, cmdSoloTrack, cmdPlugins,
+        cmdAddAudioTrack, cmdImportAudio, cmdImportMidi, cmdExportMixdown, cmdSplit, cmdMuteTrack, cmdSoloTrack, cmdPlugins, cmdArmTrack, cmdTrackHeight,
         cmdRecord, cmdCountIn0, cmdCountIn1, cmdCountIn2,
         cmdToolSelect, cmdToolPencil, cmdModeCubase, cmdModeStudioOne, cmdMixer, cmdMaster, cmdLoopToSelection,
         cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
         cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9,
         cmdToolSplit, cmdCopy, cmdCut, cmdPaste, cmdNudgeLeft, cmdNudgeRight,
-        cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate, cmdToLoopStart, cmdToLoopEnd
+        cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate, cmdToLoopStart, cmdToLoopEnd, cmdInspector
     };
 
     constexpr float fontScales[] = { 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
     constexpr int toolbarHeight = 42;
     constexpr int transportHeight = 48;
-    constexpr int statusHeight = 22;
 }
 
 MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b,
@@ -49,7 +48,6 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     addAndMakeVisible (transport);
     addAndMakeVisible (timeline);
     addAndMakeVisible (pianoRoll);
-    addAndMakeVisible (statusBar);
     addChildComponent (syncPanel);
     addChildComponent (toast);
 
@@ -71,11 +69,10 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     layout.setItemLayout (1, 6, 6, 6);            // 仕切り
     layout.setItemLayout (2, 150, -1.0, -0.45);   // ピアノロール
 
-    statusBar.setFont (juce::FontOptions (15.0f));
-    statusBar.setColour (juce::Label::textColourId, Theme::textDim);
-    statusBar.setColour (juce::Label::backgroundColourId, Theme::panel);
-
     audioCache.onThumbnailChanged = [this] { timeline.repaint(); };
+
+    addChildComponent (inspector);
+    inspector.setVisible (settings.getBoolValue ("inspectorVisible", true));
 
     // 上の段（拍子〜マーカー）の並びはこの PC の設定
     {
@@ -138,10 +135,11 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     engine.getDeviceManager().deviceManager.addChangeListener (this);
     applyLatencyOffset();
 
+    // 画面の下に文字の行は出さない（ボタンの並びが崩れる）。困ったことだけダイアログで知らせる
     if (! library.getLoadErrors().isEmpty())
-        setStatus ("内蔵音源の読み込みエラー: "_ju + library.getLoadErrors().joinIntoString ("; "));
+        Dialogs::showError ("内蔵音源の読み込みエラー"_ju, library.getLoadErrors().joinIntoString ("\n"));
     else if (library.getAll().empty())
-        setStatus ("内蔵音源（assets フォルダ）が見つかりません。音が鳴りません。"_ju);
+        Dialogs::showError ("内蔵音源が見つかりません"_ju, "内蔵音源（assets フォルダ）が見つかりません。音が鳴りません。"_ju);
 
     updateTitle();
     startTimerHz (30);
@@ -183,11 +181,14 @@ void MainComponent::resized()
     auto area = getLocalBounds();
     // Cubase と同じく、上にツールバー、下にトランスポート
     toolbar.setBounds (area.removeFromTop (toolbarHeight));
-    statusBar.setBounds (area.removeFromBottom (statusHeight));
     transport.setBounds (area.removeFromBottom (transportHeight));
     transport.onMixer = [this] { toggleMixer(); };
 
     syncPanel.setBounds (area.removeFromRight (juce::jmin (syncPanel.getPreferredWidth(), area.getWidth() / 2)));
+
+    // 左にインスペクター（選択中のトラックのチャンネルストリップ。Alt+I で表示 / 非表示）
+    if (inspector.isVisible())
+        inspector.setBounds (area.removeFromLeft (Inspector::preferredWidth));
 
     toast.setTopLeftPosition (area.getRight() - toast.getWidth() - 12, area.getBottom() - toast.getHeight() - 12);
 
@@ -197,7 +198,9 @@ void MainComponent::resized()
 
 void MainComponent::setStatus (const juce::String& text)
 {
-    statusBar.setText ("  " + text, juce::dontSendNotification);
+    // 下の文字の行はなくした（保存しました等は出さない）。調べるときのためにログにだけ残す
+    DBG (text);
+    juce::ignoreUnused (text);
 }
 
 void MainComponent::applyFontScale (float scale)
@@ -1205,7 +1208,7 @@ void MainComponent::loopToSelection()
     }
 
     if (start < 0 || end <= start)
-        return setStatus ("ループ範囲にするクリップ（またはノート）を選択してください"_ju);
+        return Dialogs::showInfo ("ループ範囲"_ju, "ループ範囲にするクリップ（またはノート）を選択してください"_ju);
 
     state.loopStart = start;
     state.loopEnd = end;
@@ -1224,12 +1227,12 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
                          cmdRecord, cmdCountIn0, cmdCountIn1, cmdCountIn2,
                          cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
                          cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory,
-                         cmdAddAudioTrack, cmdImportAudio, cmdImportMidi, cmdExportMixdown, cmdSplit, cmdMuteTrack, cmdSoloTrack, cmdPlugins,
+                         cmdAddAudioTrack, cmdImportAudio, cmdImportMidi, cmdExportMixdown, cmdSplit, cmdMuteTrack, cmdSoloTrack, cmdPlugins, cmdArmTrack, cmdTrackHeight,
                          cmdToolSelect, cmdToolPencil, cmdModeCubase, cmdModeStudioOne, cmdMixer, cmdMaster, cmdLoopToSelection,
                          cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
                          cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9,
                          cmdToolSplit, cmdCopy, cmdCut, cmdPaste, cmdNudgeLeft, cmdNudgeRight,
-                         cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate, cmdToLoopStart, cmdToLoopEnd });
+                         cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate, cmdToLoopStart, cmdToLoopEnd, cmdInspector });
 }
 
 void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommandInfo& info)
@@ -1411,6 +1414,16 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
             info.addDefaultKeypress ('s', 0);
             info.setActive (ctx.selectedTrack() != nullptr);
             break;
+        case cmdArmTrack:
+            info.setInfo ("選択中のトラックの録音待機"_ju, {}, "Track", 0);
+            info.addDefaultKeypress ('r', 0);
+            info.setActive (ctx.selectedTrack() != nullptr);
+            break;
+        case cmdTrackHeight:
+            info.setInfo ("選択中のトラックの高さ（最大 / 最小）"_ju, {}, "Track", 0);
+            info.addDefaultKeypress ('z', 0);
+            info.setActive (ctx.selectedTrack() != nullptr);
+            break;
         case cmdAudioSettings: info.setInfo ("オーディオ・MIDI の設定…"_ju, {}, "Options", 0); break;
         case cmdSyncSettings:  info.setInfo ("サーバー設定…"_ju, {}, "Sync", 0); break;
         case cmdSyncRegister:  info.setInfo ("このプロジェクトをサーバーに登録…"_ju, {}, "Sync", 0); info.setActive (! sync.isLinked()); break;
@@ -1427,6 +1440,11 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
             info.setTicked (! syncPanel.isCollapsed());
             break;
         case cmdSyncCreate:    info.setInfo ("サーバーに新しい曲を作る…"_ju, {}, "Sync", 0); break;
+        case cmdInspector:
+            info.setInfo ("インスペクター"_ju, {}, "View", 0);
+            info.addDefaultKeypress ('i', juce::ModifierKeys::altModifier);
+            info.setTicked (inspector.isVisible());
+            break;
         case cmdCredits:    info.setInfo ("クレジット…"_ju, {}, "Help", 0); break;
         case cmdAbout:      info.setInfo ("ShareDAW について…"_ju, {}, "Help", 0); break;
         case cmdCheckUpdate: info.setInfo ("アップデートを確認…"_ju, {}, "Help", 0); break;
@@ -1581,6 +1599,18 @@ bool MainComponent::perform (const InvocationInfo& info)
                 });
             }
             break;
+        case cmdArmTrack:
+            if (auto* t = ctx.selectedTrack())
+                ctx.toggleRecordArm (t->id);
+            break;
+        case cmdTrackHeight:
+            if (auto* t = ctx.selectedTrack())
+            {
+                const bool isMax = state.trackHeight (t->id) >= EditorState::maxTrackHeight;
+                state.trackHeights[t->id] = isMax ? EditorState::minTrackHeight : EditorState::maxTrackHeight;
+                state.changed();
+            }
+            break;
         case cmdAudioSettings: showAudioSettings(); break;
         case cmdSyncSettings:  showServerSettings(); break;
         case cmdSyncRegister:  registerProject(); break;
@@ -1589,6 +1619,12 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdSyncPush:      if (syncPanel.isCollapsed()) toggleSyncPanel(); break;
         case cmdSyncHistory:   showHistory(); break;
         case cmdSyncPanel:     toggleSyncPanel(); break;
+        case cmdInspector:
+            inspector.setVisible (! inspector.isVisible());
+            settings.setValue ("inspectorVisible", inspector.isVisible());
+            resized();
+            commandManager.commandStatusChanged();
+            break;
         case cmdSyncCreate:    createProjectOnServer(); break;
         case cmdCredits:    showCredits(); break;
         case cmdAbout:
@@ -1713,6 +1749,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
 
             m.addCommandItem (cm, cmdMixer);
             m.addCommandItem (cm, cmdMaster);
+            m.addCommandItem (cm, cmdInspector);
             m.addSeparator();
             m.addCommandItem (cm, cmdZoomIn);
             m.addCommandItem (cm, cmdZoomOut);

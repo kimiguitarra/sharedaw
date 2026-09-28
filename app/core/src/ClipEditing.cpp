@@ -164,4 +164,61 @@ std::optional<AudioClip> glueAudioClips (const AudioClip& a, const AudioClip& b,
     return r;
 }
 
+std::vector<AudibleSegment> audibleSegments (const std::vector<AudioClip>& clips, const TempoMap& map)
+{
+    constexpr double rate = (double) kSampleRate;
+    std::vector<std::pair<double, double>> ranges;
+
+    for (auto& c : clips)
+    {
+        const double start = map.tickToSeconds ((double) c.startTick);
+        ranges.push_back ({ start, start + (double) c.lengthSamples / rate });
+    }
+
+    std::vector<AudibleSegment> result;
+
+    for (size_t i = 0; i < clips.size(); ++i)
+    {
+        // 自分の範囲から、後ろのクリップの範囲を引いていく
+        std::vector<std::pair<double, double>> visible { ranges[i] };
+
+        for (size_t j = i + 1; j < clips.size(); ++j)
+        {
+            std::vector<std::pair<double, double>> next;
+            const auto [cs, ce] = ranges[j];
+
+            for (auto [vs, ve] : visible)
+            {
+                if (ce <= vs || cs >= ve)
+                {
+                    next.push_back ({ vs, ve });
+                    continue;
+                }
+
+                if (cs > vs)  next.push_back ({ vs, cs });
+                if (ce < ve)  next.push_back ({ ce, ve });
+            }
+
+            visible = std::move (next);
+        }
+
+        for (auto [vs, ve] : visible)
+        {
+            if (ve - vs < 1.0 / rate)
+                continue;
+
+            AudibleSegment seg;
+            seg.clipIndex = i;
+            seg.startSeconds = vs;
+            seg.lengthSeconds = ve - vs;
+            seg.offsetSeconds = (double) clips[i].sourceOffsetSamples / rate + (vs - ranges[i].first);
+            seg.clipStart = vs <= ranges[i].first + 1.0e-9;
+            seg.clipEnd = ve >= ranges[i].second - 1.0e-9;
+            result.push_back (seg);
+        }
+    }
+
+    return result;
+}
+
 } // namespace collab

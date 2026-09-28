@@ -7,11 +7,94 @@
 namespace Takes
 {
 
-juce::Result import (const std::vector<EngineBridge::RecordedTake>& takes, const juce::File& projectDir,
+namespace
+{
+    /** ステレオのトラック: 左と右の入力で別々に録れたファイルを、1 つのステレオの WAV にする。 */
+    juce::Result mergeStereo (const juce::File& left, const juce::File& right, const juce::File& dest)
+    {
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> l (formats.createReaderFor (left)), r (formats.createReaderFor (right));
+
+        if (l == nullptr || r == nullptr)
+            return juce::Result::fail ("録音したファイルを読めませんでした"_ju);
+
+        const auto length = (int) juce::jmax (l->lengthInSamples, r->lengthInSamples);
+        juce::AudioBuffer<float> buffer (2, length);
+        buffer.clear();
+        juce::AudioBuffer<float> one (1, length);
+
+        for (auto [reader, ch] : { std::pair (l.get(), 0), std::pair (r.get(), 1) })
+        {
+            one.clear();
+            reader->read (&one, 0, (int) reader->lengthInSamples, 0, true, false);
+            buffer.copyFrom (ch, 0, one, 0, 0, length);
+        }
+
+        dest.deleteFile();
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::OutputStream> stream (dest.createOutputStream());
+        std::unique_ptr<juce::AudioFormatWriter> writer (stream != nullptr
+            ? wav.createWriterFor (stream.get(), l->sampleRate, 2, 32, {}, 0) : nullptr);
+
+        if (writer == nullptr)
+            return juce::Result::fail ("ステレオのファイルを書けませんでした"_ju);
+
+        stream.release();   // writer が持つ
+        writer->writeFromAudioSampleBuffer (buffer, 0, length);
+        return juce::Result::ok();
+    }
+}
+
+juce::Result import (const std::vector<EngineBridge::RecordedTake>& input, const juce::File& projectDir,
                      const collab::TempoMap& map, std::vector<Clip>& result)
 {
     juce::StringArray errors;
     const auto name = "テイク "_ju + juce::Time::getCurrentTime().formatted ("%H:%M:%S");
+
+    // ステレオのトラックは左右の 2 つのテイクを 1 つにまとめる
+    std::vector<EngineBridge::RecordedTake> takes;
+    std::vector<bool> used (input.size(), false);
+
+    for (size_t i = 0; i < input.size(); ++i)
+    {
+        if (used[i])
+            continue;
+
+        auto take = input[i];
+        used[i] = true;
+
+        if (take.stereo)
+        {
+            for (size_t k = i + 1; k < input.size(); ++k)
+            {
+                auto& other = input[k];
+
+                if (! used[k] && other.stereo && other.trackId == take.trackId && other.channel != take.channel
+                    && std::abs (other.startSeconds - take.startSeconds) < 0.01)
+                {
+                    used[k] = true;
+                    const auto& left = take.channel == 0 ? take : other;
+                    const auto& right = take.channel == 0 ? other : take;
+                    auto merged = left.file.getSiblingFile (left.file.getFileNameWithoutExtension() + "-stereo.wav");
+
+                    if (auto r = mergeStereo (left.file, right.file, merged); r.failed())
+                    {
+                        errors.add (r.getErrorMessage());
+                        break;
+                    }
+
+                    left.file.deleteFile();
+                    right.file.deleteFile();
+                    take.file = merged;
+                    take.lengthSeconds = juce::jmax (left.lengthSeconds, right.lengthSeconds);
+                    break;
+                }
+            }
+        }
+
+        takes.push_back (take);
+    }
 
     for (auto& take : takes)
     {

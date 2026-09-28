@@ -157,8 +157,10 @@ std::string ChordLane::findStartHit (float x) const
 void ChordLane::mouseMove (const juce::MouseEvent& e)
 {
     setGhost (ctx.state.pencil() && findHit (e.position.x).empty() ? (double) snapToBeat (ctx.state.timeline.xToTick (e.position.x), e.mods) : -1.0);
-    // コードは長さを持たないので、札の上でも普通の矢印（ドラッグで移動はできる）
-    setMouseCursor (ctx.state.pencil() && findHit (e.position.x).empty() ? Theme::pencilCursor() : juce::MouseCursor::NormalCursor);
+    // 札の上は矢印（ドラッグで移動）、何もない所は I 字（クリックで再生位置）
+    const bool empty = findHit (e.position.x).empty();
+    setMouseCursor (! empty ? juce::MouseCursor::NormalCursor
+                            : ctx.state.pencil() ? Theme::pencilCursor() : juce::MouseCursor::IBeamCursor);
 }
 
 collab::Tick ChordLane::snapToBeat (double tick, const juce::ModifierKeys& mods) const

@@ -102,9 +102,13 @@ void AppContext::importAudioFiles (const juce::Array<juce::File>& files, std::st
         return;
 
     auto* track = document.getProject().findTrack (trackId);
+    const bool newTrack = track == nullptr || track->type != collab::TrackType::audio;
 
-    if (track == nullptr || track->type != collab::TrackType::audio)
+    if (newTrack)
         trackId = addAudioTrack (imported.front().displayName);
+
+    // 新しく作ったトラックは、読み込んだファイルに合わせてモノ / ステレオにする（あとからインスペクターで変えられる）
+    const int channels = imported.front().numChannels;
 
     // 順に並べる（テンポに追従しないので、秒で次の位置を求める）
     std::vector<collab::AudioClip> clips;
@@ -123,11 +127,16 @@ void AppContext::importAudioFiles (const juce::Array<juce::File>& files, std::st
         tick = collab::audioClipEndTick (c, map);
     }
 
-    document.perform ("オーディオの読み込み"_ju, [trackId, clips] (collab::Project& p)
+    document.perform ("オーディオの読み込み"_ju, [trackId, clips, newTrack, channels] (collab::Project& p)
     {
         if (auto* t = p.findTrack (trackId))
+        {
+            if (newTrack)
+                t->inputChannels = t->outputChannels = channels;
+
             for (auto& c : clips)
                 t->audioClips.push_back (c);
+        }
     });
 
     state.selectedTrackId = trackId;
@@ -800,4 +809,73 @@ juce::PopupMenu AppContext::routingMenu (const std::string& trackId)
     m.addSubMenu ("出力先: "_ju + outputName (*track), outputMenu (trackId));
     m.addSubMenu ("センド"_ju, sendMenu (trackId));
     return m;
+}
+
+//==============================================================================
+std::vector<AppContext::InputChoice> AppContext::inputChoices (const std::string& trackId) const
+{
+    std::vector<InputChoice> result;
+    const auto inputs = engine.getAudioInputs();
+    auto* t = document.getProject().findTrack (trackId);
+    const bool stereo = t != nullptr && t->inputChannels == 2;
+
+    if (! stereo)
+    {
+        for (auto& name : inputs)
+            result.push_back ({ name, name, {} });
+
+        return result;
+    }
+
+    // ステレオ: 1+2、3+4 … のように隣り合う 2 つ（奇数個なら最後は使わない）
+    for (int i = 0; i + 1 < inputs.size(); i += 2)
+        result.push_back ({ inputs[i] + " + " + inputs[i + 1], inputs[i], inputs[i + 1] });
+
+    return result;
+}
+
+void AppContext::toggleRecordArm (const std::string& trackId)
+{
+    auto* t = document.getProject().findTrack (trackId);
+
+    if (t == nullptr)
+        return;
+
+    // MIDI トラック: MIDI キーボードで弾いたものを録音する（録音待機にできる MIDI トラックは 1 つ）
+    if (t->type == collab::TrackType::midi)
+    {
+        const bool arm = state.midiArmedTrackId != trackId;
+        state.midiArmedTrackId = arm ? trackId : std::string();
+        state.changed();
+
+        const auto inputs = engine.getMidiInputs();
+
+        if (arm && std::none_of (inputs.begin(), inputs.end(), [] (auto& m) { return m.enabled; }))
+            Dialogs::showInfo ("録音待機"_ju, "MIDI キーボードが見つかりません。つないでから、設定 → オーディオ・MIDI の設定で有効にしてください。"_ju);
+
+        return;
+    }
+
+    if (t->type != collab::TrackType::audio)
+        return;
+
+    auto in = engine.getTrackInput (trackId);
+    const bool stereo = t->inputChannels == 2;
+
+    // 入力がない・トラックのモノ / ステレオと合わないときは、最初の選択肢を割り当てる
+    if (in.device.isEmpty() || stereo != in.deviceRight.isNotEmpty())
+    {
+        const auto choices = inputChoices (trackId);
+
+        if (choices.empty())
+            return Dialogs::showInfo ("録音待機"_ju, stereo ? "ステレオで録音できる入力（2 つ）がありません。設定 → オーディオ・MIDI の設定で入力を有効にするか、インスペクターで入力をモノにしてください。"_ju
+                                                             : "録音できる入力がありません。設定 → オーディオ・MIDI の設定で入力を有効にしてください。"_ju);
+
+        in.device = choices.front().left;
+        in.deviceRight = choices.front().right;
+    }
+
+    in.armed = ! in.armed;
+    engine.setTrackInput (trackId, in);
+    state.changed();   // 他のトラックの表示も更新（入力は 1 つのトラックにだけ割り当てる）
 }

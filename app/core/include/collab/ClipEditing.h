@@ -5,6 +5,7 @@
 #include <functional>
 #include <optional>
 #include <utility>
+#include <vector>
 
 #include "Project.h"
 #include "TempoMap.h"
@@ -48,5 +49,19 @@ MidiClip glueMidiClips (const MidiClip& a, const MidiClip& b);
 
 /** 元ファイルで続いている 2 つのオーディオクリップを 1 つにする（続いていなければ nullopt）。 */
 std::optional<AudioClip> glueAudioClips (const AudioClip& a, const AudioClip& b, const TempoMap&);
+
+/**
+    重なったオーディオクリップのうち、実際に鳴る部分（Pro Tools と同じく、後ろにある（新しい）クリップが上になり、
+    下のクリップの重なった所は鳴らない）。下のクリップのデータはそのままなので、上のクリップを動かせばまた鳴る。
+*/
+struct AudibleSegment
+{
+    size_t clipIndex = 0;
+    double startSeconds = 0, lengthSeconds = 0;
+    double offsetSeconds = 0;              // 元ファイルの読み始め
+    bool clipStart = true, clipEnd = true; // クリップの本当の頭・終わりか（違えば切れ目なので短いフェードを付ける）
+};
+
+std::vector<AudibleSegment> audibleSegments (const std::vector<AudioClip>&, const TempoMap&);
 
 } // namespace collab

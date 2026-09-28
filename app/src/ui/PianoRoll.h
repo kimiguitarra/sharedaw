@@ -189,7 +189,6 @@ private:
     juce::ComboBox gridBox;
     juce::ToggleButton snapToggle { "スナップ"_ju };
     juce::TextButton quantiseButton { "クオンタイズ"_ju };
-    juce::Label hintLabel;
 
     std::string shownClipId;
     bool shownAsDrums = false;

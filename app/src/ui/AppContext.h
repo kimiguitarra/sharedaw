@@ -114,6 +114,17 @@ struct AppContext
     /** プラグインのエディタを開く（MainComponent が設定する）。 */
     std::function<void (const std::string& trackId, const std::string& effectId)> openPluginEditor;
 
+    /**
+        トラックの録音待機（●）を切り替える（R キーとトラックヘッダーのボタン）。
+        オーディオトラックは入力がなければ、モノなら 1 つ、ステレオなら隣り合う 2 つの入力を割り当てる。
+        MIDI トラックは MIDI キーボードの録音先にする（1 つだけ）。
+    */
+    void toggleRecordArm (const std::string& trackId);
+
+    /** オーディオトラックの入力の選択肢（モノ: 入力ごと、ステレオ: 隣り合う 2 つ）。表示名と (左, 右)。 */
+    struct InputChoice { juce::String label, left, right; };
+    std::vector<InputChoice> inputChoices (const std::string& trackId) const;
+
     /** 録音の開始・停止（MainComponent が設定する）。 */
     std::function<void()> toggleRecord;
 

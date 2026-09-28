@@ -193,6 +193,12 @@ namespace
         if (! t.output.empty())
             o["output"] = t.output;
 
+        if (t.type == TrackType::audio && t.inputChannels != 2)
+            o["inputChannels"] = t.inputChannels;
+
+        if (t.outputChannels != 2)
+            o["outputChannels"] = t.outputChannels;
+
         if (! t.sends.empty())
         {
             ojson sends = ojson::array();
@@ -573,6 +579,8 @@ Project projectFromJson (const json& j)
                 t.strip = stripFromJson (*it);
 
             t.output = getOr<std::string> (tj, "output", {});
+            t.inputChannels = getOr<int> (tj, "inputChannels", 2);
+            t.outputChannels = getOr<int> (tj, "outputChannels", 2);
 
             if (auto it = tj.find ("sends"); it != tj.end())
                 for (auto& sj : *it)

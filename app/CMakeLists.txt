@@ -90,6 +90,7 @@ target_sources(ShareDAW PRIVATE
     src/ui/MidiInputPanel.cpp
     src/ui/MasterPanel.cpp
     src/ui/MixerView.cpp
+    src/ui/Inspector.cpp
     src/ui/SyncUI.cpp
     src/ui/SyncPanel.cpp
     src/ui/TransportBar.cpp

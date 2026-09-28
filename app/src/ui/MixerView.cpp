@@ -37,17 +37,24 @@ namespace
     double sendDbForRatio (double t)   { return t < 0.02 ? -100.0 : juce::jmap (t, 0.02, 1.0, sendMinDb, sendMaxDb); }
     double sendRatioForDb (double db)  { return db <= sendMinDb ? 0.0 : juce::jmap (db, sendMinDb, sendMaxDb, 0.02, 1.0); }
 
+    /** オン・オフのボタン（電源の記号。オンは青く光る）。 */
     void drawPower (juce::Graphics& g, juce::Rectangle<float> r, bool on)
     {
-        const auto c = r.withSizeKeepingCentre (9.0f, 9.0f);
-        g.setColour (on ? Theme::accent : Theme::gridBar);
-        g.fillEllipse (c);
+        const auto c = r.withSizeKeepingCentre (12.0f, 12.0f);
 
         if (on)
         {
-            g.setColour (Theme::accent.withAlpha (0.3f));
+            g.setColour (Theme::accent.withAlpha (0.25f));
             g.fillEllipse (c.expanded (2.0f));
         }
+
+        juce::Path p;
+        p.addCentredArc (c.getCentreX(), c.getCentreY() + 0.5f, 4.5f, 4.5f, 0.0f,
+                         juce::MathConstants<float>::pi * 0.22f, juce::MathConstants<float>::pi * 1.78f, true);
+        p.startNewSubPath (c.getCentreX(), c.getY() + 0.5f);
+        p.lineTo (c.getCentreX(), c.getCentreY());
+        g.setColour (on ? Theme::accent : Theme::textDim);
+        g.strokePath (p, juce::PathStrokeType (1.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
 }
 
@@ -243,15 +250,16 @@ public:
     void paint (juce::Graphics& g) override
     {
         auto r = getLocalBounds();
-        // 区画ごとに 1 枚のガラスの板（見出しは板の上に、中身は一段暗いくぼみに）
-        Theme::drawGlass (g, getLocalBounds().toFloat(), 6.0f);
+        // 区画ごとに 1 枚の板（見出しは板の上に、中身は一段暗いくぼみに）。内容の面なのでガラスにはしない
+        g.setColour (Theme::panelLight.darker (0.1f));
+        g.fillRoundedRectangle (getLocalBounds().toFloat(), 5.0f);
         auto header = r.removeFromTop (headerHeight);
         g.setColour (Theme::textDim);
         g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
         g.drawText (title, header.reduced (4, 0), juce::Justification::centredLeft);
 
         if (auto on = powerState())
-            drawPower (g, header.removeFromRight (16).toFloat(), *on);
+            drawPower (g, header.removeFromRight (18).toFloat(), *on);
 
         if (hasOrderSwap())
         {
@@ -286,7 +294,7 @@ public:
             repaint();
         }
 
-        setMouseCursor ((opensEditor() && body) || swap || (powerState() && e.y < headerHeight && e.x >= getWidth() - 18)
+        setMouseCursor ((opensEditor() && body) || swap || (powerState() && e.y < headerHeight && e.x >= getWidth() - 20)
                             ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
     }
 
@@ -300,7 +308,7 @@ public:
     {
         if (e.y < headerHeight)
         {
-            if (powerState() && e.x >= getWidth() - 18)
+            if (powerState() && e.x >= getWidth() - 20)
                 togglePower();
             else if (hasOrderSwap() && swapArea.contains (e.getPosition()))
                 editTrack ("EQ と Compressor の順番"_ju, [] (collab::Track& t) { t.strip.compFirst = ! t.strip.compFirst; });
@@ -545,9 +553,12 @@ public:
 class MasterSection  : public MixSection
 {
 public:
-    MasterSection (AppContext& c) : MixSection (c, {}, "LIMITER / LUFS") {}
+    // EQ・COMP と同じ: 見出しの丸でオン・オフ、中をクリックでリミッターの画面（F4）
+    MasterSection (AppContext& c) : MixSection (c, {}, "LIMITER") { setTooltip ("リミッター（F4）"_ju); }
 
     EngineBridge::MasterStatus status;
+
+    bool opensEditor() const override       { return true; }
 
     std::optional<bool> powerState() const override     { return ctx.document.getProject().master.limiter.enabled; }
 
@@ -575,7 +586,12 @@ public:
         g.setColour (juce::Colour (0xffffb74d));
         g.fillRect (bar.withLeft (bar.getRight() - bar.getWidth() * juce::jlimit (0.0f, 1.0f, status.gainReductionDb / 12.0f)));
 
-        r.removeFromTop (4);
+        // ラウドネス（小さな見出し）
+        r.removeFromTop (3);
+        auto heading = r.removeFromTop (14).reduced (4, 0);
+        g.setColour (Theme::textDim);
+        g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+        g.drawText ("LUFS", heading, juce::Justification::centredLeft);
         const double integrated = status.integratedLufs;
         const double diff = integrated + 14.0;
         g.setColour (integrated <= -99.0 ? Theme::textDim
@@ -585,7 +601,7 @@ public:
         g.drawText (integrated <= -99.0 ? juce::String ("--.-") : juce::String (integrated, 1), r.removeFromTop (22), juce::Justification::centred);
         g.setColour (Theme::textDim);
         g.setFont (juce::FontOptions (13.0f));
-        g.drawText ("LUFS（目標 -14）"_ju, r.removeFromTop (13), juce::Justification::centred);
+        g.drawText ("目標 -14"_ju, r.removeFromTop (13), juce::Justification::centred);
         g.drawText ("S " + (status.shortTermLufs <= -99.0 ? juce::String ("--.-") : juce::String (status.shortTermLufs, 1)),
                     r.removeFromTop (14), juce::Justification::centred);
     }
@@ -1046,7 +1062,7 @@ public:
         eq.setBounds (compFirst ? second : first);
         comp.setBounds (compFirst ? first : second);
         sends.setBounds (area.removeFromTop (headerHeight + rowHeight * sendRows + 2));
-        masterSection.setBounds (inserts.getX(), insertsTop, inserts.getWidth(), headerHeight + rowHeight * 2 + 8 + 4 + 22 + 13 + 14 + 6);
+        masterSection.setBounds (inserts.getX(), insertsTop, inserts.getWidth(), headerHeight + rowHeight * 2 + 8 + 3 + 14 + 22 + 13 + 14 + 8);
         area.removeFromTop (5);
 
         pan.setBounds (area.removeFromTop (18));
@@ -1469,4 +1485,54 @@ void MixerView::timerCallback()
         s->updateMeter();
 
     inputStrip->updateMeters();
+}
+
+//==============================================================================
+TrackChannelStrip::TrackChannelStrip (AppContext& c) : ctx (c)
+{
+    ctx.document.addChangeListener (this);
+    ctx.state.addChangeListener (this);
+    startTimerHz (30);
+}
+
+TrackChannelStrip::~TrackChannelStrip()
+{
+    ctx.document.removeChangeListener (this);
+    ctx.state.removeChangeListener (this);
+}
+
+void TrackChannelStrip::setTrack (const std::string& id)
+{
+    if (strip != nullptr && id == trackId)
+        return;
+
+    trackId = id;
+    strip.reset();
+
+    if (! trackId.empty())
+    {
+        strip = std::make_unique<MixerView::Strip> (ctx, trackId);
+        addAndMakeVisible (*strip);
+        strip->update();
+    }
+
+    resized();
+}
+
+void TrackChannelStrip::resized()
+{
+    if (strip != nullptr)
+        strip->setBounds (getLocalBounds());
+}
+
+void TrackChannelStrip::changeListenerCallback (juce::ChangeBroadcaster*)
+{
+    if (strip != nullptr && ctx.document.getProject().findTrack (trackId) != nullptr)
+        strip->update();
+}
+
+void TrackChannelStrip::timerCallback()
+{
+    if (strip != nullptr && isShowing())
+        strip->updateMeter();
 }

@@ -8,12 +8,54 @@ struct ValueLabel  : public juce::Label
 {
     std::function<void (int direction)> onWheel;
 
+    /** 位置（小節. 拍. tick）: マウスの下の部分（0 = 小節、1 = 拍、2 = tick）ごとに増減する。 */
+    std::function<void (int direction, int part)> onWheelPart;
+
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override
     {
-        if (onWheel != nullptr && ! isBeingEdited() && std::abs (w.deltaY) > 0.0f)
-            onWheel (w.deltaY > 0 ? 1 : -1);
+        const float d = std::abs (w.deltaY) > std::abs (w.deltaX) ? w.deltaY : -w.deltaX;
+
+        if (isBeingEdited() || d == 0.0f)
+            return juce::Label::mouseWheelMove (e, w);
+
+        if (onWheelPart != nullptr)
+            onWheelPart (d > 0 ? 1 : -1, partAt (e.x));
+        else if (onWheel != nullptr)
+            onWheel (d > 0 ? 1 : -1);
         else
             juce::Label::mouseWheelMove (e, w);
+    }
+
+    /** x の位置の文字が、ドットで区切った何番目の部分か。 */
+    int partAt (int x) const
+    {
+        const auto text = getText();
+        const auto font = getFont();
+        const auto area = getBorderSize().subtractedFrom (getLocalBounds());
+        const float width = juce::GlyphArrangement::getStringWidth (font, text);
+        const auto just = getJustificationType();
+        float left = (float) area.getX();
+
+        if (just.testFlags (juce::Justification::horizontallyCentred))
+            left += ((float) area.getWidth() - width) * 0.5f;
+        else if (just.testFlags (juce::Justification::right))
+            left += (float) area.getWidth() - width;
+
+        int part = 0;
+
+        for (int i = 0; i < text.length(); ++i)
+        {
+            if (text[i] == '.')
+            {
+                // ドットの右端までは前の部分
+                if ((float) x < left + juce::GlyphArrangement::getStringWidth (font, text.substring (0, i + 1)))
+                    return part;
+
+                ++part;
+            }
+        }
+
+        return part;
     }
 };
 
@@ -105,12 +147,15 @@ private:
     Theme::IconButton loopButton { "loop" }, stopButton { "stop" }, playButton { "play" }, recordButton { "record" };
     Theme::IconButton mixerButton { "mixer" };
     std::vector<juce::Rectangle<int>> groups;
-    juce::Label barBeatLabel;
+    ValueLabel barBeatLabel;
     bool wasPlaying = false;
 
     juce::String formatPosition (collab::Tick) const;
     std::optional<collab::Tick> parsePosition (const juce::String&) const;
     void setLoopEdge (bool start, collab::Tick);
+
+    /** 位置を part（0 = 小節、1 = 拍、2 = クオンタイズ値）の単位で direction だけ動かす。 */
+    collab::Tick stepPosition (collab::Tick from, int direction, int part) const;
     void refreshLoop();
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override;

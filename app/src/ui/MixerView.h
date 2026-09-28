@@ -21,6 +21,7 @@ public:
     void resized() override;
 
 private:
+    friend class TrackChannelStrip;
     class Strip;
     class InputStrip;
 
@@ -33,6 +34,30 @@ private:
     std::unique_ptr<InputStrip> inputStrip;         // 左端の入力
 
     void rebuild();
+    void changeListenerCallback (juce::ChangeBroadcaster*) override;
+    void timerCallback() override;
+};
+
+/**
+    1 トラック分のチャンネルストリップ（ミキサーと同じ部品）。左のインスペクターに出す。
+    インサート・EQ・コンプ・センド・パン・フェーダー・メーター・M/S。
+*/
+class TrackChannelStrip  : public juce::Component,
+                           private juce::ChangeListener,
+                           private juce::Timer
+{
+public:
+    explicit TrackChannelStrip (AppContext&);
+    ~TrackChannelStrip() override;
+
+    void setTrack (const std::string& trackId);
+    void resized() override;
+
+private:
+    AppContext& ctx;
+    std::string trackId;
+    std::unique_ptr<MixerView::Strip> strip;
+
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
     void timerCallback() override;
 };

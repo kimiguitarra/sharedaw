@@ -234,3 +234,27 @@ TEST_CASE ("compressor before eq changes the result when eq boosts into the thre
 
     CHECK (b > a * 1.3);   // 約 -8 dB と約 -11.5 dB
 }
+
+TEST_CASE ("track input and output channels round-trip through JSON")
+{
+    auto p = projectWithTrack();
+    REQUIRE (! p.tracks.empty());
+
+    // 既定（ステレオ）のときは書き出さない
+    CHECK (serialiseProject (p).find ("Channels") == std::string::npos);
+
+    p.tracks[0].outputChannels = 1;
+    auto back = parseProject (serialiseProject (p));
+    CHECK (back.tracks[0].outputChannels == 1);
+    CHECK (back.tracks[0].inputChannels == 2);
+
+    collab::Track audio;
+    audio.id = collab::generateUuid();
+    audio.type = collab::TrackType::audio;
+    audio.name = "Vocal";
+    audio.inputChannels = 1;
+    p.tracks.push_back (audio);
+    back = parseProject (serialiseProject (p));
+    CHECK (back.tracks.back().inputChannels == 1);
+    CHECK (back.tracks.back().outputChannels == 2);
+}

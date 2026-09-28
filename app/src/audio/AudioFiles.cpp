@@ -119,6 +119,7 @@ juce::Result importFile (const juce::File& source, const juce::File& audioDir, I
 
     std::unique_ptr<juce::AudioFormatReader> check (formats.createReaderFor (target));
     result.hash = hash;
+    result.numChannels = numChannels;
     result.lengthSamples = check != nullptr ? check->lengthInSamples : 0;
     result.displayName = toJuce (collab::toNfc (toStd (source.getFileNameWithoutExtension())));
     return juce::Result::ok();
@@ -138,6 +139,57 @@ AudioFileCache::~AudioFileCache()
         t->removeChangeListener (this);
 }
 
+void AudioFiles::drawWaveform (juce::Graphics& g, juce::AudioThumbnail& thumb, juce::Rectangle<float> area,
+                               double startSeconds, double endSeconds, float gain, juce::Colour colour)
+{
+    const int channels = juce::jmax (1, thumb.getNumChannels());
+    const auto clip = g.getClipBounds().toFloat();
+    const float left = juce::jmax (area.getX(), clip.getX() - 1.0f), right = juce::jmin (area.getRight(), clip.getRight() + 1.0f);
+
+    if (right <= left || endSeconds <= startSeconds || area.getHeight() < 2.0f)
+        return;
+
+    const double secondsPerPixel = (endSeconds - startSeconds) / (double) juce::jmax (1.0f, area.getWidth());
+    const float laneHeight = area.getHeight() / (float) channels;
+
+    for (int ch = 0; ch < channels; ++ch)
+    {
+        const auto lane = area.withY (area.getY() + laneHeight * (float) ch).withHeight (laneHeight);
+        const float centre = lane.getCentreY(), half = lane.getHeight() * 0.5f - 1.0f;
+
+        // 中心線（無音の所も波形の位置が分かるように）
+        g.setColour (colour.withAlpha (0.45f));
+        g.fillRect (left, centre - 0.5f, right - left, 1.0f);
+
+        juce::Array<juce::Point<float>> top, bottom;
+
+        for (float x = left; x <= right; x += 1.0f)
+        {
+            const double t0 = startSeconds + (double) (x - area.getX()) * secondsPerPixel;
+            float mn = 0.0f, mx = 0.0f;
+            thumb.getApproximateMinMax (t0, t0 + secondsPerPixel, ch, mn, mx);
+            mx = juce::jlimit (-1.0f, 1.0f, mx * gain);
+            mn = juce::jlimit (-1.0f, 1.0f, mn * gain);
+            // 1 ピクセルは必ず塗る（小さな音も見える）
+            top.add ({ x, juce::jmin (centre - 0.5f, centre - mx * half) });
+            bottom.add ({ x, juce::jmax (centre + 0.5f, centre - mn * half) });
+        }
+
+        juce::Path p;
+        p.startNewSubPath (top.getFirst());
+
+        for (auto& pt : top)
+            p.lineTo (pt);
+
+        for (int i = bottom.size(); --i >= 0;)
+            p.lineTo (bottom.getReference (i));
+
+        p.closeSubPath();
+        g.setColour (colour);
+        g.fillPath (p);
+    }
+}
+
 juce::AudioThumbnail* AudioFileCache::getThumbnail (const juce::File& projectDir, const std::string& hash)
 {
     if (auto it = thumbnails.find (hash); it != thumbnails.end())
@@ -148,7 +200,7 @@ juce::AudioThumbnail* AudioFileCache::getThumbnail (const juce::File& projectDir
     if (! file.existsAsFile())
         return nullptr;
 
-    auto thumb = std::make_unique<juce::AudioThumbnail> (512, formats, thumbnailCache);
+    auto thumb = std::make_unique<juce::AudioThumbnail> (128, formats, thumbnailCache);
     thumb->setSource (new juce::FileInputSource (file));
     thumb->addChangeListener (this);
     return (thumbnails[hash] = std::move (thumb)).get();

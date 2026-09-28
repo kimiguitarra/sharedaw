@@ -2,8 +2,9 @@
 
 #include "ui/AppContext.h"
 
-/** トラックヘッダー（名前、音源、ミュート・ソロ、音量、パン）。§3.11 */
-class TrackHeader  : public juce::Component
+/** トラックヘッダー（名前、録音待機・ミュート・ソロ）。音源・入出力・音量・パンは左のインスペクター。§3.11 */
+class TrackHeader  : public juce::Component,
+                     public juce::SettableTooltipClient
 {
 public:
     TrackHeader (AppContext&, const std::string& trackId);
@@ -34,10 +35,7 @@ private:
     std::string trackId;
 
     juce::Label nameLabel;
-    juce::TextButton instrumentButton, muteButton { "M" }, soloButton { "S" }, armButton;
-    juce::Slider volumeSlider { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
-    juce::Slider panSlider { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
-    juce::Label volumeValue, panValue;   // 数字（クリックで入力）
+    juce::TextButton muteButton { "M" }, soloButton { "S" }, armButton;
     juce::String dragMergeId;
     juce::String problem;
     juce::Rectangle<int> badgeArea;   // 同期中のロックの印（名前の右）
@@ -45,8 +43,6 @@ private:
 
     void select();
     void showMenu();
-    void showInstrumentMenu();
-    void showInputMenu();
     bool isAudioTrack() const;
     void editTrack (const juce::String& description, std::function<void (collab::Track&)> fn, const juce::String& mergeId = {});
 };
