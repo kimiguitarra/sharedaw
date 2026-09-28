@@ -244,7 +244,11 @@ void TrackHeader::paint (juce::Graphics& g)
     auto* t = ctx.document.getProject().findTrack (trackId);
     const bool selected = ctx.state.selectedTrackId == trackId;
 
-    g.fillAll (selected ? Theme::panelLight : Theme::panel);
+    g.fillAll (Theme::panel);
+
+    // ガラスのカード（選択中は少し明るく）
+    const auto card = getLocalBounds().toFloat().reduced (3.0f, 2.0f);
+    Theme::drawGlass (g, card, 7.0f, selected ? juce::Colours::white.withAlpha (0.08f) : juce::Colour());
 
     // 他の人がアップして新しくなったトラックは青、競合は橙をうっすら重ねて、ダウンロードを促す
     if (ctx.sync.isLinked())
@@ -254,14 +258,15 @@ void TrackHeader::paint (juce::Graphics& g)
         if (st.conflict || st.theirs)
         {
             g.setColour ((st.conflict ? Theme::warning : Theme::accent).withAlpha (0.16f));
-            g.fillAll();
+            g.fillRoundedRectangle (card, 7.0f);
         }
     }
 
     if (t != nullptr)
     {
+        // トラックの色: カードの左に丸い棒
         g.setColour (Theme::parseColour (t->color));
-        g.fillRect (0, 0, 5, getHeight());
+        g.fillRoundedRectangle (card.withWidth (5.0f).reduced (0.0f, 4.0f).translated (4.0f, 0.0f), 2.5f);
     }
 
     g.setColour (Theme::background);
@@ -319,7 +324,7 @@ void TrackHeader::paint (juce::Graphics& g)
 void TrackHeader::resized()
 {
     // 低くしたときは、音量・パン → 音源のボタンの順に隠す
-    auto area = getLocalBounds().reduced (10, 4);
+    auto area = getLocalBounds().reduced (10, 4).withTrimmedLeft (5);   // 左はトラックの色の棒
     const bool showInstrument = getHeight() >= 52;
     const bool showSliders = getHeight() >= 68;
 

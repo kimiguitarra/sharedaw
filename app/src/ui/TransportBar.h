@@ -93,6 +93,8 @@ public:
     /** 定期的に呼んで位置表示を更新する。 */
     void updatePosition (double tick, double seconds, bool playing);
 
+    std::function<void()> onMixer;   // 右下のミキサーのボタン
+
     void paint (juce::Graphics&) override;
     void resized() override;
 
@@ -101,6 +103,7 @@ private:
     FlagIcon loopStartFlag { true }, loopEndFlag { false };
     ValueLabel loopStartLabel, loopEndLabel;
     Theme::IconButton loopButton { "loop" }, stopButton { "stop" }, playButton { "play" }, recordButton { "record" };
+    Theme::IconButton mixerButton { "mixer" };
     std::vector<juce::Rectangle<int>> groups;
     juce::Label barBeatLabel;
     bool wasPlaying = false;

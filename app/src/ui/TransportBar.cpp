@@ -11,18 +11,19 @@ namespace
 {
     void styleValue (juce::Label& l, float size, bool mono, bool editable)
     {
+        // 値はガラスのカプセルの上にそのまま書く（中に四角い箱を作らない）。入力中だけ入力欄の色になる
         l.setJustificationType (juce::Justification::centred);
-        l.setColour (juce::Label::backgroundColourId, Theme::background);
+        l.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+        l.setColour (juce::Label::outlineColourId, juce::Colours::transparentBlack);
         l.setColour (juce::Label::textColourId, Theme::text);
         l.setFont (mono ? juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), size, juce::Font::plain)
                         : juce::FontOptions (size));
 
         if (editable)
         {
-            l.setColour (juce::Label::backgroundColourId, Theme::field);
-            l.setColour (juce::Label::outlineColourId, Theme::fieldOutline);
             l.setEditable (true, false, false);
-            l.setColour (juce::Label::backgroundWhenEditingColourId, Theme::panelLight);
+            l.setColour (juce::Label::backgroundWhenEditingColourId, Theme::field);
+            l.setColour (juce::Label::outlineWhenEditingColourId, Theme::accent);
             l.setColour (juce::Label::textWhenEditingColourId, Theme::text);
             l.setMouseCursor (juce::MouseCursor::IBeamCursor);
         }
@@ -379,8 +380,11 @@ TransportBar::TransportBar (AppContext& c) : ctx (c)
     for (auto* b : { &loopButton, &stopButton, &playButton, &recordButton })
         addAndMakeVisible (b);
 
-    for (auto* b : { &loopButton, &stopButton, &playButton, &recordButton })
-        addAndMakeVisible (b);
+    // 右下: ミキサー（F3）
+    mixerButton.setTooltip ("ミキサー（F3）"_ju);
+    mixerButton.setClickingTogglesState (false);
+    mixerButton.onClick = [this] { if (onMixer) onMixer(); };
+    addAndMakeVisible (mixerButton);
 
     styleValue (barBeatLabel, 22.0f, true, false);
     barBeatLabel.setFont (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 22.0f, juce::Font::bold));
@@ -497,33 +501,41 @@ void TransportBar::resized()
 {
     auto area = getLocalBounds().reduced (10, 6);
 
-    // 中央: ボタンと現在の位置（ボタンの並びを画面の中央に）
-    constexpr int buttonWidth = 48, gap = 4, positionWidth = 170;
+    // 右端: ミキサーのボタン（正方形）
+    mixerButton.setBounds (area.removeFromRight (area.getHeight() + 8).withSizeKeepingCentre (area.getHeight() + 4, area.getHeight()));
+
+    // 真ん中にまとめる: 左右のロケーター | サイクル・停止・再生・録音 | 現在の位置
+    constexpr int buttonWidth = 48, gap = 4, flagWidth = 28, locatorWidth = 118, positionWidth = 170, groupGap = 22;
+    const int locatorsWidth = 2 * (flagWidth + 2 + locatorWidth) + 12;
     const int buttonsWidth = 4 * buttonWidth + 3 * gap;
-    auto centre = area.withSizeKeepingCentre (buttonsWidth, area.getHeight());
+    const int total = locatorsWidth + groupGap + buttonsWidth + groupGap + positionWidth;
+    auto row = area.withSizeKeepingCentre (juce::jmin (total, area.getWidth()), area.getHeight());
     groups.clear();
-    groups.push_back (centre.expanded (6, 3));
-    loopButton.setBounds (centre.removeFromLeft (buttonWidth));
+
+    auto locators = row.removeFromLeft (locatorsWidth);
+    loopStartFlag.setBounds (locators.removeFromLeft (flagWidth));
+    locators.removeFromLeft (2);
+    loopStartLabel.setBounds (locators.removeFromLeft (locatorWidth));
+    locators.removeFromLeft (12);
+    loopEndFlag.setBounds (locators.removeFromLeft (flagWidth));
+    locators.removeFromLeft (2);
+    loopEndLabel.setBounds (locators.removeFromLeft (locatorWidth));
+    groups.push_back (loopStartFlag.getBounds().getUnion (loopEndLabel.getBounds()).expanded (6, 3));
+    row.removeFromLeft (groupGap);
+
+    auto buttons = row.removeFromLeft (buttonsWidth);
+    groups.push_back (buttons.expanded (6, 3));
+    loopButton.setBounds (buttons.removeFromLeft (buttonWidth));
 
     for (auto* b : { &stopButton, &playButton, &recordButton })
     {
-        centre.removeFromLeft (gap);
-        b->setBounds (centre.removeFromLeft (buttonWidth));
+        buttons.removeFromLeft (gap);
+        b->setBounds (buttons.removeFromLeft (buttonWidth));
     }
 
-    barBeatLabel.setBounds (recordButton.getRight() + 18, area.getY(), positionWidth, area.getHeight());
+    row.removeFromLeft (groupGap);
+    barBeatLabel.setBounds (row.removeFromLeft (positionWidth));
     groups.push_back (barBeatLabel.getBounds().expanded (6, 3));
-
-    // 左: 左右のロケーター
-    auto left = area.withRight (loopButton.getX() - 20);
-    loopStartFlag.setBounds (left.removeFromLeft (28));
-    left.removeFromLeft (2);
-    loopStartLabel.setBounds (left.removeFromLeft (120));
-    left.removeFromLeft (12);
-    loopEndFlag.setBounds (left.removeFromLeft (28));
-    left.removeFromLeft (2);
-    loopEndLabel.setBounds (left.removeFromLeft (120));
-    groups.push_back (loopStartFlag.getBounds().getUnion (loopEndLabel.getBounds()).expanded (6, 3));
 }
 
 //==============================================================================

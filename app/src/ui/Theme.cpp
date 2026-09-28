@@ -239,6 +239,36 @@ void LookAndFeel::drawLinearSlider (juce::Graphics& g, int x, int y, int width, 
 
     const bool horizontal = style == juce::Slider::LinearHorizontal;
     const auto bounds = juce::Rectangle<float> ((float) x, (float) y, (float) width, (float) height);
+
+    if (! horizontal && slider.getProperties().getWithDefault ("fader", false))
+    {
+        // ミキサーのフェーダー: 細い溝と、つまんで動かす四角いキャップ（中央に白い目印の線）
+        auto slot = bounds.withSizeKeepingCentre (5.0f, bounds.getHeight() - 4.0f);
+        g.setColour (juce::Colours::black.withAlpha (0.55f));
+        g.fillRoundedRectangle (slot, 2.5f);
+        g.setColour (juce::Colours::white.withAlpha (0.07f));
+        g.drawRoundedRectangle (slot, 2.5f, 1.0f);
+
+        const float capW = juce::jmin (34.0f, bounds.getWidth() - 4.0f), capH = 22.0f;
+        auto cap = juce::Rectangle<float> (capW, capH).withCentre ({ bounds.getCentreX(), sliderPos });
+        g.setColour (juce::Colours::black.withAlpha (0.45f));
+        g.fillRoundedRectangle (cap.translated (0.0f, 2.0f), 3.0f);
+        g.setColour (slider.isMouseButtonDown() ? juce::Colour (0xffe6e9ed) : juce::Colour (0xffc9cdd3));
+        g.fillRoundedRectangle (cap, 3.0f);
+        g.setColour (juce::Colours::white.withAlpha (0.6f));
+        g.drawHorizontalLine ((int) cap.getY() + 1, cap.getX() + 3.0f, cap.getRight() - 3.0f);
+
+        // 指のかかる溝（上下）と、値を示す中央の線
+        g.setColour (juce::Colour (0xff8a9098));
+
+        for (float dy : { -7.0f, -4.0f, 4.0f, 7.0f })
+            g.fillRect (juce::Rectangle<float> (cap.getX() + 4.0f, sliderPos + dy - 0.5f, cap.getWidth() - 8.0f, 1.0f));
+
+        g.setColour (juce::Colour (0xff1c1e21));
+        g.fillRect (juce::Rectangle<float> (cap.getX() + 1.0f, sliderPos - 1.0f, cap.getWidth() - 2.0f, 2.0f));
+        return;
+    }
+
     const float thickness = 4.0f;
 
     // 溝（ガラスの細い溝）と、値までの色
@@ -314,6 +344,22 @@ juce::Path iconPath (const juce::String& name, juce::Rectangle<float> area)
         arrows.lineTo (14.5f, 12.0f);
         arrows.lineTo (18.5f, 16.0f);
         stroke (arrows, 2.2f);
+    }
+    else if (name == "mixer")
+    {
+        // ミキサー: フェーダー 3 本とつまみ
+        juce::Path lines;
+
+        for (float x : { 6.0f, 12.0f, 18.0f })
+        {
+            lines.startNewSubPath (x, 3.0f);
+            lines.lineTo (x, 21.0f);
+        }
+
+        stroke (lines, 1.6f);
+        p.addRoundedRectangle (3.5f, 12.0f, 5.0f, 4.0f, 1.0f);
+        p.addRoundedRectangle (9.5f, 6.0f, 5.0f, 4.0f, 1.0f);
+        p.addRoundedRectangle (15.5f, 14.0f, 5.0f, 4.0f, 1.0f);
     }
     else if (name == "flagL" || name == "flagR")
     {

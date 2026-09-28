@@ -52,52 +52,155 @@ namespace
 }
 
 //==============================================================================
-/** 左右のレベルメーター（ピークを少しずつ下げて表示し、ピークホールドの線を出す）。 */
+/**
+    左右のレベルメーター。0 dB に白い線、0 dB から上は赤い帯（そこから先が赤く光る）、
+    -12 dB から上は黄色。直近 3 秒の最大値の線を出し、その数字は getHoldDb() で読める（クリックで戻す）。
+*/
 class LevelMeter  : public juce::Component
 {
 public:
     bool mono = false;
+    static constexpr float topDb = 6.0f;
+
+    /** dB を高さの割合（下 0〜上 1）に。フェーダーと同じ目盛りにそろえるとき使う（なければ dB に比例）。 */
+    std::function<double (double)> dbToProportion;
 
     void push (EngineBridge::StereoPeak peak)
     {
         const float levels[2] = { peak.left, peak.right };
+        const auto now = juce::Time::getMillisecondCounter();
 
         for (int ch = 0; ch < 2; ++ch)
         {
-            const float level = juce::jlimit (meterFloorDb, 6.0f, levels[ch]);
+            const float level = juce::jlimit (meterFloorDb, topDb, levels[ch]);
             shown[ch] = juce::jmax (level, shown[ch] - 1.5f);
-            peakHold[ch] = level >= peakHold[ch] ? level : juce::jmax (meterFloorDb, peakHold[ch] - 0.3f);
+
+            // 最大値は 3 秒そのまま、過ぎたら今の値からやり直す
+            if (level >= peakHold[ch] || now - holdSince[ch] > holdMs)
+            {
+                peakHold[ch] = level;
+                holdSince[ch] = now;
+            }
         }
 
         repaint();
+    }
+
+    /** 直近 3 秒の最大値（左右の大きい方）。 */
+    float getHoldDb() const   { return mono ? peakHold[0] : juce::jmax (peakHold[0], peakHold[1]); }
+
+    void resetHold()
+    {
+        for (auto& p : peakHold)
+            p = meterFloorDb;
     }
 
     void paint (juce::Graphics& g) override
     {
         auto area = getLocalBounds().toFloat();
         g.setColour (Theme::field);
-        g.fillRect (area);
+        g.fillRoundedRectangle (area, 2.0f);
 
-        auto toY = [&] (float db) { return juce::jmap (db, meterFloorDb, 6.0f, area.getBottom(), area.getY()); };
-        juce::ColourGradient gradient (juce::Colour (0xffff5252), 0.0f, toY (6.0f), juce::Colour (0xff66bb6a), 0.0f, toY (-18.0f), false);
-        gradient.addColour (juce::jmap (-6.0, (double) meterFloorDb, 6.0, 1.0, 0.0), juce::Colour (0xffffd54f));
+        auto toY = [&] (float db)
+        {
+            const float t = dbToProportion != nullptr ? (float) dbToProportion (db) : juce::jmap (db, meterFloorDb, topDb, 0.0f, 1.0f);
+            return juce::jmap (t, area.getBottom() - 1.0f, area.getY() + 1.0f);
+        };
         const int numBars = mono ? 1 : 2;
-        const float w = (area.getWidth() - (float) (numBars + 1)) / (float) numBars;
+        const float gap = 2.0f;
+        const float w = (area.getWidth() - gap * (float) (numBars + 1)) / (float) numBars;
+        const float y0 = toY (0.0f), yWarn = toY (-12.0f);
+
+        const auto green = juce::Colour (0xff5cc46a), yellow = juce::Colour (0xffe8c547), red = juce::Colour (0xffff4f4f);
 
         for (int ch = 0; ch < numBars; ++ch)
         {
-            const auto r = juce::Rectangle<float> (area.getX() + 1.0f + (float) ch * (w + 1.0f), area.getY(), w, area.getHeight());
-            const float y = toY (shown[ch]);
-            g.setGradientFill (gradient);
-            g.fillRect (r.withTop (y));
+            const auto r = juce::Rectangle<float> (area.getX() + gap + (float) ch * (w + gap), area.getY() + 1.0f, w, area.getHeight() - 2.0f);
 
-            g.setColour (peakHold[ch] > 0.0f ? juce::Colour (0xffff5252) : Theme::text.withAlpha (0.7f));
-            g.fillRect (r.withY (toY (peakHold[ch])).withHeight (1.5f));
+            // 赤くなる所（0 dB から上）は、音がなくてもうっすら赤く
+            g.setColour (red.withAlpha (0.16f));
+            g.fillRect (r.withBottom (y0));
+
+            const float y = toY (shown[ch]);
+
+            if (y < r.getBottom())
+            {
+                g.setColour (green);
+                g.fillRect (r.withTop (juce::jmax (y, yWarn)));
+
+                if (y < yWarn)
+                {
+                    g.setColour (yellow);
+                    g.fillRect (r.withTop (juce::jmax (y, y0)).withBottom (yWarn));
+                }
+
+                if (y < y0)
+                {
+                    g.setColour (red);
+                    g.fillRect (r.withTop (y).withBottom (y0));
+                }
+            }
+
+            if (peakHold[ch] > meterFloorDb)
+            {
+                g.setColour (peakHold[ch] > 0.0f ? red : peakHold[ch] > -12.0f ? yellow : Theme::text);
+                g.fillRect (r.withY (toY (peakHold[ch]) - 1.0f).withHeight (2.0f));
+            }
+        }
+
+        // 目盛りの線（フェーダーの目盛りと同じ -6・-12・-24・-36）と、はっきりした 0 dB の線
+        g.setColour (juce::Colours::black.withAlpha (0.45f));
+
+        for (float db : { -6.0f, -12.0f, -24.0f, -36.0f })
+            g.fillRect (area.getX(), toY (db), area.getWidth(), 1.0f);
+
+        g.setColour (juce::Colours::white.withAlpha (0.9f));
+        g.fillRect (area.getX(), y0 - 1.0f, area.getWidth(), 2.0f);
+    }
+
+    void mouseDown (const juce::MouseEvent&) override   { resetHold(); if (onReset) onReset(); }
+    std::function<void()> onReset;
+
+private:
+    static constexpr juce::uint32 holdMs = 3000;
+    float shown[2] = { meterFloorDb, meterFloorDb }, peakHold[2] = { meterFloorDb, meterFloorDb };
+    juce::uint32 holdSince[2] = {};
+};
+
+/** メーターの上の、直近 3 秒の最大値の数字（0 を超えたら赤）。 */
+class PeakReadout  : public juce::Component,
+                     public juce::SettableTooltipClient
+{
+public:
+    void setDb (float db)
+    {
+        const int tenths = db <= meterFloorDb ? -10000 : juce::roundToInt (db * 10.0f);
+
+        if (tenths != shownTenths)
+        {
+            shownTenths = tenths;
+            repaint();
         }
     }
 
+    void paint (juce::Graphics& g) override
+    {
+        const bool over = shownTenths > 0;
+        auto r = getLocalBounds().toFloat();
+        g.setColour (over ? juce::Colour (0xffc62828) : Theme::field);
+        g.fillRoundedRectangle (r, 3.0f);
+        g.setColour (over ? juce::Colours::white : shownTenths > -120 ? juce::Colour (0xffe8c547) : Theme::text);
+        g.setFont (juce::FontOptions (12.5f, juce::Font::bold));
+        const auto text = shownTenths <= -10000 ? juce::String ("-inf")
+                                                : (shownTenths > 0 ? "+" : "") + juce::String ((float) shownTenths / 10.0f, 1);
+        g.drawFittedText (text, getLocalBounds(), juce::Justification::centred, 1, 0.7f);
+    }
+
+    std::function<void()> onClick;
+    void mouseDown (const juce::MouseEvent&) override   { if (onClick) onClick(); }
+
 private:
-    float shown[2] = { meterFloorDb, meterFloorDb }, peakHold[2] = { meterFloorDb, meterFloorDb };
+    int shownTenths = -10000;
 };
 
 //==============================================================================
@@ -140,9 +243,9 @@ public:
     void paint (juce::Graphics& g) override
     {
         auto r = getLocalBounds();
+        // 区画ごとに 1 枚のガラスの板（見出しは板の上に、中身は一段暗いくぼみに）
+        Theme::drawGlass (g, getLocalBounds().toFloat(), 6.0f);
         auto header = r.removeFromTop (headerHeight);
-        g.setColour (Theme::background.withAlpha (0.6f));
-        g.fillRect (header);
         g.setColour (Theme::textDim);
         g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
         g.drawText (title, header.reduced (4, 0), juce::Justification::centredLeft);
@@ -159,15 +262,16 @@ public:
             g.drawText (juce::String::fromUTF8 ("\xE2\x87\x85"), swapArea, juce::Justification::centred);
         }
 
-        g.setColour (Theme::field.brighter (0.08f));
-        g.fillRect (r);
+        const auto well = r.toFloat().reduced (2.0f, 0.0f).withTrimmedBottom (2.0f);
+        g.setColour (Theme::field.withAlpha (0.75f));
+        g.fillRoundedRectangle (well, 4.0f);
         paintBody (g, r);
 
         // クリックで画面が開く区画は、マウスを乗せると枠を出す
         if (opensEditor() && hoverBody)
         {
             g.setColour (Theme::accent.withAlpha (0.8f));
-            g.drawRect (r, 1);
+            g.drawRoundedRectangle (well, 4.0f, 1.0f);
         }
     }
 
@@ -231,8 +335,8 @@ protected:
 
     void drawRow (juce::Graphics& g, juce::Rectangle<int> row, const juce::String& text, bool active, bool filled)
     {
-        g.setColour (filled ? Theme::panelLight : Theme::panel.withAlpha (0.5f));
-        g.fillRect (row.reduced (1, 1));
+        g.setColour (filled ? juce::Colours::white.withAlpha (0.10f) : juce::Colours::white.withAlpha (0.025f));
+        g.fillRoundedRectangle (row.reduced (3, 1).toFloat(), 3.0f);
         g.setColour (active ? Theme::text : Theme::textDim);
         g.setFont (juce::FontOptions (14.0f));
         g.drawText (text, row.reduced (4, 0), juce::Justification::centredLeft, true);
@@ -696,6 +800,8 @@ public:
         fader.setSkewFactorFromMidPoint (-12.0);
         fader.setDoubleClickReturnValue (true, isChord() || isMetronome() ? -6.0 : 0.0);
         fader.setTooltip ("音量"_ju);
+        fader.getProperties().set ("fader", true);    // キャップのあるフェーダーとして描く
+        fader.setSliderSnapsToMousePosition (false);  // つかんだ所から動かす（クリックで値が飛ばない）
         addAndMakeVisible (fader);
 
         styleValueLabel (value);
@@ -709,7 +815,12 @@ public:
             value.setText (formatDb (fader.getValue()), juce::dontSendNotification);
         };
         addAndMakeVisible (value);
+        meter.dbToProportion = [this] (double db) { return fader.valueToProportionOfLength (db); };
         addAndMakeVisible (meter);
+        peak.setTooltip ("直近のピーク（クリックで戻す）"_ju);
+        peak.onClick = [this] { meter.resetHold(); peak.setDb (meterFloorDb); };
+        meter.onReset = [this] { peak.setDb (meterFloorDb); };
+        addAndMakeVisible (peak);
 
         mute.setButtonText (isMetronome() ? "オン"_ju : juce::String ("M"));
         mute.setTooltip (isMetronome() ? "メトロノームを鳴らす（C）"_ju : "ミュート"_ju);
@@ -847,6 +958,7 @@ public:
         meter.push (isMetronome() ? ctx.engine.getMetronomePeakDb()
                     : isMaster()  ? ctx.engine.getMasterPeakDb()
                                   : ctx.engine.getTrackPeakDb (trackId));
+        peak.setDb (meter.getHoldDb());
 
         if (isMaster())
         {
@@ -880,10 +992,12 @@ public:
         for (double db : { 6.0, 0.0, -6.0, -12.0, -24.0, -36.0, -60.0 })
         {
             const int y = fader.getY() + juce::roundToInt (fader.getPositionOfValue (db));
-            g.setColour (Theme::gridBar);
-            g.drawHorizontalLine (y, (float) scaleArea.getRight() - 4.0f, (float) scaleArea.getRight());
-            g.setColour (Theme::textDim);
-            g.drawText (db <= -59.9 ? juce::String ("-inf") : juce::String ((int) db), scaleArea.withY (y - 6).withHeight (12).withTrimmedRight (5),
+            const bool zero = db == 0.0;   // 0 dB は目立たせる（メーターの白い線と同じ高さ）
+            g.setColour (zero ? Theme::text : Theme::gridBar);
+            g.drawHorizontalLine (y, (float) scaleArea.getRight() - (zero ? 7.0f : 4.0f), (float) scaleArea.getRight());
+            g.setColour (zero ? Theme::text : Theme::textDim);
+            g.setFont (juce::FontOptions (zero ? 13.0f : 12.0f, zero ? juce::Font::bold : juce::Font::plain));
+            g.drawText (db <= -59.9 ? juce::String ("-inf") : juce::String ((int) db), scaleArea.withY (y - 6).withHeight (12).withTrimmedRight (zero ? 8 : 5),
                         juce::Justification::centredRight);
         }
 
@@ -960,10 +1074,19 @@ public:
         value.setBounds (area.removeFromBottom (16).reduced (8, 0));
         area.removeFromBottom (4);
 
-        meter.setBounds (area.removeFromRight (13));
-        area.removeFromRight (4);
-        scaleArea = area.removeFromLeft (30);
+        // メーターの上に直近のピークの数字。フェーダーとメーターは同じ高さにそろえる
+        auto peakRow = area.removeFromTop (16);
+        peak.setBounds (peakRow.removeFromRight (42));
+        area.removeFromTop (4);
+        auto meterColumn = area.removeFromRight (22);
+        area.removeFromRight (3);
+        scaleArea = area.removeFromLeft (28);
         fader.setBounds (area);
+
+        // メーターはフェーダーの溝と同じ高さ（目盛りの 0 がメーターの 0 の線と重なる）
+        const int top = fader.getY() + juce::roundToInt (fader.getPositionOfValue (fader.getMaximum()));
+        const int bottom = fader.getY() + juce::roundToInt (fader.getPositionOfValue (fader.getMinimum()));
+        meter.setBounds (meterColumn.getX() + 1, top - 1, 20, bottom - top + 2);
     }
 
     void mouseDown (const juce::MouseEvent&) override
@@ -1010,6 +1133,7 @@ private:
     juce::Slider fader;
     juce::TextButton mute, solo;
     LevelMeter meter;
+    PeakReadout peak;
     juce::Colour colour = Theme::accent;
     juce::String name, number, detail, mergeId;
     juce::Rectangle<int> scaleArea, nameArea, detailArea;

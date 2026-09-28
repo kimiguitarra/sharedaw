@@ -142,8 +142,6 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
         setStatus ("内蔵音源の読み込みエラー: "_ju + library.getLoadErrors().joinIntoString ("; "));
     else if (library.getAll().empty())
         setStatus ("内蔵音源（assets フォルダ）が見つかりません。音が鳴りません。"_ju);
-    else
-        setStatus ("準備完了"_ju);
 
     updateTitle();
     startTimerHz (30);
@@ -187,6 +185,7 @@ void MainComponent::resized()
     toolbar.setBounds (area.removeFromTop (toolbarHeight));
     statusBar.setBounds (area.removeFromBottom (statusHeight));
     transport.setBounds (area.removeFromBottom (transportHeight));
+    transport.onMixer = [this] { toggleMixer(); };
 
     syncPanel.setBounds (area.removeFromRight (juce::jmin (syncPanel.getPreferredWidth(), area.getWidth() / 2)));
 
@@ -986,7 +985,6 @@ void MainComponent::setOperationMode (OperationMode mode)
     commandManager.getKeyMappings()->resetToDefaultMappings();
     commandManager.commandStatusChanged();
     state.changed();
-    setStatus (mode == OperationMode::studioOne ? "Studio One モード（いまは Cubase と同じ操作）"_ju : "Cubase モード"_ju);
 }
 
 void MainComponent::toggleMixer()
@@ -1014,8 +1012,10 @@ void MainComponent::toggleMixer()
         window->setResizeLimits (300, 280, 4000, 2000);
         window->addKeyListener (commandManager.getKeyMappings());   // ミキサーの上でも F3 などが効くように
 
+        // 最初は画面いっぱい（メイン画面のあるディスプレイの作業領域）
         if (auto* top = getTopLevelComponent())
-            window->setTopLeftPosition (top->getX() + 80, top->getBottom() - window->getHeight() - 60);
+            if (auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect (top->getScreenBounds()))
+                window->setBounds (display->userArea);
 
         mixerWindow = std::move (window);
     }
@@ -1488,12 +1488,10 @@ bool MainComponent::perform (const InvocationInfo& info)
         }
         case cmdSnap:
             state.setSnapEnabled (! state.snapEnabled());
-            setStatus (state.snapEnabled() ? "スナップ: オン（クオンタイズ値に合わせる）"_ju : "スナップ: オフ（フリー）"_ju);
             break;
         case cmdAutoScroll:
             state.autoScroll = ! state.autoScroll;
             state.changed();
-            setStatus (state.autoScroll ? "自動スクロール: オン"_ju : "自動スクロール: オフ"_ju);
             break;
         case cmdRecord:     toggleRecord(); break;
         case cmdCountIn0:

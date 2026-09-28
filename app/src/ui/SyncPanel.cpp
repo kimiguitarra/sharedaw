@@ -501,18 +501,14 @@ void SyncPanel::paintCounts (juce::Graphics& g, juce::Rectangle<int> area, bool 
 
         if (vertical)
         {
-            // 縦の帯: 1 つずつ下へ（長い言葉は 1 文字ずつ縦に）
-            const int h = word ? it.text.length() * 18 + 6 : 28;
-            r = area.removeFromTop (h);
+            // 縦の帯: 1 つずつ下へ（長い言葉も横書きのまま、幅に収まるように縮めて 2 行まで）
+            r = area.removeFromTop (word ? 36 : 28);
 
             if (word)
             {
                 g.setColour (it.colour);
-                g.setFont (juce::FontOptions (15.5f));
-
-                for (int i = 0; i < it.text.length(); ++i)
-                    g.drawText (it.text.substring (i, i + 1), r.getX(), r.getY() + 3 + i * 18, r.getWidth(), 18, juce::Justification::centred);
-
+                g.setFont (juce::FontOptions (12.5f, juce::Font::bold));
+                g.drawFittedText (it.text, r, juce::Justification::centred, 2, 0.6f);
                 continue;
             }
         }
@@ -540,13 +536,12 @@ void SyncPanel::paint (juce::Graphics& g)
 
     if (collapsed)
     {
-        // 縦の帯: «・「同期」・件数
+        // 縦の帯: «・「同期」（横書き）・件数
         auto r = getLocalBounds().withTrimmedLeft (2).withTrimmedTop (toggleButton.getBottom() + 8);
         g.setColour (Theme::text);
-        g.setFont (juce::FontOptions (17.5f, juce::Font::bold));
-        g.drawText (juce::String::fromUTF8 ("\xE5\x90\x8C"), r.removeFromTop (22), juce::Justification::centred);   // 同
-        g.drawText (juce::String::fromUTF8 ("\xE6\x9C\x9F"), r.removeFromTop (22), juce::Justification::centred);   // 期
-        r.removeFromTop (10);
+        g.setFont (juce::FontOptions (14.5f, juce::Font::bold));
+        g.drawFittedText ("同期"_ju, r.removeFromTop (22), juce::Justification::centred, 1, 0.7f);
+        r.removeFromTop (8);
         paintCounts (g, r.reduced (4, 0), true);
         return;
     }
