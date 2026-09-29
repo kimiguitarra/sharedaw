@@ -23,6 +23,8 @@ public:
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
+    /** 他の場所を触ったら選択を外す（選んだままだと数字キーでコードが変わってしまうので）。 */
+    void focusLost (FocusChangeType) override;
     bool keyPressed (const juce::KeyPress&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;

@@ -282,6 +282,20 @@ void ChordLane::mouseDoubleClick (const juce::MouseEvent& e)
         openEditor (id);
 }
 
+void ChordLane::focusLost (FocusChangeType)
+{
+    // コードエディターなど自分の画面を開いたときは外さない（そのあと戻ってくる）
+    if (juce::ModalComponentManager::getInstance()->getNumModalComponents() > 0)
+        return;
+
+    if (! ctx.state.selectedChordId.empty())
+    {
+        ctx.state.selectedChordId = {};
+        ctx.state.changed();
+        repaint();
+    }
+}
+
 bool ChordLane::keyPressed (const juce::KeyPress& key)
 {
     if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey)

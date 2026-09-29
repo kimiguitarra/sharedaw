@@ -17,10 +17,11 @@ namespace
 
     void styleListButton (juce::TextButton& b)
     {
-        b.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff23262b));
-        b.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffd9dce1));
+        // 選んでいないものは面と同じ色で文字をはっきり、選んだものは青で白い文字（灰色ばかりにしない）
+        b.setColour (juce::TextButton::buttonColourId, Theme::light ? Theme::panel : juce::Colour (0xff23262b));
+        b.setColour (juce::TextButton::buttonOnColourId, Theme::light ? Theme::accent : juce::Colour (0xffd9dce1));
         b.setColour (juce::TextButton::textColourOffId, Theme::text);
-        b.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+        b.setColour (juce::TextButton::textColourOnId, Theme::light ? juce::Colours::white : juce::Colours::black);
         b.setClickingTogglesState (false);
     }
 }
@@ -69,7 +70,8 @@ public:
                 const bool isCurrent = ! owner.currentNoChord && pc == currentRoot && (ring == 1) == currentMinor;
                 const bool hovered = hover == ring * 12 + i;
 
-                auto fill = inKey ? juce::Colour (0xff4a5a38) : juce::Colour (0xff2a2e34);
+                auto fill = Theme::light ? (inKey ? juce::Colour (0xffcfe3bd) : juce::Colour (0xffeef1f5))
+                                         : (inKey ? juce::Colour (0xff4a5a38) : juce::Colour (0xff2a2e34));
 
                 if (hovered)   fill = fill.brighter (0.25f);
                 if (isCurrent) fill = Theme::accent.darker (0.2f);
@@ -81,7 +83,7 @@ public:
 
                 const float rm = (r1 + r2) * 0.5f;
                 const auto pos = centre.getPointOnCircumference (rm, juce::MathConstants<float>::twoPi * (float) i / 12.0f);
-                g.setColour (isCurrent ? juce::Colours::black : Theme::text);
+                g.setColour (isCurrent ? (Theme::light ? juce::Colours::white : juce::Colours::black) : Theme::text);
                 g.setFont (juce::FontOptions (ring == 0 ? 15.0f : 12.5f, juce::Font::bold));
                 g.drawText (noteName (pc, owner.key) + (ring == 1 ? "m" : ""),
                             juce::Rectangle<float> (60.0f, 20.0f).withCentre (pos), juce::Justification::centred);
@@ -270,7 +272,7 @@ ChordEditor::ChordEditor (const juce::String& initialText, std::optional<collab:
 
             auto* b = degreeButtons.add (new juce::TextButton (toJuce (collab::chord::degreeName (*parsed.chord, *key))));
             b->setTooltip (toJuce (collab::chord::format (*parsed.chord)));
-            b->setColour (juce::TextButton::buttonColourId, juce::Colour (0xff3a3f2e));
+            b->setColour (juce::TextButton::buttonColourId, Theme::light ? juce::Colour (0xffcfe3bd) : juce::Colour (0xff3a3f2e));
             b->onClick = [this, chord = *parsed.chord] { setChord (chord); };
             addAndMakeVisible (b);
         }
@@ -280,7 +282,8 @@ ChordEditor::ChordEditor (const juce::String& initialText, std::optional<collab:
     for (auto* b : { &editorTab, &circleTab })
     {
         b->setClickingTogglesState (false);
-        b->setColour (juce::TextButton::buttonOnColourId, Theme::panelLight);
+        b->setColour (juce::TextButton::buttonOnColourId, Theme::light ? Theme::accent : Theme::panelLight);
+        b->setColour (juce::TextButton::textColourOnId, Theme::light ? juce::Colours::white : Theme::text);
         addAndMakeVisible (b);
     }
 

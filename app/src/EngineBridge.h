@@ -297,6 +297,7 @@ private:
 
     std::vector<std::unique_ptr<MidiIn>> midiInputs;
     std::string midiTargetId;
+    double lastSetTick = 0.0, lastSetSeconds = -1.0;   // 最後に置いた再生位置（秒との往復の誤差をなくす）
     std::map<std::string, juce::String> trackMidiInputs;
     std::string spectrumTrackId;
     std::vector<RecordedMidi> pendingMidi;

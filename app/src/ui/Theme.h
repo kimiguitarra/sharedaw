@@ -63,7 +63,7 @@ namespace Theme
                      float depth = 3.0f);
 
     /** ボタンの中で影が切れないように面を内側に寄せる量（ライト）。影は部品の外に描けないので、角が四角く切れて見えないように。 */
-    inline float raisedInset (float depth = 2.0f)  { return light ? depth * 1.6f + 1.0f : 1.0f; }
+    inline float raisedInset (float depth = 2.0f)  { return light ? (float) juce::jmax (1, juce::roundToInt (depth * 1.5f)) * 1.5f + 0.5f : 1.0f; }
 
     /** トラックの既定の色（追加順に使う）。 */
     juce::Colour trackColour (int index);

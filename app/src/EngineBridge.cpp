@@ -1396,12 +1396,25 @@ double EngineBridge::getPositionSeconds() const
 
 double EngineBridge::getPositionTick() const
 {
-    return document.getTempoMap().secondsToTick (getPositionSeconds());
+    const double seconds = getPositionSeconds();
+
+    // 止まっていて置いた位置のままなら、置いた tick をそのまま返す（秒との往復で 1 tick 手前にならないように。
+    // 3 拍子の小節の頭が「前の小節の 3.959」と出ていた）
+    if (std::abs (seconds - lastSetSeconds) < 1.0e-6)
+        return lastSetTick;
+
+    // 再生中も、ごく近い整数の tick には合わせる（サンプル単位の丸めの誤差）
+    const double tick = document.getTempoMap().secondsToTick (seconds);
+    const double nearest = std::round (tick);
+    return std::abs (tick - nearest) < 0.05 ? nearest : tick;
 }
 
 void EngineBridge::setPositionTick (double tick)
 {
-    edit->getTransport().setPosition (secondsToTime (document.getTempoMap().tickToSeconds (juce::jmax (0.0, tick))));
+    tick = juce::jmax (0.0, tick);
+    edit->getTransport().setPosition (secondsToTime (document.getTempoMap().tickToSeconds (tick)));
+    lastSetTick = tick;
+    lastSetSeconds = getPositionSeconds();
 }
 
 void EngineBridge::setLoop (bool enabled, collab::Tick start, collab::Tick end)

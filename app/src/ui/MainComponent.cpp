@@ -33,7 +33,7 @@ namespace
         cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
         cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9,
         cmdToolSplit, cmdCopy, cmdCut, cmdPaste, cmdNudgeLeft, cmdNudgeRight,
-        cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate, cmdToLoopStart, cmdToLoopEnd, cmdInspector
+        cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate, cmdToLoopStart, cmdToLoopEnd, cmdInspector, cmdCursorLeft, cmdCursorRight, cmdBarLeft, cmdBarRight, cmdTrackUp, cmdTrackDown
     };
 
     constexpr float fontScales[] = { 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
@@ -328,6 +328,34 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
 
 void MainComponent::timerCallback()
 {
+    // タイムラインとピアノロールの横の拡大・縮小を連動させる（どちらかを変えたら、もう片方も同じ倍率で）
+    {
+        auto& tl = state.timeline.pixelsPerQuarter;
+        auto& pr = state.pianoRoll.pixelsPerQuarter;
+
+        // 連動した側は、再生位置の見える場所が動かないように広げる・縮める
+        auto follow = [this] (TimeAxis& axis, double newPpq)
+        {
+            const double x = axis.tickToX (state.playheadTick);
+            axis.pixelsPerQuarter = newPpq;
+            axis.scrollTick = juce::jmax (0.0, state.playheadTick - x * collab::kPpq / newPpq);
+        };
+
+        if (lastTimelineZoom > 0.0 && std::abs (tl - lastTimelineZoom) > 1.0e-9)
+        {
+            follow (state.pianoRoll, juce::jlimit (10.0, 2000.0, pr * tl / lastTimelineZoom));
+            state.changed();
+        }
+        else if (lastPianoZoom > 0.0 && std::abs (pr - lastPianoZoom) > 1.0e-9)
+        {
+            follow (state.timeline, juce::jlimit (4.0, 800.0, tl * pr / lastPianoZoom));
+            state.changed();
+        }
+
+        lastTimelineZoom = tl;
+        lastPianoZoom = pr;
+    }
+
     bridge.pollMidiActivity();
     const bool playing = bridge.isPlaying();
     const double tick = bridge.getPositionTick();
@@ -1328,7 +1356,7 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
                          cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
                          cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9,
                          cmdToolSplit, cmdCopy, cmdCut, cmdPaste, cmdNudgeLeft, cmdNudgeRight,
-                         cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate, cmdToLoopStart, cmdToLoopEnd, cmdInspector });
+                         cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate, cmdToLoopStart, cmdToLoopEnd, cmdInspector, cmdCursorLeft, cmdCursorRight, cmdBarLeft, cmdBarRight, cmdTrackUp, cmdTrackDown });
 }
 
 void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommandInfo& info)
@@ -1370,6 +1398,12 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdRewind:     info.setInfo ("1 小節戻る"_ju, {}, "Transport", 0); info.addDefaultKeypress (KP::numberPadSubtract, 0); break;
         case cmdShortcuts:  info.setInfo ("操作とショートカットの一覧…"_ju, {}, "Help", 0); info.addDefaultKeypress (KP::F1Key, 0); break;
         case cmdToLoopStart: info.setInfo ("左ロケーターへ移動"_ju, {}, "Transport", 0); info.addDefaultKeypress (KP::numberPad1, 0); break;
+        case cmdCursorLeft:  info.setInfo ("クリップ・再生位置を左へ（グリッド 1 つ）"_ju, {}, "Edit", 0); info.addDefaultKeypress (KP::leftKey, 0); break;
+        case cmdCursorRight: info.setInfo ("クリップ・再生位置を右へ（グリッド 1 つ）"_ju, {}, "Edit", 0); info.addDefaultKeypress (KP::rightKey, 0); break;
+        case cmdBarLeft:     info.setInfo ("クリップ・再生位置を左へ（1 小節）"_ju, {}, "Edit", 0); info.addDefaultKeypress (KP::leftKey, shift); break;
+        case cmdBarRight:    info.setInfo ("クリップ・再生位置を右へ（1 小節）"_ju, {}, "Edit", 0); info.addDefaultKeypress (KP::rightKey, shift); break;
+        case cmdTrackUp:     info.setInfo ("上のトラックを選ぶ"_ju, {}, "Track", 0); info.addDefaultKeypress (KP::upKey, 0); break;
+        case cmdTrackDown:   info.setInfo ("下のトラックを選ぶ"_ju, {}, "Track", 0); info.addDefaultKeypress (KP::downKey, 0); break;
         case cmdToLoopEnd:   info.setInfo ("右ロケーターへ移動"_ju, {}, "Transport", 0); info.addDefaultKeypress (KP::numberPad2, 0); break;
         case cmdToolSplit:
             info.setInfo ("はさみツール"_ju, {}, "Edit", 0);
@@ -1659,6 +1693,48 @@ bool MainComponent::perform (const InvocationInfo& info)
             break;
         }
         case cmdToLoopStart:   bridge.setPositionTick ((double) state.loopStart); break;
+        case cmdCursorLeft: case cmdCursorRight: case cmdBarLeft: case cmdBarRight:
+        {
+            // クリップを選んでいればクリップを、いなければ再生位置を動かす（Shift で 1 小節）
+            const int dir = info.commandID == cmdCursorLeft || info.commandID == cmdBarLeft ? -1 : 1;
+            const bool bar = info.commandID == cmdBarLeft || info.commandID == cmdBarRight;
+            const auto& map = document.getTempoMap();
+            const auto pos = (collab::Tick) std::llround (bridge.getPositionTick());
+
+            if (! state.clipSelection().empty())
+            {
+                const auto step = bar ? map.timeSignatureAtTick (pos).ticksPerBar() : std::max<collab::Tick> (1, state.grid.stepTicks());
+                ctx.nudgeClips (state.clipSelection(), dir * step);
+            }
+            else if (bar)
+            {
+                const int b = map.tickToBar (pos);
+                const bool onBar = map.barToTick (b) == pos;
+                bridge.setPositionTick ((double) map.barToTick (juce::jmax (1, dir > 0 ? b + 1 : (onBar ? b - 1 : b))));
+            }
+            else
+            {
+                const auto step = std::max<collab::Tick> (1, state.grid.stepTicks());
+                const auto snapped = (pos / step) * step;
+                bridge.setPositionTick ((double) juce::jmax<collab::Tick> (0, dir > 0 ? snapped + step : (snapped == pos ? pos - step : snapped)));
+            }
+
+            break;
+        }
+        case cmdTrackUp: case cmdTrackDown:
+        {
+            const auto& tracks = document.getProject().tracks;
+
+            if (tracks.empty())
+                break;
+
+            int index = document.getProject().indexOfTrack (state.selectedTrackId);
+            index = index < 0 ? 0 : juce::jlimit (0, (int) tracks.size() - 1, index + (info.commandID == cmdTrackUp ? -1 : 1));
+            state.selectedTrackId = tracks[(size_t) index].id;
+            state.selectClip ({});
+            state.changed();
+            break;
+        }
         case cmdToLoopEnd:     bridge.setPositionTick ((double) state.loopEnd); break;
         case cmdForward:
         case cmdRewind:

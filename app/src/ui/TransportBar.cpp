@@ -289,13 +289,13 @@ collab::Tick ToolBar::playheadTick() const
 
 void ToolBar::ToolButton::paintButton (juce::Graphics& g, bool highlighted, bool down)
 {
-    auto r = getLocalBounds().toFloat().reduced (Theme::light ? Theme::raisedInset (2.0f) : 1.0f);
+    auto r = getLocalBounds().toFloat().reduced (Theme::light ? Theme::raisedInset (1.3f) : 1.0f);
     const bool on = getToggleState();
 
     if (Theme::light)
     {
         // ライト: 他のボタンと同じ浮き上がった面（選んでいるツールは青みで示す。凹ませない）
-        Theme::drawRaised (g, r, 6.0f, down, on ? Theme::panel.interpolatedWith (Theme::accent, 0.2f) : Theme::panel, 2.0f);
+        Theme::drawRaised (g, r, 6.0f, down, on ? Theme::panel.interpolatedWith (Theme::accent, 0.2f) : Theme::panel, 1.3f);
     }
     else
     {

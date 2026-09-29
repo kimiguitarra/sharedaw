@@ -615,34 +615,162 @@ bool NoteGrid::keyPressed (const juce::KeyPress& key)
 {
     auto* clip = owner.getClip();
 
-    if (clip == nullptr || owner.selectedNotes.empty())
+    if (clip == nullptr)
+        return false;
+
+    const auto code = key.getKeyCode();
+    const auto mods = key.getModifiers();
+    const bool arrow = code == juce::KeyPress::upKey || code == juce::KeyPress::downKey
+                    || code == juce::KeyPress::leftKey || code == juce::KeyPress::rightKey;
+
+    // Esc: 選択を外す
+    if (code == juce::KeyPress::escapeKey && ! owner.selectedNotes.empty())
+    {
+        owner.selectedNotes.clear();
+        owner.repaint();
+        return true;
+    }
+
+    // Alt + ←→: 前後のノートを選ぶ（Shift も押すと選択に足す）。何も選んでいなければ再生位置から
+    if (arrow && mods.isAltDown() && (code == juce::KeyPress::leftKey || code == juce::KeyPress::rightKey))
+    {
+        std::vector<const collab::Note*> notes;
+
+        for (auto& n : clip->notes)
+            notes.push_back (&n);
+
+        std::sort (notes.begin(), notes.end(), [] (auto* a, auto* b) { return a->tick != b->tick ? a->tick < b->tick : a->pitch > b->pitch; });
+
+        if (notes.empty())
+            return true;
+
+        const bool forward = code == juce::KeyPress::rightKey;
+        const collab::Note* pick = nullptr;
+
+        // 選んでいるノートがあれば、その（最後の）ノートの隣。なければ再生位置の前後
+        int index = -1;
+
+        for (int k = 0; k < (int) notes.size(); ++k)
+            if (owner.selectedNotes.count (notes[(size_t) k]->id) > 0)
+                index = forward || index < 0 ? k : index;
+
+        if (index >= 0)
+        {
+            const int next = juce::jlimit (0, (int) notes.size() - 1, index + (forward ? 1 : -1));
+            pick = notes[(size_t) next];
+        }
+        else
+        {
+            const double from = owner.ctx.state.playheadTick - (double) clip->startTick;
+
+            for (auto* n : notes)
+            {
+                if (forward && (double) n->tick >= from - 0.5)
+                {
+                    pick = n;
+                    break;
+                }
+
+                if (! forward && (double) n->tick < from - 0.5)
+                    pick = n;
+            }
+        }
+
+        if (pick != nullptr)
+        {
+            if (! mods.isShiftDown())
+                owner.selectedNotes.clear();
+
+            owner.selectedNotes.insert (pick->id);
+            owner.previewNote (pick->pitch, pick->velocity);
+            owner.repaint();
+        }
+
+        return true;
+    }
+
+    if (owner.selectedNotes.empty())
         return false;
 
     const auto sel = owner.selectedNotes;
-    const auto code = key.getKeyCode();
 
     if (code == juce::KeyPress::upKey || code == juce::KeyPress::downKey)
     {
-        // Shift または Ctrl と一緒ならオクターブ
-        const bool octave = key.getModifiers().isShiftDown() || key.getModifiers().isCommandDown();
-        const int d = (code == juce::KeyPress::upKey ? 1 : -1) * (octave ? 12 : 1);
-        owner.editNotes ("ノートの移調"_ju, [sel, d] (collab::MidiClip& c)
+        const int dir = code == juce::KeyPress::upKey ? 1 : -1;
+
+        if (! owner.drumRows.empty())
         {
-            for (auto& n : c.notes)
-                if (sel.count (n.id) > 0)
-                    n.pitch = juce::jlimit (0, 127, n.pitch + d);
-        });
+            // ドラム: 画面で上・下の行（音色）へ動かす（ピッチの数字の順ではない）
+            const auto rows = owner.drumRows;
+            owner.editNotes ("ノートの移動（音色）"_ju, [sel, rows, dir] (collab::MidiClip& c)
+            {
+                for (auto& n : c.notes)
+                    if (sel.count (n.id) > 0)
+                    {
+                        auto it = std::find (rows.begin(), rows.end(), n.pitch);
+
+                        if (it == rows.end())
+                            continue;
+
+                        const int row = juce::jlimit (0, (int) rows.size() - 1, (int) (it - rows.begin()) - dir);
+                        n.pitch = rows[(size_t) row];
+                    }
+            });
+        }
+        else
+        {
+            // Shift または Ctrl と一緒ならオクターブ
+            const bool octave = mods.isShiftDown() || mods.isCommandDown();
+            const int d = dir * (octave ? 12 : 1);
+            owner.editNotes ("ノートの移調"_ju, [sel, d] (collab::MidiClip& c)
+            {
+                for (auto& n : c.notes)
+                    if (sel.count (n.id) > 0)
+                        n.pitch = juce::jlimit (0, 127, n.pitch + d);
+            });
+        }
+
+        // 動かした音を鳴らす（いちばん早いノート）
+        if (auto* c = owner.getClip())
+        {
+            const collab::Note* first = nullptr;
+
+            for (auto& n : c->notes)
+                if (sel.count (n.id) > 0 && (first == nullptr || n.tick < first->tick))
+                    first = &n;
+
+            if (first != nullptr)
+                owner.previewNote (first->pitch, first->velocity);
+        }
+
         return true;
     }
 
     if (code == juce::KeyPress::leftKey || code == juce::KeyPress::rightKey)
     {
-        const auto step = owner.ctx.state.grid.stepTicks() * (code == juce::KeyPress::leftKey ? -1 : 1);
-        owner.editNotes ("ノートの移動"_ju, [sel, step] (collab::MidiClip& c)
+        const int dir = code == juce::KeyPress::leftKey ? -1 : 1;
+        const auto& map = owner.ctx.document.getTempoMap();
+        const auto grid = std::max<collab::Tick> (1, owner.ctx.state.grid.stepTicks());
+
+        // Ctrl（Mac は Cmd）+ ←→: 長さをグリッド 1 つ分縮める・伸ばす
+        if (mods.isCommandDown())
+        {
+            owner.editNotes ("ノートの長さ"_ju, [sel, grid, dir] (collab::MidiClip& c)
+            {
+                for (auto& n : c.notes)
+                    if (sel.count (n.id) > 0)
+                        n.lengthTick = juce::jlimit<collab::Tick> (std::max<collab::Tick> (1, grid / 4), c.lengthTick - n.tick, n.lengthTick + dir * grid);
+            });
+            return true;
+        }
+
+        // ←→: グリッド 1 つ分、Shift + ←→: 1 小節分動かす
+        const auto step = mods.isShiftDown() ? map.timeSignatureAtTick (clip->startTick).ticksPerBar() : grid;
+        owner.editNotes ("ノートの移動"_ju, [sel, step, dir] (collab::MidiClip& c)
         {
             for (auto& n : c.notes)
                 if (sel.count (n.id) > 0)
-                    n.tick = juce::jlimit<collab::Tick> (0, c.lengthTick - 1, n.tick + step);
+                    n.tick = juce::jlimit<collab::Tick> (0, c.lengthTick - 1, n.tick + dir * step);
         });
         return true;
     }

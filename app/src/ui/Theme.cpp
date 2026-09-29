@@ -114,17 +114,27 @@ void drawRaised (juce::Graphics& g, juce::Rectangle<float> r, float radius, bool
         return;
     }
 
-    // DAW では凹んだ見た目は使わない。押している・オンのときは影を浅くして（少し沈んで）色で示す
-    juce::Path shape;
-    shape.addRoundedRectangle (r, radius);
-
+    // DAW では凹んだ見た目は使わない。押している・オンのときは影を浅くして（少し沈んで）色で示す。
+    // 影と光はぼかした画像ではなく、角丸の輪を少しずつずらして重ねて描く（部品の端で四角く切れないように、
+    // 広がりは raisedInset() の内側に収まる）
     const float d = pressed ? depth * 0.45f : depth;
-    const int blur = juce::jmax (1, juce::roundToInt (d * 2.0f));
-    const int off = juce::jmax (1, juce::roundToInt (d * 0.8f));
-    juce::DropShadow (juce::Colour (0x48a3b1c6), blur, { off, off }).drawForPath (g, shape);
-    juce::DropShadow (juce::Colours::white.withAlpha (0.95f), blur, { -off, -off }).drawForPath (g, shape);
+    const int rings = juce::jmax (1, juce::roundToInt (d * 1.5f));
+
+    for (int k = rings; k >= 1; --k)
+    {
+        const float grow = (float) k;
+        const float shift = (float) k * 0.5f;
+        const float fade = 1.0f - (float) (k - 1) / (float) rings;
+        const auto ring = r.expanded (grow);
+
+        g.setColour (juce::Colour (0xffa3b1c6).withAlpha (0.16f * fade));
+        g.fillRoundedRectangle (ring.translated (shift, shift), radius + grow);
+        g.setColour (juce::Colours::white.withAlpha (0.55f * fade));
+        g.fillRoundedRectangle (ring.translated (-shift, -shift), radius + grow);
+    }
+
     g.setColour (fill);
-    g.fillPath (shape);
+    g.fillRoundedRectangle (r, radius);
 }
 
 void drawGlass (juce::Graphics& g, juce::Rectangle<float> r, float radius, juce::Colour tint)
@@ -285,10 +295,10 @@ void LookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& b, cons
     if (light)
     {
         const bool on = b.getToggleState() || down;
-        r = b.getLocalBounds().toFloat().reduced (raisedInset (2.0f));
+        r = b.getLocalBounds().toFloat().reduced (raisedInset (1.3f));
         const float rr = juce::jmin (r.getHeight() * 0.5f, 10.0f);
-        const auto fill = plain ? (on ? panel.interpolatedWith (accent, 0.18f) : panel) : backgroundColour.interpolatedWith (panel, 0.3f);
-        drawRaised (g, r, rr, down, fill, 2.0f);
+        const auto fill = plain ? (on ? panel.interpolatedWith (accent, 0.18f) : panel) : backgroundColour.interpolatedWith (panel, on ? 0.0f : 0.15f);
+        drawRaised (g, r, rr, down, fill, 1.3f);
 
         if (highlighted && b.isEnabled() && ! on)
         {
@@ -331,7 +341,7 @@ void LookAndFeel::drawComboBox (juce::Graphics& g, int width, int height, bool, 
 
     if (light)
     {
-        drawRaised (g, r.reduced (raisedInset (2.0f) - 1.0f), juce::jmin (r.getHeight() * 0.5f, 10.0f), false, panel, 2.0f);
+        drawRaised (g, r.reduced (raisedInset (1.3f) - 1.0f), juce::jmin (r.getHeight() * 0.5f, 10.0f), false, panel, 1.3f);
     }
     else
     {
@@ -604,8 +614,8 @@ void IconButton::paintButton (juce::Graphics& g, bool highlighted, bool down)
     // ライト: オンは凹んだ面に青いアイコン（色の塊にしない）
     if (light)
     {
-        const auto r = getLocalBounds().toFloat().reduced (raisedInset (2.0f));
-        drawRaised (g, r, juce::jmin (r.getHeight() * 0.5f, 10.0f), down, on ? panel.interpolatedWith (accent, 0.15f) : panel, 2.0f);
+        const auto r = getLocalBounds().toFloat().reduced (raisedInset (1.3f));
+        drawRaised (g, r, juce::jmin (r.getHeight() * 0.5f, 10.0f), down, on ? panel.interpolatedWith (accent, 0.15f) : panel, 1.3f);
     }
     else
         getLookAndFeel().drawButtonBackground (g, *this, findColour (on ? buttonOnColourId : buttonColourId), highlighted, down);
