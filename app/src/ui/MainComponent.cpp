@@ -1,5 +1,7 @@
 #include "MainComponent.h"
 
+#include <iostream>
+
 #include "Dialogs.h"
 #include "BuiltinEffectEditor.h"
 #include "ChannelStripEditor.h"
@@ -317,6 +319,62 @@ void MainComponent::togglePianoFullScreen()
     resized();
     state.changed();
     commandManager.commandStatusChanged();
+}
+
+void MainComponent::runSmokeSteps (const juce::File& project, std::function<void()> done)
+{
+    struct Step { int delayMs; std::function<void (MainComponent&)> action; const char* name; };
+
+    auto steps = std::make_shared<std::vector<Step>>();
+    steps->push_back ({ 500, [project] (MainComponent& m) { if (project.isDirectory()) m.openProjectFolder (project); }, "open project" });
+    steps->push_back ({ 1500, [] (MainComponent& m)
+    {
+        // メニューを全部作り直す（Mac はここでメニューバーの項目とショートカットを登録し直す）
+        for (int i = 0; i < m.getMenuBarNames().size(); ++i)
+            m.getMenuForIndex (i, m.getMenuBarNames()[i]);
+
+        m.menuItemsChanged();
+        m.commandManager.commandStatusChanged();
+    }, "rebuild menus" });
+    steps->push_back ({ 800, [] (MainComponent& m)
+    {
+        // 最初の MIDI クリップを選んで、ピアノロールの画面とミキサーを開く
+        for (auto& t : m.document.getProject().tracks)
+            if (! t.midiClips.empty())
+            {
+                m.state.selectedTrackId = t.id;
+                m.state.selectClip (t.midiClips.front().id);
+                m.state.changed();
+                break;
+            }
+
+        m.togglePianoFullScreen();
+        m.toggleMixer();
+    }, "open piano roll window and mixer" });
+    steps->push_back ({ 1500, [] (MainComponent& m) { m.togglePianoFullScreen(); m.toggleMixer(); }, "close piano roll window and mixer" });
+    steps->push_back ({ 800, [] (MainComponent& m) { m.commandManager.invokeDirectly (cmdPlay, false); }, "play" });
+    steps->push_back ({ 2000, [] (MainComponent& m) { m.commandManager.invokeDirectly (cmdPlay, false); m.bridge.stop(); }, "stop" });
+
+    auto run = std::make_shared<std::function<void (size_t)>>();
+    *run = [safe = juce::Component::SafePointer<MainComponent> (this), steps, run, done] (size_t index)
+    {
+        if (index >= steps->size())
+        {
+            done();
+            return;
+        }
+
+        juce::Timer::callAfterDelay ((*steps)[index].delayMs, [safe, steps, run, index]
+        {
+            if (safe == nullptr)
+                return;
+
+            std::cout << "smoke: " << (*steps)[index].name << std::endl;
+            (*steps)[index].action (*safe);
+            (*run) (index + 1);
+        });
+    };
+    (*run) (0);
 }
 
 void MainComponent::setStatus (const juce::String& text)

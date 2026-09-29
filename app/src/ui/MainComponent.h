@@ -34,6 +34,12 @@ public:
 
     void openProjectFolder (const juce::File& folder);
 
+    /**
+        起動の確認（--smoke-test、CI 用）: 曲を開き、メニューを作り直し、ピアノロールの画面・ミキサーを開閉し、少し再生して止める。
+        終わったら done を呼ぶ（途中で落ちれば CI が失敗する）。
+    */
+    void runSmokeSteps (const juce::File& project, std::function<void()> done);
+
     juce::ApplicationCommandManager& getCommandManager()     { return commandManager; }
 
     /** ウィンドウタイトルの更新用。 */

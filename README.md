@@ -282,6 +282,10 @@ GitHub Actions（`.github/workflows/build.yml`）で Windows / macOS（Universal
 単体テストと、Linux ではデモプロジェクトの書き出しと、テスト用プラグイン（`tools/test-plugins`）での
 スキャン・バウンスのスモークテスト（`tools/plugin-smoke-test.sh`）を行う。ビルド済みのアプリは
 各ジョブの Artifacts からダウンロードできる。
+Mac と Linux では、できたアプリを実際に起動して一通り操作する確認（`tools/app-smoke-test.sh`: 最新の内蔵音源での書き出し、
+`--smoke-test` でメニューの作成・曲を開く・ピアノロールの画面とミキサーの開閉・再生・外観の切り替え）を行う。
+Mac は配る dmg の中の署名済みアプリそのものを起動し、Universal のときは Intel 版も Rosetta で確かめる。
+ここで落ちるとアーティファクトも配信も作らない（壊れたアプリを配らない）。
 ビルドは全 OS で Ninja ＋ コンパイラキャッシュ（ccache、Windows は sccache）を使うので、2 回目以降は変更したファイルだけを
 コンパイルする（最初の 1 回と、JUCE / Tracktion を更新したときは時間がかかる）。手動実行（Run workflow）で `mac_universal` を
 オフにすると、Mac は Apple Silicon だけをビルドして時間がほぼ半分になる。シークレットを設定していれば、同期サーバーへの配信

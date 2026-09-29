@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# 起動の確認（CI 用）: ビルドしたアプリを実際に起動して一通り操作し、落ちずに終わるかを見る。
+#   tools/app-smoke-test.sh <アプリの実行ファイル> <assets フォルダ>
+# - デモ曲の音源を assets の最新の版にして、書き出し（--render）が音の入ったファイルを作るか
+# - --smoke-test: メニューの作成、曲を開く、ピアノロールの画面・ミキサーの開閉、再生・停止、外観の切り替え
+# 設定は空の HOME で行う（初めて起動した人と同じ状態）。Linux では xvfb-run の中で呼ぶ。
+# SMOKE_WRAPPER（例: "arch -x86_64"）を付けると、その上で起動する（Mac の Intel 版を Rosetta で確かめる）。
+set -euo pipefail
+
+exe="$1"
+assets="$2"
+work="$(mktemp -d)"
+cp -r shared/fixtures/demo-project "$work/demo"
+mkdir -p "$work/home"
+
+python3 - "$work/demo/project.json" "$assets" <<'PY'
+import json, os, sys
+path, assets = sys.argv[1], sys.argv[2]
+def latest(i):
+    vs = [v for v in os.listdir(os.path.join(assets, "instruments", i)) if os.path.isfile(os.path.join(assets, "instruments", i, v, "manifest.json"))]
+    return max(vs, key=lambda v: tuple(int(x) for x in v.split(".")))
+p = json.load(open(path))
+for t in p["tracks"]:
+    inst = t.get("instrument")
+    if inst and inst.get("kind") == "builtin":
+        inst["version"] = latest(inst["id"])
+        if inst["id"] == "builtin.drums":
+            inst["params"]["kit"] = "JazzAcoustic"
+        print("smoke project:", t["name"], inst["id"], inst["version"])
+p["chordTrack"]["playback"]["instrument"]["version"] = latest("builtin.piano")
+json.dump(p, open(path, "w"), ensure_ascii=False, indent=2)
+PY
+
+# 時間切れ（固まった）も失敗にする
+run_with_timeout() {
+    local seconds="$1"; shift
+    "$@" &
+    local pid=$!
+    # 見張り役の出力はつながない（パイプを開いたままにすると、呼んだ側がその分待たされる）
+    ( sleep "$seconds"; kill -9 "$pid" ) >/dev/null 2>&1 &
+    local watchdog=$!
+    local status=0
+    wait "$pid" || status=$?
+    pkill -P "$watchdog" 2>/dev/null || true
+    kill "$watchdog" 2>/dev/null || true
+    [ "$status" -ne 137 ] || echo "timed out after ${seconds}s (or killed)"
+    return "$status"
+}
+
+echo "== render"
+status=0
+HOME="$work/home" run_with_timeout 300 ${SMOKE_WRAPPER:-} "$exe" --render "$work/demo" "$work/demo.wav" > "$work/render.log" 2>&1 || status=$?
+grep -v "Assertion failure" "$work/render.log" || true
+[ "$status" -eq 0 ] || { echo "render failed (exit status $status)"; exit 1; }
+size=$(wc -c < "$work/demo.wav")
+echo "rendered $size bytes"
+[ "$size" -gt 100000 ] || { echo "render is too small"; exit 1; }
+
+echo "== smoke test"
+HOME="$work/home" run_with_timeout "${SMOKE_TIMEOUT:-300}" ${SMOKE_WRAPPER:-} "$exe" --smoke-test "$work/demo" > "$work/smoke.log" 2>&1 || status=$?
+grep -v "Assertion failure" "$work/smoke.log" || true
+
+if [ "$status" -ne 0 ] || ! grep -q "SMOKE TEST PASSED" "$work/smoke.log"; then
+    echo "smoke test failed (exit status $status)"
+    exit 1
+fi

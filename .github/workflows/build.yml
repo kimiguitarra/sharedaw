@@ -185,11 +185,10 @@ jobs:
         shell: bash
         run: ctest --test-dir build -C Release --output-on-failure
 
-      - name: Render smoke test (Linux)
+      # 実際に起動して一通り操作する（書き出し・メニュー・ピアノロールの画面・ミキサー・再生・外観の切り替え）。落ちたら失敗
+      - name: Launch test (Linux)
         if: runner.os == 'Linux'
-        run: |
-          cp -r shared/fixtures/demo-project /tmp/demo
-          xvfb-run -a ./build/app/ShareDAW_artefacts/Release/ShareDAW --render /tmp/demo /tmp/demo.wav
+        run: xvfb-run -a tools/app-smoke-test.sh "$PWD/build/app/ShareDAW_artefacts/Release/ShareDAW" "$PWD/build/app/ShareDAW_artefacts/Release/assets"
 
       - name: Plugin smoke test (Linux)
         if: runner.os == 'Linux'
@@ -223,6 +222,25 @@ jobs:
             hdiutil create -volname ShareDAW -srcfolder dmg -ov -format UDZO dist/ShareDAW.dmg
           else
             cp -r build/app/ShareDAW_artefacts/Release/ShareDAW build/app/ShareDAW_artefacts/Release/assets dist/
+          fi
+
+      # 配る dmg の中のアプリ（署名済み）をそのまま起動して確かめる。ここで落ちれば、アーティファクトも配信も作らない。
+      # Universal のときは Intel 版も Rosetta で確かめる（使えるランナーのとき）
+      - name: Launch test (macOS, the app in the dmg)
+        if: runner.os == 'macOS'
+        run: |
+          mnt="$(mktemp -d)"
+          hdiutil attach dist/ShareDAW.dmg -nobrowse -readonly -mountpoint "$mnt"
+          ditto "$mnt/ShareDAW.app" "$RUNNER_TEMP/ShareDAW.app"
+          hdiutil detach "$mnt"
+          app="$RUNNER_TEMP/ShareDAW.app"
+          codesign --verify --deep --strict "$app"
+          tools/app-smoke-test.sh "$app/Contents/MacOS/ShareDAW" "$app/Contents/Resources/assets"
+          if lipo -archs "$app/Contents/MacOS/ShareDAW" | grep -q x86_64 && arch -x86_64 /usr/bin/true 2>/dev/null; then
+            echo "== Intel (Rosetta)"
+            SMOKE_WRAPPER="arch -x86_64" tools/app-smoke-test.sh "$app/Contents/MacOS/ShareDAW" "$app/Contents/Resources/assets"
+          else
+            echo "Rosetta is not available here; skipping the Intel launch test"
           fi
 
       # Mac の .app は実行権限を保つため tar にして、配信用に別のアーティファクトで渡す

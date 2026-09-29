@@ -1,4 +1,3 @@
-#include <iostream>
 
 #include "Common.h"
 
@@ -27,6 +26,8 @@
 #include "ui/Dialogs.h"
 #include "ui/MainComponent.h"
 #include "ui/Theme.h"
+
+#include <iostream>
 
 namespace
 {
@@ -80,8 +81,8 @@ public:
        #endif
     }
 
-    /** 中身（MainComponent）を入れ替える（外観の切り替えで作り直すとき）。 */
-    void setContent (std::unique_ptr<MainComponent> content)
+    /** 中身（MainComponent）を消す。メニューは中身を参照しているので、先にメニューを外す（外さずに消すと、消えたものをメニューが触って落ちる）。 */
+    void clearContent()
     {
        #if JUCE_MAC
         juce::MenuBarModel::setMacMainMenu (nullptr);
@@ -89,6 +90,12 @@ public:
         setMenuBar (nullptr);
        #endif
         clearContentComponent();
+    }
+
+    /** 中身（MainComponent）を入れ替える（外観の切り替えで作り直すとき）。 */
+    void setContent (std::unique_ptr<MainComponent> content)
+    {
+        clearContent();
 
         auto* mc = content.get();
         setBackgroundColour (Theme::background);
@@ -247,6 +254,13 @@ public:
         document->locationListeners.push_back ([this] { sessionGuard.markRunning (document->getProjectDir(), document->getAutosaveFile()); });
         document->locationListeners.push_back ([this] { sync->reloadForDocument(); });
 
+        // --smoke-test [曲のフォルダ]（CI 用）: ふつうに起動して一通り操作し、外観の切り替えもしてから終わる
+        if (auto args = getCommandLineParameterArray(); ! args.isEmpty() && args[0] == "--smoke-test")
+        {
+            runSmokeTest (args.size() >= 2 ? juce::File (args[1]) : juce::File());
+            return;
+        }
+
         // 前回の異常終了を検知したら、自動保存からの復旧を確認する（§3.10）
         if (auto crashed = sessionGuard.findCrashedSession())
         {
@@ -349,7 +363,7 @@ private:
                 Theme::applyPalette (useLight);
                 lookAndFeel.applyColours();
                 mainComponent = nullptr;
-                mainWindow->clearContentComponent();   // 先に古い画面を消す（エンジンへの登録を外してから作る）
+                mainWindow->clearContent();   // 先に古い画面を消す（エンジンへの登録を外してから作る）
                 mainWindow->setContent (createMainComponent());
                 mainWindow->repaint();
             });
@@ -717,6 +731,36 @@ private:
     }
 
     /** 起動時: どの曲をやるか選ぶ画面を出す（サーバーとこの PC の状況が見える）。 */
+    void runSmokeTest (const juce::File& project)
+    {
+        std::cout << "smoke: started (" << getApplicationVersion() << ")" << std::endl;
+
+        mainComponent->runSmokeSteps (project, [this]
+        {
+            // 外観を切り替える（画面を作り直す）→ 戻す → 終わる
+            auto toggleTheme = [this] (bool light)
+            {
+                std::cout << "smoke: switch theme to " << (light ? "light" : "dark") << std::endl;
+                mainComponent->onAppearanceChanged (light);
+            };
+
+            const bool light = Theme::light;
+            toggleTheme (! light);
+
+            juce::Timer::callAfterDelay (1500, [this, toggleTheme, light]
+            {
+                toggleTheme (light);
+
+                juce::Timer::callAfterDelay (1500, [this]
+                {
+                    std::cout << "SMOKE TEST PASSED" << std::endl;
+                    setApplicationReturnValue (0);
+                    quit();
+                });
+            });
+        });
+    }
+
     void openLastProject()
     {
         mainComponent->showProjectPicker();
