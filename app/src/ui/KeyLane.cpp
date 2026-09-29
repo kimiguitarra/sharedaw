@@ -62,7 +62,7 @@ juce::PopupMenu KeyLane::keyMenu (std::optional<collab::chord::Key> current, std
 
 void KeyLane::paint (juce::Graphics& g)
 {
-    const auto& axis = ctx.state.timeline;
+    const auto& axis = timeAxis();
     const auto& map = ctx.document.getTempoMap();
     const auto& events = ctx.document.getProject().keyTrack.events;
 
@@ -126,7 +126,7 @@ std::string KeyLane::findHit (float x) const
     const auto& map = ctx.document.getTempoMap();
 
     for (auto& e : ctx.document.getProject().keyTrack.events)
-        if (std::abs ((float) ctx.state.timeline.tickToX ((double) map.barToTick (e.bar)) - x) <= hitRadius)
+        if (std::abs ((float) timeAxis().tickToX ((double) map.barToTick (e.bar)) - x) <= hitRadius)
             return e.id;
 
     return {};
@@ -134,7 +134,7 @@ std::string KeyLane::findHit (float x) const
 
 int KeyLane::barAt (float x) const
 {
-    return ctx.document.getTempoMap().tickToBar ((collab::Tick) juce::jmax (0.0, ctx.state.timeline.xToTick (x)));
+    return ctx.document.getTempoMap().tickToBar ((collab::Tick) juce::jmax (0.0, timeAxis().xToTick (x)));
 }
 
 void KeyLane::mouseMove (const juce::MouseEvent& e)
@@ -326,7 +326,7 @@ void KeyLane::mouseDrag (const juce::MouseEvent& e)
         return;
 
     const auto& map = ctx.document.getTempoMap();
-    const auto tick = (collab::Tick) juce::jmax (0.0, ctx.state.timeline.xToTick (e.position.x));
+    const auto tick = (collab::Tick) juce::jmax (0.0, timeAxis().xToTick (e.position.x));
     int bar = map.tickToBar (tick);
 
     // 近い方の小節の頭へ
@@ -378,5 +378,5 @@ void KeyLane::paintOverChildren (juce::Graphics& g)
 {
     // 鉛筆ツール: クリックしたら置かれる位置
     if (ghostTick >= 0.0 && ctx.state.pencil())
-        TimeGrid::drawPencilGhostLine (g, (float) ctx.state.timeline.tickToX (ghostTick), getHeight());
+        TimeGrid::drawPencilGhostLine (g, (float) timeAxis().tickToX (ghostTick), getHeight());
 }

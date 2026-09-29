@@ -16,6 +16,9 @@ public:
     explicit MarkerLane (AppContext&);
     ~MarkerLane() override;
 
+    /** 横の位置の基準（既定はタイムライン。ピアノロールの画面ではピアノロールの軸を使う）。 */
+    void setAxis (TimeAxis* a)                     { axisOverride = a; repaint(); }
+
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
@@ -37,6 +40,8 @@ public:
 
 private:
     AppContext& ctx;
+    TimeAxis* axisOverride = nullptr;
+    TimeAxis& timeAxis() const                     { return axisOverride != nullptr ? *axisOverride : ctx.state.timeline; }
     std::string dragId;
     collab::Tick dragOrigTick = 0;
     double dragDownTick = 0;

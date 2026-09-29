@@ -136,25 +136,18 @@ public:
     int getHeaderWidth() const noexcept             { return headerWidth; }
     void setHeaderWidth (int w);
     std::function<void()> onHeaderWidthChanged;
-
-    /**
-        ピアノロールを全画面にしているとき: 小節（ルーラー）〜コードの上の段だけを出す（トラックは出さない）。
-        leftWidth はピアノロールの鍵盤の幅（横の位置をピアノロールに合わせる）。
-    */
-    void setTopOnly (bool on, int leftWidth);
-    bool isTopOnly() const noexcept                 { return topOnly; }
-    int getTopAreaHeight() const;
     static constexpr int minHeaderWidth = 130, maxHeaderWidth = 400;
 
     /** 上の段の並びを変えたとき（この PC の設定として保存する）。 */
     std::function<void()> onLaneOrderChanged;
 
+    /** 上の段の名前と色（ピアノロールの画面でも使う）。 */
+    static juce::String laneTitle (const std::string& key);
+    static juce::Colour laneColour (const std::string& key);
+
 private:
     AppContext& ctx;
     int headerWidth = 170;
-    bool topOnly = false;
-    int topOnlyLeft = 70;
-    int effectiveHeaderWidth() const noexcept       { return topOnly ? topOnlyLeft : headerWidth; }
     PaneResizer headerResizer;
     int headerWidthAtDrag = 0;
     Ruler ruler;
@@ -171,8 +164,6 @@ private:
     /** 上の段（ctx.state.laneOrder の順）。 */
     std::vector<juce::Component*> topLanes() const;
     juce::Component* laneForKey (const std::string&) const;
-    static juce::String laneTitle (const std::string& key);
-    static juce::Colour laneColour (const std::string& key);
     void layoutTopLanes();
     void stopFollowing();
 

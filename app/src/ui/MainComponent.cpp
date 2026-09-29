@@ -194,6 +194,10 @@ MainComponent::~MainComponent()
     eqWindow = nullptr;
     compWindow = nullptr;
     mixerWindow = nullptr;
+
+    if (pianoFullScreen)
+        togglePianoFullScreen();
+
     bridge.onPluginRemoved = nullptr;
     bridge.onRecordingFinished = nullptr;
     bridge.onMidiRecorded = nullptr;
@@ -234,15 +238,12 @@ void MainComponent::resized()
 
     if (pianoFullScreen)
     {
-        // ピアノロールを全画面: 上に小節〜コードの段だけ（固定）、その下を全部ピアノロールに
-        timeline.setTopOnly (true, pianoRoll.getGridLeft());
-        timeline.setBounds (area.removeFromTop (timeline.getTopAreaHeight()));
+        // ピアノロールは別のウィンドウに出しているので、ここはタイムラインだけ
         resizer->setVisible (false);
-        pianoRoll.setBounds (area);
+        timeline.setBounds (area);
     }
     else
     {
-        timeline.setTopOnly (false, 0);
         resizer->setVisible (true);
         juce::Component* comps[] = { &timeline, resizer.get(), &pianoRoll };
         layout.layOutComponents (comps, 3, area.getX(), area.getY(), area.getWidth(), area.getHeight(), true, true);
@@ -255,13 +256,63 @@ void MainComponent::togglePianoFullScreen()
 {
     pianoFullScreen = ! pianoFullScreen;
 
-    // 上の段はピアノロールと同じ横の位置・拡大率にする（戻るときは元のタイムラインの表示に）
     if (pianoFullScreen)
-        savedTimelineAxis = state.timeline;
-    else
-        state.timeline = savedTimelineAxis;
+    {
+        // ピアノロールを別のウィンドウ（画面いっぱい）へ移す。ルーラーの下にキー・コード・マーカーの段を小さく出す
+        struct Page  : public juce::Component
+        {
+            explicit Page (juce::Component& c) : content (c)    { addAndMakeVisible (content); }
+            void resized() override                             { content.setBounds (getLocalBounds()); }
+            void paint (juce::Graphics& g) override             { g.fillAll (Theme::background); }
+            juce::Component& content;
+        };
 
-    lastTimelineZoom = state.timeline.pixelsPerQuarter;
+        struct Window  : public juce::DocumentWindow
+        {
+            Window (MainComponent& o)
+                : DocumentWindow ("ピアノロール"_ju, Theme::panel, DocumentWindow::closeButton), owner (o) {}
+
+            void closeButtonPressed() override
+            {
+                // 閉じるのは後で（このウィンドウを消すので、ボタンの処理から抜けてから）
+                juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<MainComponent> (&owner)]
+                {
+                    if (safe != nullptr && safe->pianoFullScreen)
+                        safe->togglePianoFullScreen();
+                });
+            }
+
+            MainComponent& owner;
+        };
+
+        pianoLanes = std::make_unique<PianoTopLanes> (ctx);
+        pianoRoll.setTopStrip (pianoLanes.get());
+
+        auto window = std::make_unique<Window> (*this);
+        window->setUsingNativeTitleBar (true);
+        window->setContentOwned (new Page (pianoRoll), false);
+        window->setResizable (true, false);
+        window->setResizeLimits (400, 300, 6000, 4000);
+        window->addKeyListener (commandManager.getKeyMappings());   // この画面でも Space・E などが効くように
+
+        if (auto* top = getTopLevelComponent())
+            if (auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect (top->getScreenBounds()))
+                window->setBounds (display->userArea);
+
+        window->setVisible (true);
+        window->toFront (true);
+        pianoWindow = std::move (window);
+        pianoRoll.focusEditor();
+    }
+    else
+    {
+        // ピアノロールを元の場所に戻す
+        pianoRoll.setTopStrip (nullptr);
+        addAndMakeVisible (pianoRoll);
+        pianoWindow = nullptr;
+        pianoLanes = nullptr;
+    }
+
     transport.setPianoFullScreen (pianoFullScreen);
     resized();
     state.changed();
@@ -359,25 +410,7 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
 
 void MainComponent::timerCallback()
 {
-    // ピアノロールの全画面: 上の段をピアノロールの表示にぴったり合わせる
-    if (pianoFullScreen)
-    {
-        if (state.timeline.pixelsPerQuarter != state.pianoRoll.pixelsPerQuarter || state.timeline.scrollTick != state.pianoRoll.scrollTick)
-        {
-            state.timeline.pixelsPerQuarter = state.pianoRoll.pixelsPerQuarter;
-            state.timeline.scrollTick = state.pianoRoll.scrollTick;
-            state.changed();
-        }
-
-        if (timeline.isTopOnly())
-            timeline.setTopOnly (true, pianoRoll.getGridLeft());
-
-        lastTimelineZoom = state.timeline.pixelsPerQuarter;
-        lastPianoZoom = state.pianoRoll.pixelsPerQuarter;
-    }
-
     // タイムラインとピアノロールの横の拡大・縮小を連動させる（どちらかを変えたら、もう片方も同じ倍率で）
-    else
     {
         auto& tl = state.timeline.pixelsPerQuarter;
         auto& pr = state.pianoRoll.pixelsPerQuarter;
@@ -1749,13 +1782,14 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdToLoopStart:   bridge.setPositionTick ((double) state.loopStart); break;
         case cmdCursorLeft: case cmdCursorRight: case cmdBarLeft: case cmdBarRight:
         {
-            // クリップを選んでいればクリップを、いなければ再生位置を動かす（Shift で 1 小節）
+            // クリップを選んでいればクリップを、いなければ再生位置を動かす（Shift で 1 小節）。
+            // ピアノロールの中では（ノートを選んでいないとき）クリップは動かさず再生位置を動かす
             const int dir = info.commandID == cmdCursorLeft || info.commandID == cmdBarLeft ? -1 : 1;
             const bool bar = info.commandID == cmdBarLeft || info.commandID == cmdBarRight;
             const auto& map = document.getTempoMap();
             const auto pos = (collab::Tick) std::llround (bridge.getPositionTick());
 
-            if (! state.clipSelection().empty())
+            if (! state.clipSelection().empty() && ! pianoRoll.hasKeyboardFocus (true))
             {
                 const auto step = bar ? map.timeSignatureAtTick (pos).ticksPerBar() : std::max<collab::Tick> (1, state.grid.stepTicks());
                 ctx.nudgeClips (state.clipSelection(), dir * step);

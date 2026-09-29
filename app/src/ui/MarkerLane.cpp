@@ -52,7 +52,7 @@ void MarkerLane::addMarker (AppContext& ctx, collab::Tick tick)
 
 juce::Rectangle<float> MarkerLane::labelBounds (const collab::Marker& m, int number) const
 {
-    const float x = (float) ctx.state.timeline.tickToX ((double) m.tick);
+    const float x = (float) timeAxis().tickToX ((double) m.tick);
     const auto font = juce::Font (juce::FontOptions (15.0f, juce::Font::bold));
     const float w = juce::GlyphArrangement::getStringWidth (font, labelText (m, number)) + 12.0f;
     return { x, 2.0f, juce::jmax (18.0f, w), (float) getHeight() - 4.0f };
@@ -60,7 +60,7 @@ juce::Rectangle<float> MarkerLane::labelBounds (const collab::Marker& m, int num
 
 void MarkerLane::paint (juce::Graphics& g)
 {
-    const auto& axis = ctx.state.timeline;
+    const auto& axis = timeAxis();
     g.fillAll (Theme::laneAlt);
     TimeGrid::drawGrid (g, getLocalBounds(), axis, ctx.document.getTempoMap(), nullptr);
     g.setFont (juce::FontOptions (15.0f, juce::Font::bold));
@@ -109,7 +109,7 @@ collab::Tick MarkerLane::snap (double tick, const juce::ModifierKeys& mods) cons
 
 void MarkerLane::mouseMove (const juce::MouseEvent& e)
 {
-    setGhost (ctx.state.pencil() && findHit (e.position.x).empty() ? (double) snap (ctx.state.timeline.xToTick (e.position.x), e.mods) : -1.0);
+    setGhost (ctx.state.pencil() && findHit (e.position.x).empty() ? (double) snap (timeAxis().xToTick (e.position.x), e.mods) : -1.0);
     // マーカーの上は矢印、何もない所は I 字（クリックで再生位置）
     const bool empty = findHit (e.position.x).empty();
     setMouseCursor (! empty ? juce::MouseCursor::NormalCursor
@@ -120,7 +120,7 @@ void MarkerLane::mouseDown (const juce::MouseEvent& e)
 {
     grabKeyboardFocus();
     mergeId = juce::Uuid().toString();
-    const auto tick = snap (ctx.state.timeline.xToTick (e.position.x), e.mods);
+    const auto tick = snap (timeAxis().xToTick (e.position.x), e.mods);
     dragId = findHit (e.position.x);
 
     if (dragId.empty())
@@ -149,7 +149,7 @@ void MarkerLane::mouseDown (const juce::MouseEvent& e)
         if (m.id == dragId)
             dragOrigTick = m.tick;
 
-    dragDownTick = ctx.state.timeline.xToTick (e.position.x);
+    dragDownTick = timeAxis().xToTick (e.position.x);
 
     if (e.mods.isPopupMenu())
     {
@@ -170,7 +170,7 @@ void MarkerLane::mouseDrag (const juce::MouseEvent& e)
     if (dragId.empty() || e.getDistanceFromDragStart() < 3)
         return;
 
-    const auto tick = juce::jmax<collab::Tick> (0, snap ((double) dragOrigTick + ctx.state.timeline.xToTick (e.position.x) - dragDownTick, e.mods));
+    const auto tick = juce::jmax<collab::Tick> (0, snap ((double) dragOrigTick + timeAxis().xToTick (e.position.x) - dragDownTick, e.mods));
     auto id = dragId;
 
     ctx.document.perform ("マーカーの移動"_ju, [id, tick] (collab::Project& p)
@@ -273,5 +273,5 @@ void MarkerLane::paintOverChildren (juce::Graphics& g)
 {
     // 鉛筆ツール: クリックしたら置かれる位置
     if (ghostTick >= 0.0 && ctx.state.pencil())
-        TimeGrid::drawPencilGhostLine (g, (float) ctx.state.timeline.tickToX (ghostTick), getHeight());
+        TimeGrid::drawPencilGhostLine (g, (float) timeAxis().tickToX (ghostTick), getHeight());
 }

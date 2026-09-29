@@ -6,6 +6,7 @@
 #include "ui/Inspector.h"
 #include "ui/PaneResizer.h"
 #include "ui/PianoRoll.h"
+#include "ui/PianoRollPage.h"
 #include "ui/SyncPanel.h"
 #include "ui/TimelineView.h"
 #include "ui/TransportBar.h"
@@ -151,9 +152,10 @@ private:
     bool lastCopiedRange = false;
     double lastTimelineZoom = 0.0, lastPianoZoom = 0.0;   // 拡大・縮小の連動用
 
-    // ピアノロールの全画面（上に小節〜コードの段を固定で出す）
+    // ピアノロールの画面（ミキサーと同じく別のウィンドウで画面いっぱいに。ピアノロールをそこへ移す）
     bool pianoFullScreen = false;
-    TimeAxis savedTimelineAxis;
+    std::unique_ptr<juce::DocumentWindow> pianoWindow;
+    std::unique_ptr<PianoTopLanes> pianoLanes;
     void togglePianoFullScreen();   // 最後のコピーが上の段の範囲選択だったか（貼り付け先を決める）
 
     /** 曲を置くフォルダを選んでもらう（キャンセルなら何もしない）。選んだ場所は次の既定になる。 */

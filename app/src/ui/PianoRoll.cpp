@@ -234,10 +234,25 @@ void NoteGrid::paint (juce::Graphics& g)
             const float w = juce::jlimit (6.0f, 40.0f, step - 2.0f);
             const float h = ((float) owner.noteHeight - 6.0f) * (0.45f + 0.55f * (float) n.velocity / 127.0f);
             const auto hit = juce::Rectangle<float> (x1 + 1.0f, y + ((float) owner.noteHeight - h) * 0.5f, w, h);
+
+            if (selected)
+            {
+                g.setColour (juce::Colour (0xffff7a1a).withAlpha (0.3f));
+                g.fillRoundedRectangle (hit.expanded (4.5f), 6.0f);
+            }
+
             g.setColour (velocityColour (n.velocity, base).withAlpha (outside || silent ? 0.3f : 1.0f));
             g.fillRoundedRectangle (hit, 3.0f);
-            g.setColour (selected ? Theme::selection : Theme::overlay (0.25f));
-            g.drawRoundedRectangle (hit, 3.0f, selected ? 2.0f : 1.0f);
+            g.setColour (Theme::overlay (0.25f));
+            g.drawRoundedRectangle (hit, 3.0f, 1.0f);
+
+            // 選択中は外側を暖色（オレンジ）の太い枠で囲う（ブロックが小さくても選ばれているのが分かるように）
+            if (selected)
+            {
+                const juce::Colour warm (0xffff7a1a);
+                g.setColour (warm);
+                g.drawRoundedRectangle (hit.expanded (2.0f), 4.5f, 2.5f);
+            }
 
             if (silent)
             {
@@ -1094,6 +1109,19 @@ void PianoRollView::paint (juce::Graphics& g)
     g.fillRect (0, 0, getWidth(), 3);
 }
 
+void PianoRollView::setTopStrip (TopStrip* strip)
+{
+    if (topStrip != nullptr)
+        removeChildComponent (topStrip);
+
+    topStrip = strip;
+
+    if (topStrip != nullptr)
+        addAndMakeVisible (topStrip);
+
+    resized();
+}
+
 void PianoRollView::resized()
 {
     shownAsDrums = isDrumTrack();
@@ -1104,6 +1132,9 @@ void PianoRollView::resized()
     for (auto* c : std::initializer_list<juce::Component*> { &keyboard, &grid, &velocity, &vScroll, &snapToggle, &quantiseButton })
         c->setVisible (! shownAsAudio);
     audioGrid.setVisible (shownAsAudio);
+
+    if (topStrip != nullptr)
+        topStrip->setVisible (! shownAsAudio);
 
     auto area = getLocalBounds().withTrimmedTop (3);
     auto toolbar = area.removeFromTop (toolbarHeight).reduced (6, 3);
@@ -1127,7 +1158,8 @@ void PianoRollView::resized()
         return;
     }
 
-    vScroll.setBounds (area.removeFromRight (scrollBarSize).withTrimmedTop (rulerHeight).withTrimmedBottom (velocityHeight + scrollBarSize));
+    const int stripHeight = topStrip != nullptr ? topStrip->preferredHeight() : 0;
+    vScroll.setBounds (area.removeFromRight (scrollBarSize).withTrimmedTop (rulerHeight + stripHeight).withTrimmedBottom (velocityHeight + scrollBarSize));
 
     auto left = area.removeFromLeft (keyboardWidth());
     hScroll.setBounds (area.removeFromBottom (scrollBarSize));
@@ -1135,6 +1167,14 @@ void PianoRollView::resized()
 
     ruler.setBounds (area.removeFromTop (rulerHeight));
     left.removeFromTop (rulerHeight);
+
+    if (topStrip != nullptr)
+    {
+        const auto row = area.removeFromTop (stripHeight);
+        left.removeFromTop (stripHeight);
+        topStrip->setLeftWidth (left.getWidth());
+        topStrip->setBounds (left.getX(), row.getY(), row.getRight() - left.getX(), stripHeight);
+    }
     velocity.setBounds (area.removeFromBottom (velocityHeight));
     left.removeFromBottom (velocityHeight);
     grid.setBounds (area);
@@ -1202,11 +1242,32 @@ void PianoRollView::pasteNotes()
     if (clip == nullptr || noteClipboard.empty())
         return;
 
-    // 再生位置がクリップの中ならそこ、外ならクリップの先頭に貼る（Cubase と同じく位置は再生位置が基準）
-    auto at = (collab::Tick) std::llround (ctx.state.snapCursor (ctx.state.playheadTick, ctx.document.getTempoMap(), {})) - clip->startTick;
+    // 再生位置に貼る（Cubase と同じく位置は再生位置が基準）。クリップの外なら、貼ったノートが入るまでクリップを小節単位で広げる
+    const auto& map = ctx.document.getTempoMap();
+    const auto abs = (collab::Tick) std::llround (ctx.state.snapCursor (ctx.state.playheadTick, map, {}));
 
-    if (at < 0 || at >= clip->lengthTick)
-        at = 0;
+    // 再生位置に同じトラックの別のクリップがあれば、そちらに貼る
+    if (auto* track = getTrack())
+        for (auto& c : track->midiClips)
+            if (c.id != clip->id && abs >= c.startTick && abs < c.endTick())
+            {
+                ctx.state.selectClip (c.id);
+                ctx.state.changed();
+                clip = getClip();
+                break;
+            }
+
+    if (clip == nullptr)
+        return;
+
+    collab::Tick spanEnd = 0;
+    for (auto& n : noteClipboard)
+        spanEnd = std::max (spanEnd, n.endTick());
+
+    const auto newStart = std::min (clip->startTick, map.barToTick (map.tickToBar (abs)));
+    const auto lastEnd = abs + spanEnd;
+    const auto newEnd = std::max (clip->endTick(), lastEnd > clip->endTick() ? map.barToTick (map.tickToBar (lastEnd - 1) + 1) : clip->endTick());
+    const auto shift = clip->startTick - newStart;   // 前に広げた分だけ、今あるノートを後ろにずらす（曲の中の位置は同じ）
 
     auto notes = noteClipboard;
     std::set<std::string> ids;
@@ -1214,11 +1275,20 @@ void PianoRollView::pasteNotes()
     for (auto& n : notes)
     {
         n.id = collab::generateUuid();
-        n.tick += at;
+        n.tick += abs - newStart;
         ids.insert (n.id);
     }
 
-    editNotes ("ノートの貼り付け"_ju, [notes] (collab::MidiClip& c) { c.notes.insert (c.notes.end(), notes.begin(), notes.end()); });
+    editNotes ("ノートの貼り付け"_ju, [notes, newStart, newEnd, shift] (collab::MidiClip& c)
+    {
+        if (shift > 0)
+            for (auto& n : c.notes)
+                n.tick += shift;
+
+        c.startTick = newStart;
+        c.lengthTick = newEnd - newStart;
+        c.notes.insert (c.notes.end(), notes.begin(), notes.end());
+    });
     selectedNotes = ids;
     repaint();
 }

@@ -108,8 +108,15 @@ public:
     bool deleteSelectedNotes();
     bool hasSelectedNotes() const          { return ! selectedNotes.empty(); }
 
-    /** グリッド（ノートを置く所）の左端の x（この部品の中）。全画面のとき上の段の横位置を合わせるのに使う。 */
-    int getGridLeft() const                { return keyboardWidth(); }
+    /** ルーラーの下に置く段（ピアノロールの画面のキー・コード・マーカー）。左の鍵盤の幅に名前、右はグリッドと同じ横位置。 */
+    struct TopStrip  : public juce::Component
+    {
+        virtual void setLeftWidth (int) = 0;
+        virtual int preferredHeight() const = 0;
+    };
+
+    /** strip を出す（nullptr で消す）。strip はこの部品の子になるが、持ち主は呼んだ側。 */
+    void setTopStrip (TopStrip*);
     void selectAllNotes();
     void quantiseSelection();
     void focusEditor();
@@ -194,6 +201,7 @@ private:
     juce::ToggleButton snapToggle { "スナップ"_ju };
     juce::TextButton quantiseButton { "クオンタイズ"_ju };
 
+    TopStrip* topStrip = nullptr;
     std::string shownClipId;
     bool shownAsDrums = false;
     bool shownAsAudio = false;

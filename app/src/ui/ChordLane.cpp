@@ -45,7 +45,7 @@ juce::String ChordLane::displayText (const collab::ChordEvent& e)
 
 std::vector<ChordLane::Box> ChordLane::layoutBoxes() const
 {
-    const auto& axis = ctx.state.timeline;
+    const auto& axis = timeAxis();
     const auto& map = ctx.document.getTempoMap();
     const auto& project = ctx.document.getProject();
 
@@ -94,7 +94,7 @@ std::vector<ChordLane::Box> ChordLane::layoutBoxes() const
 
 void ChordLane::paint (juce::Graphics& g)
 {
-    const auto& axis = ctx.state.timeline;
+    const auto& axis = timeAxis();
     const auto& map = ctx.document.getTempoMap();
 
     g.fillAll (Theme::laneAlt);
@@ -157,7 +157,7 @@ std::string ChordLane::findStartHit (float x) const
 
 void ChordLane::mouseMove (const juce::MouseEvent& e)
 {
-    setGhost (ctx.state.pencil() && findHit (e.position.x).empty() ? (double) snapToBeat (ctx.state.timeline.xToTick (e.position.x), e.mods) : -1.0);
+    setGhost (ctx.state.pencil() && findHit (e.position.x).empty() ? (double) snapToBeat (timeAxis().xToTick (e.position.x), e.mods) : -1.0);
     // 札の上は矢印（ドラッグで移動）、何もない所は I 字（クリックで再生位置）
     const bool empty = findHit (e.position.x).empty();
     setMouseCursor (! empty ? juce::MouseCursor::NormalCursor
@@ -184,9 +184,9 @@ void ChordLane::mouseDown (const juce::MouseEvent& e)
     // 鉛筆ツール: 空いている所をクリックしたら、その拍に空のコードを置く（Cubase と同じ。入力はダブルクリック）
     if (ctx.state.pencil() && ! e.mods.isPopupMenu() && findHit (e.position.x).empty())
     {
-        dragId = addEmptyAt (snapToBeat (ctx.state.timeline.xToTick (e.position.x), e.mods));
-        dragOrigTick = snapToBeat (ctx.state.timeline.xToTick (e.position.x), e.mods);
-        dragDownTick = ctx.state.timeline.xToTick (e.position.x);
+        dragId = addEmptyAt (snapToBeat (timeAxis().xToTick (e.position.x), e.mods));
+        dragOrigTick = snapToBeat (timeAxis().xToTick (e.position.x), e.mods);
+        dragDownTick = timeAxis().xToTick (e.position.x);
         return;
     }
 
@@ -198,7 +198,7 @@ void ChordLane::mouseDown (const juce::MouseEvent& e)
     {
         if (e.mods.isPopupMenu())
         {
-            const auto tick = snapToBeat (ctx.state.timeline.xToTick (e.position.x), e.mods);
+            const auto tick = snapToBeat (timeAxis().xToTick (e.position.x), e.mods);
             juce::PopupMenu m;
             m.addItem ("ここにコードを入力…"_ju, [this, tick] { addAt (tick); });
             m.addItem ("ここに空のコードを置く"_ju, [this, tick] { addEmptyAt (tick); });
@@ -225,7 +225,7 @@ void ChordLane::mouseDown (const juce::MouseEvent& e)
         if (ev.id == dragId)
             dragOrigTick = ev.tick;
 
-    dragDownTick = ctx.state.timeline.xToTick (e.position.x);
+    dragDownTick = timeAxis().xToTick (e.position.x);
 
     if (e.mods.isPopupMenu())
     {
@@ -254,7 +254,7 @@ void ChordLane::mouseDown (const juce::MouseEvent& e)
         m.addSeparator();
         m.addItem ("コードを一括入力…"_ju, [this, x = e.position.x]
         {
-            showBulkDialog (ctx.document.getTempoMap().tickToBar ((collab::Tick) ctx.state.timeline.xToTick (x)));
+            showBulkDialog (ctx.document.getTempoMap().tickToBar ((collab::Tick) timeAxis().xToTick (x)));
         });
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
     }
@@ -265,7 +265,7 @@ void ChordLane::mouseDrag (const juce::MouseEvent& e)
     if (dragId.empty() || e.getDistanceFromDragStart() < 3)
         return;
 
-    const auto tick = snapToBeat ((double) dragOrigTick + ctx.state.timeline.xToTick (e.position.x) - dragDownTick, e.mods);
+    const auto tick = snapToBeat ((double) dragOrigTick + timeAxis().xToTick (e.position.x) - dragDownTick, e.mods);
     auto id = dragId;
 
     ctx.document.perform ("コードの移動"_ju, [id, tick] (collab::Project& p)
@@ -360,7 +360,7 @@ bool ChordLane::keyPressed (const juce::KeyPress& key)
 void ChordLane::scrollToShow (collab::Tick tick)
 {
     // 選んだコードが画面の右寄り（または外）に来たら、左から 1/4 の位置まで送る（続けて入力できるように）
-    auto& axis = ctx.state.timeline;
+    auto& axis = timeAxis();
     const double x = axis.tickToX ((double) tick);
 
     if (x < 20.0 || x > getWidth() * 0.8)
@@ -690,5 +690,5 @@ void ChordLane::paintOverChildren (juce::Graphics& g)
 {
     // 鉛筆ツール: クリックしたら置かれる位置
     if (ghostTick >= 0.0 && ctx.state.pencil())
-        TimeGrid::drawPencilGhostBox (g, { (float) ctx.state.timeline.tickToX (ghostTick), 3.0f, 34.0f, (float) getHeight() - 9.0f });
+        TimeGrid::drawPencilGhostBox (g, { (float) timeAxis().tickToX (ghostTick), 3.0f, 34.0f, (float) getHeight() - 9.0f });
 }
