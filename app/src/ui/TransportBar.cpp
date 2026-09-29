@@ -289,16 +289,24 @@ collab::Tick ToolBar::playheadTick() const
 
 void ToolBar::ToolButton::paintButton (juce::Graphics& g, bool highlighted, bool down)
 {
-    auto r = getLocalBounds().toFloat().reduced (1.0f);
+    auto r = getLocalBounds().toFloat().reduced (Theme::light ? Theme::raisedInset (2.0f) : 1.0f);
     const bool on = getToggleState();
 
-    g.setColour (on ? Theme::accent.withAlpha (0.35f) : (highlighted || down ? Theme::panelLight : Theme::panel));
-    g.fillRoundedRectangle (r, 4.0f);
-    g.setColour (on ? Theme::accent : Theme::gridBar);
-    g.drawRoundedRectangle (r, 4.0f, 1.0f);
+    if (Theme::light)
+    {
+        // ライト: 他のボタンと同じ浮き上がった面（選んでいるツールは青みで示す。凹ませない）
+        Theme::drawRaised (g, r, 6.0f, down, on ? Theme::panel.interpolatedWith (Theme::accent, 0.2f) : Theme::panel, 2.0f);
+    }
+    else
+    {
+        g.setColour (on ? Theme::accent.withAlpha (0.35f) : (highlighted || down ? Theme::panelLight : Theme::panel));
+        g.fillRoundedRectangle (r, 4.0f);
+        g.setColour (on ? Theme::accent : Theme::gridBar);
+        g.drawRoundedRectangle (r, 4.0f, 1.0f);
+    }
 
     auto iconArea = r.reduced (r.getWidth() * 0.26f, r.getHeight() * 0.22f);
-    g.setColour (on ? Theme::text : Theme::textDim);
+    g.setColour (on ? (Theme::light ? Theme::accent : Theme::text) : Theme::textDim);
 
     switch (tool)
     {

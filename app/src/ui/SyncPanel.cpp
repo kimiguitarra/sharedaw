@@ -34,14 +34,14 @@ namespace
     {
         if (! enabled)
         {
-            g.setColour (juce::Colours::white.withAlpha (0.08f));
+            g.setColour (Theme::overlay (0.08f));
             g.drawRoundedRectangle (box.reduced (0.5f), 4.0f, 1.0f);
             return;
         }
 
-        g.setColour (checked ? colour : juce::Colours::white.withAlpha (0.06f));
+        g.setColour (checked ? colour : Theme::overlay (0.06f));
         g.fillRoundedRectangle (box, 4.0f);
-        g.setColour (checked ? colour.brighter (0.3f) : juce::Colours::white.withAlpha (0.45f));
+        g.setColour (checked ? colour.brighter (0.3f) : Theme::overlay (0.45f));
         g.drawRoundedRectangle (box.reduced (0.5f), 4.0f, 1.2f);
 
         if (checked)
@@ -154,12 +154,12 @@ public:
             else if (row.checks.canDownload)
                 g.setColour (downloadColour().withAlpha (0.13f));
             else if (expanded)
-                g.setColour (juce::Colours::white.withAlpha (0.05f));
+                g.setColour (Theme::overlay (0.05f));
             else
                 g.setColour (juce::Colours::transparentBlack);
 
             g.fillRect (row.r);
-            g.setColour (juce::Colours::white.withAlpha (0.06f));
+            g.setColour (Theme::overlay (0.06f));
             g.drawHorizontalLine (row.r.getBottom() - 1, 0.0f, (float) getWidth());
 
             // 名前（競合・新着は名前の後ろに）

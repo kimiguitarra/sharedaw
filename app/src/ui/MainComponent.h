@@ -38,6 +38,9 @@ public:
     /** ウィンドウタイトルの更新用。 */
     std::function<void (const juce::String&)> onTitleChanged;
 
+    /** 外観（true = ライト）を切り替えたとき。アプリが画面を作り直す。 */
+    std::function<void (bool useLight)> onAppearanceChanged;
+
     //==============================================================================
     juce::ApplicationCommandTarget* getNextCommandTarget() override { return juce::JUCEApplication::getInstance(); }
     void getAllCommands (juce::Array<juce::CommandID>&) override;

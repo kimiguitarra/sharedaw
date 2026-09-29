@@ -236,7 +236,7 @@ void NoteGrid::paint (juce::Graphics& g)
             const auto hit = juce::Rectangle<float> (x1 + 1.0f, y + ((float) owner.noteHeight - h) * 0.5f, w, h);
             g.setColour (velocityColour (n.velocity, base).withAlpha (outside || silent ? 0.3f : 1.0f));
             g.fillRoundedRectangle (hit, 3.0f);
-            g.setColour (selected ? Theme::selection : juce::Colours::white.withAlpha (0.25f));
+            g.setColour (selected ? Theme::selection : Theme::overlay (0.25f));
             g.drawRoundedRectangle (hit, 3.0f, selected ? 2.0f : 1.0f);
 
             if (silent)
@@ -769,7 +769,7 @@ void AudioClipGrid::paint (juce::Graphics& g)
     TimeGrid::drawGrid (g, getLocalBounds(), axis, map, &owner.ctx.state.grid);
 
     // クリップは不透明（タイムラインと同じ見た目）
-    g.setColour (colour.withMultipliedSaturation (0.55f).withMultipliedBrightness (0.42f));
+    g.setColour (Theme::clipBody (colour));
     g.fillRect (r);
 
     // 中心線
@@ -781,7 +781,7 @@ void AudioClipGrid::paint (juce::Graphics& g)
         const double start = (double) clip->sourceOffsetSamples / collab::kSampleRate;
         const double end = start + (double) clip->lengthSamples / collab::kSampleRate;
         AudioFiles::drawWaveform (g, *thumb, r.reduced (0.0f, 6.0f), start, end,
-                                  juce::Decibels::decibelsToGain ((float) clip->gainDb), colour.brighter (0.6f));
+                                  juce::Decibels::decibelsToGain ((float) clip->gainDb), Theme::clipWave (colour));
     }
     else
     {

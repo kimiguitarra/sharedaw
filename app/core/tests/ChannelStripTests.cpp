@@ -257,4 +257,11 @@ TEST_CASE ("track input and output channels round-trip through JSON")
     back = parseProject (serialiseProject (p));
     CHECK (back.tracks.back().inputChannels == 1);
     CHECK (back.tracks.back().outputChannels == 2);
+    CHECK (back.tracks.back().crossfadeMs == doctest::Approx (10.0));
+
+    p.tracks.back().crossfadeMs = 50.0;
+    p.tracks.back().crossfadeShape = "sCurve";
+    back = parseProject (serialiseProject (p));
+    CHECK (back.tracks.back().crossfadeMs == doctest::Approx (50.0));
+    CHECK (back.tracks.back().crossfadeShape == "sCurve");
 }

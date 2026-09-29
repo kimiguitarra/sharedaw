@@ -270,7 +270,7 @@ void TrackLanes::paintAudioClip (juce::Graphics& g, const collab::AudioClip& c, 
                                  juce::Colour colour, bool selected)
 {
     // 不透明（重なったとき、上の新しいテイクで下が隠れる。Pro Tools と同じく鳴るのも上だけ）
-    const auto body = colour.withMultipliedSaturation (0.55f).withMultipliedBrightness (0.42f);
+    const auto body = Theme::clipBody (colour);
     g.setColour (body);
     g.fillRoundedRectangle (r, 3.0f);
 
@@ -280,11 +280,12 @@ void TrackLanes::paintAudioClip (juce::Graphics& g, const collab::AudioClip& c, 
 
     if (nameHeight > 0.0f)
     {
-        g.setColour (colour.withMultipliedBrightness (0.8f));
+        const auto bar = Theme::light ? colour.interpolatedWith (juce::Colours::white, 0.2f) : colour.withMultipliedBrightness (0.8f);
+        g.setColour (bar);
         g.fillRoundedRectangle (r.withHeight (nameHeight + 3.0f), 3.0f);
         g.setColour (body);
         g.fillRect (r.withTrimmedTop (nameHeight).withHeight (3.0f));
-        g.setColour (colour.getPerceivedBrightness() > 0.6f ? juce::Colours::black : juce::Colours::white);
+        g.setColour (bar.getPerceivedBrightness() > 0.6f ? juce::Colours::black : juce::Colours::white);
         g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
         auto label = toJuce (c.displayName);
 
@@ -302,7 +303,7 @@ void TrackLanes::paintAudioClip (juce::Graphics& g, const collab::AudioClip& c, 
         const double start = (double) c.sourceOffsetSamples / collab::kSampleRate;
         const double end = start + (double) c.lengthSamples / collab::kSampleRate;
         AudioFiles::drawWaveform (g, *thumb, wave, start, end, juce::Decibels::decibelsToGain ((float) c.gainDb),
-                                  colour.brighter (0.55f));
+                                  Theme::clipWave (colour));
     }
     else
     {
@@ -429,6 +430,57 @@ void TrackLanes::showClipMenu (const collab::Track& track, const std::string& cl
 
     if (audio)
     {
+        // テイクの一覧（Pro Tools のプレイリストのように）: このクリップと重なっているテイクを並べ、選んだものを一番上にする
+        {
+            const auto& map = ctx.document.getTempoMap();
+            const collab::AudioClip* self = nullptr;
+
+            for (auto& c : track.audioClips)
+                if (c.id == clipId)
+                    self = &c;
+
+            if (self != nullptr)
+            {
+                const auto start = self->startTick, end = collab::audioClipEndTick (*self, map);
+                juce::PopupMenu takes;
+                int count = 0;
+
+                for (size_t i = 0; i < track.audioClips.size(); ++i)
+                {
+                    auto& c = track.audioClips[i];
+
+                    if (c.startTick >= end || collab::audioClipEndTick (c, map) <= start)
+                        continue;
+
+                    ++count;
+                    const bool top = i + 1 == track.audioClips.size()
+                                     || std::none_of (track.audioClips.begin() + (long) i + 1, track.audioClips.end(), [&] (auto& other)
+                                        { return other.startTick < collab::audioClipEndTick (c, map) && collab::audioClipEndTick (other, map) > c.startTick; });
+                    const auto label = juce::String (count) + ". " + toJuce (c.displayName) + "  (" + juce::String (map.tickToBar (c.startTick)) + "小節〜)"_ju;
+
+                    takes.addItem (label, true, top, [this, trackId, id = c.id]
+                    {
+                        ctx.document.perform ("テイクを上に出す"_ju, [trackId, id] (collab::Project& p)
+                        {
+                            if (auto* t = p.findTrack (trackId))
+                            {
+                                auto it = std::find_if (t->audioClips.begin(), t->audioClips.end(), [&] (auto& c) { return c.id == id; });
+
+                                if (it != t->audioClips.end())
+                                    std::rotate (it, it + 1, t->audioClips.end());   // 最後 = 一番上（鳴る）
+                            }
+                        });
+                    });
+                }
+
+                if (count > 1)
+                {
+                    m.addSubMenu ("テイク（選んだものを一番上に）"_ju, takes);
+                    m.addSeparator();
+                }
+            }
+        }
+
         m.addItem ("クリップの音量…"_ju, [this, trackId, clipId]
         {
             double current = 0;
@@ -1131,7 +1183,7 @@ void TimelineView::paintOverChildren (juce::Graphics& g)
 
         if (lane == hoveredLane)
         {
-            g.setColour (juce::Colours::white.withAlpha (0.07f));
+            g.setColour (Theme::overlay (0.07f));
             g.fillRect (row);
         }
 
@@ -1556,7 +1608,7 @@ void TimelineView::LaneHeaders::paint (juce::Graphics& g)
 
         if (i == dragIndex)
         {
-            g.setColour (juce::Colours::white.withAlpha (0.08f));
+            g.setColour (Theme::overlay (0.08f));
             g.fillRect (0, y, getWidth(), h);
         }
 

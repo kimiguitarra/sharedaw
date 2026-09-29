@@ -343,7 +343,7 @@ protected:
 
     void drawRow (juce::Graphics& g, juce::Rectangle<int> row, const juce::String& text, bool active, bool filled)
     {
-        g.setColour (filled ? juce::Colours::white.withAlpha (0.10f) : juce::Colours::white.withAlpha (0.025f));
+        g.setColour (filled ? Theme::overlay (0.10f) : Theme::overlay (0.025f));
         g.fillRoundedRectangle (row.reduced (3, 1).toFloat(), 3.0f);
         g.setColour (active ? Theme::text : Theme::textDim);
         g.setFont (juce::FontOptions (14.0f));

@@ -208,6 +208,14 @@ namespace
         if (t.outputChannels != 2)
             o["outputChannels"] = t.outputChannels;
 
+        if (t.type == TrackType::audio && (t.crossfadeMs != 10.0 || t.crossfadeShape != "equalPower"))
+        {
+            ojson xf;
+            xf["ms"] = t.crossfadeMs;
+            xf["shape"] = t.crossfadeShape;
+            o["crossfade"] = xf;
+        }
+
         if (! t.sends.empty())
         {
             ojson sends = ojson::array();
@@ -606,6 +614,12 @@ Project projectFromJson (const json& j)
             t.output = getOr<std::string> (tj, "output", {});
             t.inputChannels = getOr<int> (tj, "inputChannels", 2);
             t.outputChannels = getOr<int> (tj, "outputChannels", 2);
+
+            if (auto xf = tj.find ("crossfade"); xf != tj.end())
+            {
+                t.crossfadeMs = getOr<double> (*xf, "ms", 10.0);
+                t.crossfadeShape = getOr<std::string> (*xf, "shape", "equalPower");
+            }
 
             if (auto it = tj.find ("sends"); it != tj.end())
                 for (auto& sj : *it)

@@ -530,7 +530,7 @@ void MainComponent::exportMixdown()
         // 曲の最後まで（リバーブなどの余韻に 2 秒）。マスターのリミッターは含み、この PC のマスター音量・メトロノームは含まない
         const auto end = collab::chordTrackEndTick (document.getProject(), document.getTempoMap());
         juce::MouseCursor::showWaitCursor();
-        const bool ok = bridge.renderToFile (file, end, 2.0, 24);
+        const bool ok = bridge.renderToFile (file, end, bridge.tailSecondsFor ({}), 24);   // リバーブの余韻まで
         juce::MouseCursor::hideWaitCursor();
 
         if (! ok)
@@ -1871,15 +1871,17 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             juce::PopupMenu looks;
             auto chooseLook = [this] (bool useLight)
             {
-                if (useLight == (settings.getValue ("uiTheme") == "light"))
+                if (useLight == Theme::light)
                     return;
 
                 settings.setValue ("uiTheme", useLight ? "light" : "dark");
                 settings.saveIfNeeded();
-                Dialogs::confirm ("外観の切り替え"_ju, "アプリを再起動すると切り替わります。今すぐ終了しますか？（保存していない変更があれば確認します）"_ju,
-                                  "終了する"_ju, [] { juce::JUCEApplication::getInstance()->systemRequestedQuit(); });
+
+                // その場で画面を作り直して切り替える（曲はそのまま。選択やズームは初めに戻る）
+                if (onAppearanceChanged)
+                    onAppearanceChanged (useLight);
             };
-            const bool savedLight = settings.getValue ("uiTheme") == "light";
+            const bool savedLight = Theme::light;
             looks.addItem ("ダーク"_ju, true, ! savedLight, [chooseLook] { chooseLook (false); });
             looks.addItem ("ライト（白を基調にしたニューモーフィズム）"_ju, true, savedLight, [chooseLook] { chooseLook (true); });
             m.addSubMenu ("外観"_ju, looks);

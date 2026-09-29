@@ -791,6 +791,16 @@
             "output": {
               "$ref": "#/definitions/uuid"
             },
+            "crossfade": {
+              "description": "Crossfade between overlapping takes. Omitted when 10 ms equal power.",
+              "type": "object",
+              "required": ["ms", "shape"],
+              "additionalProperties": false,
+              "properties": {
+                "ms": { "type": "number", "minimum": 0, "maximum": 1000 },
+                "shape": { "enum": ["equalPower", "linear", "sCurve"] }
+              }
+            },
             "inputChannels": {
               "description": "Recording input: 1 = mono, 2 = stereo (two input channels). Omitted when 2.",
               "enum": [1, 2]

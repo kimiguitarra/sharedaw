@@ -27,13 +27,14 @@ private:
     std::string trackId, effectId;
     std::optional<collab::fx::Type> type;
     juce::OwnedArray<Knob> knobs;
-    juce::TextButton bypassButton;
+    juce::TextButton bypassButton, presetButton;
     juce::Rectangle<int> meterArea, titleArea;
     float shownGr = 0.0f;
     juce::String mergeId;
 
     const collab::Effect* effect() const;
     void setParam (const std::string& key, double value);
+    void showPresets();
     void refresh();
     void changeListenerCallback (juce::ChangeBroadcaster*) override    { refresh(); }
     void timerCallback() override;

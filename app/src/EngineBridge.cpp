@@ -51,6 +51,8 @@ namespace
             s << "A" << c.id << '@' << c.startTick << ':' << c.audioHash << ':' << c.sourceOffsetSamples << ':' << c.lengthSamples
               << ':' << c.gainDb << ':' << c.fadeInSamples << ':' << c.fadeOutSamples << ';';
 
+        s << "X" << t.crossfadeMs << t.crossfadeShape;   // クロスフェードを変えたら作り直す
+
         if (t.render)
             s << "R" << t.render->audioHash;
 
@@ -452,7 +454,10 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
     }
 
     // テイクの切り替わりはクロスフェード（下のクリップを少し延ばして、等パワーの形で入れ替える）
-    for (auto& seg : collab::audibleSegments (t.audioClips, map))
+    const auto shape = t.crossfadeShape == "linear" ? te::AudioFadeCurve::linear
+                     : t.crossfadeShape == "sCurve" ? te::AudioFadeCurve::sCurve : te::AudioFadeCurve::convex;
+
+    for (auto& seg : collab::audibleSegments (t.audioClips, map, juce::jlimit (0.0, 1.0, t.crossfadeMs / 1000.0)))
     {
         auto& c = t.audioClips[seg.clipIndex];
         auto file = document.getProjectDir().getChildFile ("audio").getChildFile (toJuce (c.audioHash) + ".wav");
@@ -472,10 +477,10 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
             clip->setFadeOut (te::TimeDuration::fromSeconds (seg.fadeOutSeconds));
 
             if (seg.crossfadeIn)
-                clip->setFadeInType (te::AudioFadeCurve::convex);
+                clip->setFadeInType (shape);
 
             if (seg.crossfadeOut)
-                clip->setFadeOutType (te::AudioFadeCurve::convex);
+                clip->setFadeOutType (shape);
         }
     }
 
@@ -991,6 +996,38 @@ te::Plugin* EngineBridge::getExternalPlugin (const std::string& trackId, const s
     return nullptr;
 }
 
+double EngineBridge::tailSecondsFor (const std::string& trackId, double minimum) const
+{
+    double tail = minimum;
+    const auto& project = document.getProject();
+
+    for (auto& t : project.tracks)
+    {
+        // 対象のトラックと、その出力先・センド先のバス（バスのリバーブの余韻も入る）
+        bool relevant = trackId.empty() || t.id == trackId;
+
+        if (! relevant)
+            if (auto* src = project.findTrack (trackId))
+                relevant = src->output == t.id || std::any_of (src->sends.begin(), src->sends.end(), [&] (auto& s) { return s.busId == t.id; });
+
+        if (! relevant)
+            continue;
+
+        for (auto& e : t.effects)
+        {
+            if (e.bypass)
+                continue;
+
+            if (auto type = collab::fx::typeFromId (e.builtin))
+                tail = std::max (tail, collab::fx::tailSeconds (*type, e.params) + 0.5);
+            else if (auto* p = getExternalPlugin (t.id, e.id))
+                tail = std::max (tail, std::min (30.0, p->getTailLength() + 0.5));
+        }
+    }
+
+    return std::min (tail, 30.0);
+}
+
 float EngineBridge::getEffectGainReductionDb (const std::string& trackId, const std::string& effectId) const
 {
     if (auto* fx = dynamic_cast<BuiltinEffectPlugin*> (getExternalPlugin (trackId, effectId)))
@@ -1119,7 +1156,7 @@ juce::Result EngineBridge::bounceTrack (const std::string& trackId, collab::Rend
     audioDir.createDirectory();
 
     juce::TemporaryFile temp (audioDir.getChildFile ("bounce.wav"));
-    constexpr double tailSeconds = 2.0;
+    const double tailSeconds = tailSecondsFor (trackId);   // リバーブの余韻まで入れる
 
     if (auto r = renderTrack (trackId, temp.getFile(), tailSeconds); r.failed())
         return r;

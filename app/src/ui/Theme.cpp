@@ -52,7 +52,31 @@ void applyPalette (bool useLight)
     light = useLight;
 
     if (! light)
-        return;   // ダークは Theme.h の初期値のまま
+    {
+        // ダーク（Cubase のように落ち着いた灰色）
+        background   = juce::Colour (0xff2c2f33);
+        panel        = juce::Colour (0xff383b40);
+        panelLight   = juce::Colour (0xff464a50);
+        lane         = juce::Colour (0xff393c41);
+        laneAlt      = juce::Colour (0xff34373c);
+        gridBar      = juce::Colour (0xff676d75);
+        gridBeat     = juce::Colour (0xff51565d);
+        gridSub      = juce::Colour (0xff45494f);
+        text         = juce::Colour (0xffeceef0);
+        textDim      = juce::Colour (0xffb0b6bd);
+        field        = juce::Colour (0xff232528);
+        fieldOutline = juce::Colour (0x66ffffff);
+        accent       = juce::Colour (0xff4fc3f7);
+        selection    = juce::Colour (0xffffd54f);
+        playhead     = juce::Colour (0xffff5252);
+        loopRange    = juce::Colour (0x3355c1ff);
+        warning      = juce::Colour (0xffffb74d);
+        tempo        = juce::Colour (0xffba68c8);
+        meter        = juce::Colour (0xff4db6ac);
+        ok           = juce::Colour (0xff66bb6a);
+        danger       = juce::Colour (0xffef5350);
+        return;
+    }
 
     // 白を基調にしたニューモーフィズム: 面は同じ明るい灰色で、影と光だけで凹凸を出す。文字は濃い灰色
     background   = juce::Colour (0xffe3e7ed);
@@ -78,7 +102,7 @@ void applyPalette (bool useLight)
     danger       = juce::Colour (0xffd9363e);
 }
 
-void drawRaised (juce::Graphics& g, juce::Rectangle<float> r, float radius, bool pressed, juce::Colour fill)
+void drawRaised (juce::Graphics& g, juce::Rectangle<float> r, float radius, bool pressed, juce::Colour fill, float depth)
 {
     if (fill.isTransparent())
         fill = panel;
@@ -90,30 +114,17 @@ void drawRaised (juce::Graphics& g, juce::Rectangle<float> r, float radius, bool
         return;
     }
 
+    // DAW では凹んだ見た目は使わない。押している・オンのときは影を浅くして（少し沈んで）色で示す
     juce::Path shape;
     shape.addRoundedRectangle (r, radius);
 
-    if (! pressed)
-    {
-        // 右下に柔らかい影、左上に白い光（面が浮き上がって見える）
-        juce::DropShadow (juce::Colour (0x40a3b1c6), 8, { 3, 3 }).drawForPath (g, shape);
-        juce::DropShadow (juce::Colours::white.withAlpha (0.9f), 8, { -3, -3 }).drawForPath (g, shape);
-        g.setColour (fill);
-        g.fillPath (shape);
-        return;
-    }
-
-    // 凹み: 面を少し暗くし、内側の左上に影、右下に光
-    g.setColour (fill.darker (0.04f));
+    const float d = pressed ? depth * 0.45f : depth;
+    const int blur = juce::jmax (1, juce::roundToInt (d * 2.0f));
+    const int off = juce::jmax (1, juce::roundToInt (d * 0.8f));
+    juce::DropShadow (juce::Colour (0x48a3b1c6), blur, { off, off }).drawForPath (g, shape);
+    juce::DropShadow (juce::Colours::white.withAlpha (0.95f), blur, { -off, -off }).drawForPath (g, shape);
+    g.setColour (fill);
     g.fillPath (shape);
-    juce::Graphics::ScopedSaveState save (g);
-    g.reduceClipRegion (shape);
-    juce::Path outer;
-    outer.addRectangle (r.expanded (12.0f));
-    outer.addRoundedRectangle (r, radius);
-    outer.setUsingNonZeroWinding (false);
-    juce::DropShadow (juce::Colour (0x50a3b1c6), 6, { 2, 2 }).drawForPath (g, outer);
-    juce::DropShadow (juce::Colours::white.withAlpha (0.8f), 6, { -2, -2 }).drawForPath (g, outer);
 }
 
 void drawGlass (juce::Graphics& g, juce::Rectangle<float> r, float radius, juce::Colour tint)
@@ -121,7 +132,8 @@ void drawGlass (juce::Graphics& g, juce::Rectangle<float> r, float radius, juce:
     // ライト: ガラスの代わりにニューモーフィズムの浮き上がった面
     if (light)
     {
-        drawRaised (g, r, radius, false, tint.isTransparent() ? panel : panel.interpolatedWith (tint.withAlpha (1.0f), 0.18f));
+        // 影がまとまりの外で四角く切れないよう、浅めの影にする
+        drawRaised (g, r.reduced (1.5f), radius, false, tint.isTransparent() ? panel : panel.interpolatedWith (tint.withAlpha (1.0f), 0.18f), 1.6f);
         return;
     }
 
@@ -268,16 +280,20 @@ void LookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& b, cons
     const float radius = juce::jmin (r.getHeight() * 0.5f, 10.0f);
     const bool plain = backgroundColour == findColour (juce::TextButton::buttonColourId);   // 色を指定していないボタン
 
-    // ライト: ニューモーフィズム（浮き上がったボタン、押している・オンのときは凹む）
+    // ライト: ニューモーフィズム（浮き上がったボタン、押している・オンのときは凹む）。
+    // 影がボタンの外にはみ出すと四角く切れるので、影の分だけ内側に描く
     if (light)
     {
         const bool on = b.getToggleState() || down;
-        drawRaised (g, r, radius, on, plain ? panel : backgroundColour.interpolatedWith (panel, on ? 0.25f : 0.35f));
+        r = b.getLocalBounds().toFloat().reduced (raisedInset (2.0f));
+        const float rr = juce::jmin (r.getHeight() * 0.5f, 10.0f);
+        const auto fill = plain ? (on ? panel.interpolatedWith (accent, 0.18f) : panel) : backgroundColour.interpolatedWith (panel, 0.3f);
+        drawRaised (g, r, rr, down, fill, 2.0f);
 
         if (highlighted && b.isEnabled() && ! on)
         {
             g.setColour (juce::Colours::white.withAlpha (0.35f));
-            g.fillRoundedRectangle (r, radius);
+            g.fillRoundedRectangle (r, rr);
         }
 
         return;
@@ -315,7 +331,7 @@ void LookAndFeel::drawComboBox (juce::Graphics& g, int width, int height, bool, 
 
     if (light)
     {
-        drawRaised (g, r, radius, true, panel);   // 選ぶ欄は凹ませる
+        drawRaised (g, r.reduced (raisedInset (2.0f) - 1.0f), juce::jmin (r.getHeight() * 0.5f, 10.0f), false, panel, 2.0f);
     }
     else
     {
@@ -587,7 +603,10 @@ void IconButton::paintButton (juce::Graphics& g, bool highlighted, bool down)
 
     // ライト: オンは凹んだ面に青いアイコン（色の塊にしない）
     if (light)
-        drawRaised (g, getLocalBounds().toFloat().reduced (1.0f, 1.5f), juce::jmin ((float) getHeight() * 0.5f - 1.5f, 10.0f), on || down, panel);
+    {
+        const auto r = getLocalBounds().toFloat().reduced (raisedInset (2.0f));
+        drawRaised (g, r, juce::jmin (r.getHeight() * 0.5f, 10.0f), down, on ? panel.interpolatedWith (accent, 0.15f) : panel, 2.0f);
+    }
     else
         getLookAndFeel().drawButtonBackground (g, *this, findColour (on ? buttonOnColourId : buttonColourId), highlighted, down);
 

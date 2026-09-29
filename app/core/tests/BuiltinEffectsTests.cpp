@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
@@ -166,4 +167,24 @@ TEST_CASE ("builtin effects round-trip through JSON and do not need a bounce")
     CHECK (back.tracks[0].effects[0].params.at ("decay").get<double>() == doctest::Approx (3.5));
     CHECK (back.tracks[0].effects[0] == p.tracks[0].effects[0]);
     CHECK_FALSE (collab::usesExternalPlugin (back.tracks[0]));
+}
+
+TEST_CASE ("factory presets only use known parameters within range")
+{
+    for (auto t : allTypes())
+    {
+        CHECK_FALSE (factoryPresets (t).empty());
+
+        for (auto& preset : factoryPresets (t))
+            for (auto& [key, value] : preset.params.items())
+            {
+                const auto& specs = paramSpecs (t);
+                auto it = std::find_if (specs.begin(), specs.end(), [&] (auto& s) { return s.key == key; });
+                REQUIRE (it != specs.end());
+                CHECK (value.get<double>() >= it->min);
+                CHECK (value.get<double>() <= it->max);
+            }
+    }
+
+    CHECK (tailSeconds (Type::hallReverb, { { "decay", 4.0 }, { "predelay", 100.0 } }) == doctest::Approx (6.1));
 }

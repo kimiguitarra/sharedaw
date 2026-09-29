@@ -51,12 +51,21 @@ namespace
 
             const float knobRadius = radius - 9.0f;
             auto knob = juce::Rectangle<float> (knobRadius * 2.0f, knobRadius * 2.0f).withCentre (centre);
-            g.setColour (juce::Colours::black.withAlpha (0.45f));
-            g.fillEllipse (knob.translated (0.0f, 2.0f));
-            g.setColour (juce::Colour (0xff26282b));
-            g.fillEllipse (knob);
-            g.setColour (juce::Colours::white.withAlpha (0.12f));
-            g.drawEllipse (knob.reduced (0.5f), 1.0f);
+
+            if (Theme::light)
+            {
+                // ライト: 面と同じ色の浮き上がったつまみ
+                Theme::drawRaised (g, knob, knobRadius, false, Theme::panel, 2.5f);
+            }
+            else
+            {
+                g.setColour (juce::Colours::black.withAlpha (0.45f));
+                g.fillEllipse (knob.translated (0.0f, 2.0f));
+                g.setColour (juce::Colour (0xff26282b));
+                g.fillEllipse (knob);
+                g.setColour (juce::Colours::white.withAlpha (0.12f));
+                g.drawEllipse (knob.reduced (0.5f), 1.0f);
+            }
 
             g.setColour (Theme::text);
             g.drawLine ({ centre.getPointOnCircumference (knobRadius * 0.3f, angle), centre.getPointOnCircumference (knobRadius - 2.0f, angle) }, 2.2f);
@@ -169,6 +178,11 @@ BuiltinEffectEditor::BuiltinEffectEditor (AppContext& c, std::string track, std:
         for (auto& spec : collab::fx::paramSpecs (*type))
             addAndMakeVisible (knobs.add (new Knob (*this, spec)));
 
+    presetButton.setButtonText ("プリセット"_ju);
+    presetButton.setTooltip ("用途ごとの設定"_ju);
+    presetButton.onClick = [this] { showPresets(); };
+    addAndMakeVisible (presetButton);
+
     bypassButton.setButtonText ("BYPASS");
     bypassButton.setTooltip ("バイパス"_ju);
     bypassButton.setClickingTogglesState (false);
@@ -218,6 +232,30 @@ void BuiltinEffectEditor::setParam (const std::string& key, double value)
                 if (e.id == fx)
                     e.params[key] = value;
     }, mergeId);
+}
+
+void BuiltinEffectEditor::showPresets()
+{
+    if (! type)
+        return;
+
+    juce::PopupMenu m;
+
+    for (auto& preset : collab::fx::factoryPresets (*type))
+        m.addItem (juce::String::fromUTF8 (preset.name.c_str()), [this, params = preset.params]
+        {
+            auto track = trackId, fx = effectId;
+            ctx.document.perform ("エフェクトのプリセット"_ju, [track, fx, params] (collab::Project& p)
+            {
+                if (auto* t = p.findTrack (track))
+                    for (auto& e : t->effects)
+                        if (e.id == fx)
+                            for (auto& [key, value] : params.items())
+                                e.params[key] = value;
+            });
+        });
+
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&presetButton));
 }
 
 void BuiltinEffectEditor::refresh()
@@ -292,6 +330,8 @@ void BuiltinEffectEditor::resized()
     auto area = getLocalBounds().reduced (12);
     auto header = area.removeFromTop (headerHeight - 12);
     bypassButton.setBounds (header.removeFromRight (90).reduced (0, 2));
+    header.removeFromRight (8);
+    presetButton.setBounds (header.removeFromRight (110).reduced (0, 2));
     titleArea = header;
 
     if (type == collab::fx::Type::busComp)

@@ -64,8 +64,35 @@ public:
         : DocumentWindow (name, Theme::background, DocumentWindow::allButtons)
     {
         setUsingNativeTitleBar (true);
+        setContent (std::move (content));
+
+        setResizable (true, true);
+        setResizeLimits (900, 600, 10000, 10000);
+
+        // DAW は画面いっぱいで使うので、最初から画面全体に広げる（最大化）
+        if (auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+            setBounds (display->userArea);
+
+        setVisible (true);
+
+       #if ! JUCE_MAC
+        setFullScreen (true);   // Windows・Linux: ネイティブのタイトルバーでは「最大化」になる
+       #endif
+    }
+
+    /** 中身（MainComponent）を入れ替える（外観の切り替えで作り直すとき）。 */
+    void setContent (std::unique_ptr<MainComponent> content)
+    {
+       #if JUCE_MAC
+        juce::MenuBarModel::setMacMainMenu (nullptr);
+       #else
+        setMenuBar (nullptr);
+       #endif
+        clearContentComponent();
+
         auto* mc = content.get();
-        setContentOwned (content.release(), true);
+        setBackgroundColour (Theme::background);
+        setContentOwned (content.release(), false);
 
        #if JUCE_MAC
         juce::MenuBarModel::setMacMainMenu (mc);
@@ -74,11 +101,6 @@ public:
        #endif
 
         mc->onTitleChanged = [this] (const juce::String& t) { setName (t); };
-
-        setResizable (true, true);
-        setResizeLimits (900, 600, 10000, 10000);
-        centreWithSize (getWidth(), getHeight());
-        setVisible (true);
     }
 
     ~MainWindow() override
@@ -220,10 +242,7 @@ public:
             return;
         }
 
-        auto content = std::make_unique<MainComponent> (*engine, *document, *bridge, *library, *sync, *settings);
-        mainComponent = content.get();
-        content->getCommandManager().registerAllCommandsForTarget (this);
-        mainWindow = std::make_unique<MainWindow> (getApplicationName(), std::move (content));
+        mainWindow = std::make_unique<MainWindow> (getApplicationName(), createMainComponent());
 
         document->locationListeners.push_back ([this] { sessionGuard.markRunning (document->getProjectDir(), document->getAutosaveFile()); });
         document->locationListeners.push_back ([this] { sync->reloadForDocument(); });
@@ -312,6 +331,33 @@ private:
     std::unique_ptr<EngineBridge> bridge;
     std::unique_ptr<SyncManager> sync;
     std::unique_ptr<MainWindow> mainWindow;
+    /** 画面の中身を作る（起動時と、外観を切り替えて作り直すとき）。 */
+    std::unique_ptr<MainComponent> createMainComponent()
+    {
+        auto content = std::make_unique<MainComponent> (*engine, *document, *bridge, *library, *sync, *settings);
+        mainComponent = content.get();
+        content->getCommandManager().registerAllCommandsForTarget (this);
+
+        // 外観（ダーク / ライト）の切り替え: 色を変えてから画面を作り直す（曲・再生はそのまま）
+        content->onAppearanceChanged = [this] (bool useLight)
+        {
+            juce::MessageManager::callAsync ([this, useLight]
+            {
+                if (mainWindow == nullptr)
+                    return;
+
+                Theme::applyPalette (useLight);
+                lookAndFeel.applyColours();
+                mainComponent = nullptr;
+                mainWindow->clearContentComponent();   // 先に古い画面を消す（エンジンへの登録を外してから作る）
+                mainWindow->setContent (createMainComponent());
+                mainWindow->repaint();
+            });
+        };
+
+        return content;
+    }
+
     MainComponent* mainComponent = nullptr;
     SessionGuard sessionGuard;
     bool childProcessMode = false;
@@ -513,7 +559,7 @@ private:
             return 2;
         }
 
-        if (! bridge->renderToFile (output, collab::chordTrackEndTick (document->getProject(), document->getTempoMap())))
+        if (! bridge->renderToFile (output, collab::chordTrackEndTick (document->getProject(), document->getTempoMap()), bridge->tailSecondsFor ({})))
         {
             std::cerr << "render failed" << std::endl;
             return 3;

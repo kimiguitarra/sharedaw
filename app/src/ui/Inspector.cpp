@@ -15,7 +15,7 @@ class Inspector::Content  : public juce::Component
 public:
     explicit Content (AppContext& c) : ctx (c), strip (c)
     {
-        for (auto* b : { &inputButton, &inputMode, &outputButton, &outputMode, &instrumentButton, &adjustButton })
+        for (auto* b : { &inputButton, &inputMode, &outputButton, &outputMode, &instrumentButton, &adjustButton, &crossfadeButton })
         {
             b->setWantsKeyboardFocus (false);
             addAndMakeVisible (b);
@@ -39,6 +39,9 @@ public:
         {
             editTrack ("出力のモノ / ステレオ"_ju, [] (collab::Track& t) { t.outputChannels = t.outputChannels == 1 ? 2 : 1; });
         };
+
+        crossfadeButton.setTooltip ("重なったテイクのつなぎ（クロスフェード）"_ju);
+        crossfadeButton.onClick = [this] { showCrossfadeMenu(); };
 
         instrumentButton.setTooltip ("音源"_ju);
         instrumentButton.onClick = [this] { showInstrumentMenu(); };
@@ -73,7 +76,7 @@ public:
         if (t == nullptr)
             return 200;
 
-        int h = titleHeight + sectionHeight + rowHeight * (t->type == collab::TrackType::bus ? 1 : 2) + 8;
+        int h = titleHeight + sectionHeight + rowHeight * (t->type == collab::TrackType::bus ? 1 : t->type == collab::TrackType::audio ? 3 : 2) + 8;
 
         if (t->type == collab::TrackType::midi)
             h += sectionHeight + rowHeight * 2 + 8;
@@ -95,6 +98,10 @@ public:
         const bool midi = t->type == collab::TrackType::midi;
         inputButton.setVisible (audio || midi);
         inputMode.setVisible (audio);
+        crossfadeButton.setVisible (audio);
+
+        if (audio)
+            crossfadeButton.setButtonText (juce::String (juce::roundToInt (t->crossfadeMs)) + " ms  " + shapeName (t->crossfadeShape));
 
         if (midi)
         {
@@ -219,6 +226,9 @@ public:
             row ("入力"_ju, inputButton, nullptr);
 
         row ("出力"_ju, outputButton, &outputMode);
+
+        if (t->type == collab::TrackType::audio)
+            row ("つなぎ"_ju, crossfadeButton, nullptr);
         area.removeFromTop (8);
 
         if (t->type == collab::TrackType::midi)
@@ -236,7 +246,37 @@ public:
 private:
     AppContext& ctx;
     std::string trackId;
-    juce::TextButton inputButton, inputMode, outputButton, outputMode, instrumentButton, adjustButton;
+    juce::TextButton inputButton, inputMode, outputButton, outputMode, instrumentButton, adjustButton, crossfadeButton;
+
+    static juce::String shapeName (const std::string& shape)
+    {
+        return shape == "linear" ? "直線"_ju : shape == "sCurve" ? "S 字"_ju : "等パワー"_ju;
+    }
+
+    void showCrossfadeMenu()
+    {
+        auto* t = track();
+
+        if (t == nullptr)
+            return;
+
+        juce::PopupMenu m;
+        m.addSectionHeader ("長さ"_ju);
+
+        for (double ms : { 0.0, 5.0, 10.0, 20.0, 50.0, 100.0, 250.0 })
+            m.addItem (juce::String ((int) ms) + " ms", true, std::abs (t->crossfadeMs - ms) < 0.01,
+                       [this, ms] { editTrack ("クロスフェードの長さ"_ju, [ms] (collab::Track& tr) { tr.crossfadeMs = ms; }); });
+
+        m.addSectionHeader ("形"_ju);
+
+        for (auto shape : { "equalPower", "linear", "sCurve" })
+            m.addItem (shapeName (shape) + (std::string (shape) == "equalPower" ? "（違う音をつなぐ普通のテイク）"_ju
+                                             : std::string (shape) == "linear" ? "（同じ音が続くとき）"_ju : juce::String()),
+                       true, t->crossfadeShape == shape,
+                       [this, s = std::string (shape)] { editTrack ("クロスフェードの形"_ju, [s] (collab::Track& tr) { tr.crossfadeShape = s; }); });
+
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&crossfadeButton));
+    }
     TrackChannelStrip strip;
     std::vector<std::pair<juce::Rectangle<int>, juce::String>> sections, rowLabels;
 

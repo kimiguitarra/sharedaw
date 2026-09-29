@@ -37,6 +37,21 @@ namespace Theme
 
     inline bool light = false;
 
+    /** 背景に重ねる薄い色（ホバー・区切り）。ダークは白、ライトは黒を薄く（明るい面では白が見えないので）。 */
+    /** オーディオクリップの地と波形の色（ダークは暗い地に明るい波形、ライトは明るい地に濃い波形）。 */
+    inline juce::Colour clipBody (juce::Colour c)
+    {
+        return light ? c.withMultipliedSaturation (0.45f).interpolatedWith (juce::Colours::white, 0.62f)
+                     : c.withMultipliedSaturation (0.55f).withMultipliedBrightness (0.42f);
+    }
+
+    inline juce::Colour clipWave (juce::Colour c)
+    {
+        return light ? c.withMultipliedSaturation (1.1f).withMultipliedBrightness (0.62f) : c.brighter (0.55f);
+    }
+
+    inline juce::Colour overlay (float alpha)   { return light ? juce::Colours::black.withAlpha (alpha * 0.7f) : juce::Colours::white.withAlpha (alpha); }
+
     /** 色を切り替える（アプリの起動時、部品を作る前に呼ぶ）。 */
     void applyPalette (bool useLight);
 
@@ -44,7 +59,11 @@ namespace Theme
         ニューモーフィズムの面（ライト）: 左上に白い光、右下に柔らかい影で浮き上がって見える。pressed なら凹んで見える。
         ダークのときは不透明の板。
     */
-    void drawRaised (juce::Graphics&, juce::Rectangle<float> area, float radius, bool pressed = false, juce::Colour fill = {});
+    void drawRaised (juce::Graphics&, juce::Rectangle<float> area, float radius, bool pressed = false, juce::Colour fill = {},
+                     float depth = 3.0f);
+
+    /** ボタンの中で影が切れないように面を内側に寄せる量（ライト）。影は部品の外に描けないので、角が四角く切れて見えないように。 */
+    inline float raisedInset (float depth = 2.0f)  { return light ? depth * 1.6f + 1.0f : 1.0f; }
 
     /** トラックの既定の色（追加順に使う）。 */
     juce::Colour trackColour (int index);
