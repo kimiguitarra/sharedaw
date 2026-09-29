@@ -392,6 +392,12 @@ TransportBar::TransportBar (AppContext& c) : ctx (c)
     mixerButton.onClick = [this] { if (onMixer) onMixer(); };
     addAndMakeVisible (mixerButton);
 
+    // その左: ピアノロールを全画面に（もう一度押すと戻る）
+    pianoButton.setTooltip ("ピアノロールを全画面に（E）"_ju);
+    pianoButton.setClickingTogglesState (false);
+    pianoButton.onClick = [this] { if (onPianoFull) onPianoFull(); };
+    addAndMakeVisible (pianoButton);
+
     styleValue (barBeatLabel, 22.0f, true, false);
     barBeatLabel.setFont (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 22.0f, juce::Font::bold));
     barBeatLabel.setTooltip ("再生位置"_ju);
@@ -533,6 +539,7 @@ void TransportBar::resized()
 
     // 右端: ミキサーのボタン（正方形）
     mixerButton.setBounds (area.removeFromRight (area.getHeight() + 8).withSizeKeepingCentre (area.getHeight() + 4, area.getHeight()));
+    pianoButton.setBounds (area.removeFromRight (area.getHeight() + 8).withSizeKeepingCentre (area.getHeight() + 4, area.getHeight()));
 
     // 真ん中にまとめる: 左右のロケーター | サイクル・停止・再生・録音 | 現在の位置
     constexpr int buttonWidth = 48, gap = 4, flagWidth = 28, locatorWidth = 118, positionWidth = 170, groupGap = 22;

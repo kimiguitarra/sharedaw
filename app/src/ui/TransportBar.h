@@ -136,6 +136,9 @@ public:
     void updatePosition (double tick, double seconds, bool playing);
 
     std::function<void()> onMixer;   // 右下のミキサーのボタン
+    std::function<void()> onPianoFull;   // その左: ピアノロールを全画面に
+
+    void setPianoFullScreen (bool on)    { pianoButton.setToggleState (on, juce::dontSendNotification); }
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -145,7 +148,7 @@ private:
     FlagIcon loopStartFlag { true }, loopEndFlag { false };
     ValueLabel loopStartLabel, loopEndLabel;
     Theme::IconButton loopButton { "loop" }, stopButton { "stop" }, playButton { "play" }, recordButton { "record" };
-    Theme::IconButton mixerButton { "mixer" };
+    Theme::IconButton mixerButton { "mixer" }, pianoButton { "piano" };
     std::vector<juce::Rectangle<int>> groups;
     ValueLabel barBeatLabel;
     bool wasPlaying = false;

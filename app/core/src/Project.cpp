@@ -94,7 +94,7 @@ Project Project::createEmpty (const std::string& name)
     p.meterTrack.id = generateUuid();
     p.meterTrack.events.push_back ({ generateUuid(), 1, 4, 4 });
     p.chordTrack.id = generateUuid();
-    p.chordTrack.playback = { true, -6.0, { "builtin.piano", "1.0.0" } };
+    p.chordTrack.playback = { true, -6.0, { "builtin.piano", "1.1.0" } };   // 1.1.0: 打鍵の前の無音を飛ばした版
     p.markerTrack.id = markerTrackIdFor (p.projectId);
     p.master.id = masterBusIdFor (p.projectId);
     p.keyTrack.id = keyTrackIdFor (p.projectId);

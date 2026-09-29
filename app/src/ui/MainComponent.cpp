@@ -33,7 +33,7 @@ namespace
         cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
         cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9,
         cmdToolSplit, cmdCopy, cmdCut, cmdPaste, cmdNudgeLeft, cmdNudgeRight,
-        cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate, cmdToLoopStart, cmdToLoopEnd, cmdInspector, cmdCursorLeft, cmdCursorRight, cmdBarLeft, cmdBarRight, cmdTrackUp, cmdTrackDown
+        cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate, cmdToLoopStart, cmdToLoopEnd, cmdInspector, cmdCursorLeft, cmdCursorRight, cmdBarLeft, cmdBarRight, cmdTrackUp, cmdTrackDown, cmdPianoFull
     };
 
     constexpr float fontScales[] = { 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
@@ -217,6 +217,7 @@ void MainComponent::resized()
     toolbar.setBounds (area.removeFromTop (toolbarHeight));
     transport.setBounds (area.removeFromBottom (transportHeight));
     transport.onMixer = [this] { toggleMixer(); };
+    transport.onPianoFull = [this] { togglePianoFullScreen(); };
 
     syncPanel.setBounds (area.removeFromRight (juce::jmin (syncPanel.getPreferredWidth(), area.getWidth() / 2)));
     syncResizer.setVisible (! syncPanel.isCollapsed());
@@ -231,10 +232,40 @@ void MainComponent::resized()
 
     toast.setTopLeftPosition (area.getRight() - toast.getWidth() - 12, area.getBottom() - toast.getHeight() - 12);
 
-    juce::Component* comps[] = { &timeline, resizer.get(), &pianoRoll };
-    layout.layOutComponents (comps, 3, area.getX(), area.getY(), area.getWidth(), area.getHeight(), true, true);
+    if (pianoFullScreen)
+    {
+        // ピアノロールを全画面: 上に小節〜コードの段だけ（固定）、その下を全部ピアノロールに
+        timeline.setTopOnly (true, pianoRoll.getGridLeft());
+        timeline.setBounds (area.removeFromTop (timeline.getTopAreaHeight()));
+        resizer->setVisible (false);
+        pianoRoll.setBounds (area);
+    }
+    else
+    {
+        timeline.setTopOnly (false, 0);
+        resizer->setVisible (true);
+        juce::Component* comps[] = { &timeline, resizer.get(), &pianoRoll };
+        layout.layOutComponents (comps, 3, area.getX(), area.getY(), area.getWidth(), area.getHeight(), true, true);
+    }
     inspectorResizer.toFront (false);
     syncResizer.toFront (false);
+}
+
+void MainComponent::togglePianoFullScreen()
+{
+    pianoFullScreen = ! pianoFullScreen;
+
+    // 上の段はピアノロールと同じ横の位置・拡大率にする（戻るときは元のタイムラインの表示に）
+    if (pianoFullScreen)
+        savedTimelineAxis = state.timeline;
+    else
+        state.timeline = savedTimelineAxis;
+
+    lastTimelineZoom = state.timeline.pixelsPerQuarter;
+    transport.setPianoFullScreen (pianoFullScreen);
+    resized();
+    state.changed();
+    commandManager.commandStatusChanged();
 }
 
 void MainComponent::setStatus (const juce::String& text)
@@ -328,7 +359,25 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
 
 void MainComponent::timerCallback()
 {
+    // ピアノロールの全画面: 上の段をピアノロールの表示にぴったり合わせる
+    if (pianoFullScreen)
+    {
+        if (state.timeline.pixelsPerQuarter != state.pianoRoll.pixelsPerQuarter || state.timeline.scrollTick != state.pianoRoll.scrollTick)
+        {
+            state.timeline.pixelsPerQuarter = state.pianoRoll.pixelsPerQuarter;
+            state.timeline.scrollTick = state.pianoRoll.scrollTick;
+            state.changed();
+        }
+
+        if (timeline.isTopOnly())
+            timeline.setTopOnly (true, pianoRoll.getGridLeft());
+
+        lastTimelineZoom = state.timeline.pixelsPerQuarter;
+        lastPianoZoom = state.pianoRoll.pixelsPerQuarter;
+    }
+
     // タイムラインとピアノロールの横の拡大・縮小を連動させる（どちらかを変えたら、もう片方も同じ倍率で）
+    else
     {
         auto& tl = state.timeline.pixelsPerQuarter;
         auto& pr = state.pianoRoll.pixelsPerQuarter;
@@ -1356,7 +1405,7 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
                          cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
                          cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9,
                          cmdToolSplit, cmdCopy, cmdCut, cmdPaste, cmdNudgeLeft, cmdNudgeRight,
-                         cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate, cmdToLoopStart, cmdToLoopEnd, cmdInspector, cmdCursorLeft, cmdCursorRight, cmdBarLeft, cmdBarRight, cmdTrackUp, cmdTrackDown });
+                         cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate, cmdToLoopStart, cmdToLoopEnd, cmdInspector, cmdCursorLeft, cmdCursorRight, cmdBarLeft, cmdBarRight, cmdTrackUp, cmdTrackDown, cmdPianoFull });
 }
 
 void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommandInfo& info)
@@ -1403,6 +1452,11 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdBarLeft:     info.setInfo ("クリップ・再生位置を左へ（1 小節）"_ju, {}, "Edit", 0); info.addDefaultKeypress (KP::leftKey, shift); break;
         case cmdBarRight:    info.setInfo ("クリップ・再生位置を右へ（1 小節）"_ju, {}, "Edit", 0); info.addDefaultKeypress (KP::rightKey, shift); break;
         case cmdTrackUp:     info.setInfo ("上のトラックを選ぶ"_ju, {}, "Track", 0); info.addDefaultKeypress (KP::upKey, 0); break;
+        case cmdPianoFull:
+            info.setInfo ("ピアノロールを全画面に"_ju, {}, "View", 0);
+            info.addDefaultKeypress ('e', 0);
+            info.setTicked (pianoFullScreen);
+            break;
         case cmdTrackDown:   info.setInfo ("下のトラックを選ぶ"_ju, {}, "Track", 0); info.addDefaultKeypress (KP::downKey, 0); break;
         case cmdToLoopEnd:   info.setInfo ("右ロケーターへ移動"_ju, {}, "Transport", 0); info.addDefaultKeypress (KP::numberPad2, 0); break;
         case cmdToolSplit:
@@ -1721,6 +1775,7 @@ bool MainComponent::perform (const InvocationInfo& info)
 
             break;
         }
+        case cmdPianoFull:     togglePianoFullScreen(); break;
         case cmdTrackUp: case cmdTrackDown:
         {
             const auto& tracks = document.getProject().tracks;
@@ -1922,6 +1977,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addCommandItem (cm, cmdMixer);
             m.addCommandItem (cm, cmdMaster);
             m.addCommandItem (cm, cmdInspector);
+            m.addCommandItem (cm, cmdPianoFull);
             m.addSeparator();
             m.addCommandItem (cm, cmdZoomIn);
             m.addCommandItem (cm, cmdZoomOut);

@@ -62,16 +62,20 @@ void TempoLane::paint (juce::Graphics& g)
         if (next < 0 || x > (float) getWidth())
             continue;
 
-        g.setColour (Theme::tempo.withAlpha (0.25f));
-        g.fillRect (juce::Rectangle<float> (x, 2.0f, next - x, (float) getHeight() - 4.0f));
+        // 拍子と同じく、変わる所に小さな札だけ（右へずっと色を伸ばさない）
         const bool selected = e.id == state.selectedTempoId;
         g.setColour (selected ? Theme::selection : Theme::tempo);
         g.fillRect (juce::Rectangle<float> (x, 0.0f, selected ? 3.0f : 2.0f, (float) getHeight()));
+
         // 左にスクロールして変更点が見えなくなっても、値は左端に残す（次の変更点の手前まで）
-        const float textX = juce::jmin (juce::jmax (x + 4.0f, 4.0f), juce::jmax (x + 4.0f, next - 64.0f));
+        const auto label = formatBpm (e.bpm);
+        const float w = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), label) + 10.0f;
+        const float textX = juce::jmin (juce::jmax (x + 2.0f, 2.0f), juce::jmax (x + 2.0f, next - w - 2.0f));
+        const auto tag = juce::Rectangle<float> (textX, 2.0f, w, (float) getHeight() - 4.0f);
+        g.setColour (Theme::tempo.withAlpha (0.25f));
+        g.fillRoundedRectangle (tag, 3.0f);
         g.setColour (Theme::text);
-        g.drawText (formatBpm (e.bpm), juce::Rectangle<float> (textX, 0.0f, 80.0f, (float) getHeight()),
-                    juce::Justification::centredLeft);
+        g.drawText (label, tag, juce::Justification::centred);
     }
 }
 

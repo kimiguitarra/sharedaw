@@ -107,6 +107,9 @@ public:
     /** 選択中のノートを削除する（削除したら true）。 */
     bool deleteSelectedNotes();
     bool hasSelectedNotes() const          { return ! selectedNotes.empty(); }
+
+    /** グリッド（ノートを置く所）の左端の x（この部品の中）。全画面のとき上の段の横位置を合わせるのに使う。 */
+    int getGridLeft() const                { return keyboardWidth(); }
     void selectAllNotes();
     void quantiseSelection();
     void focusEditor();

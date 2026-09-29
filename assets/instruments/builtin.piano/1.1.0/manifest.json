@@ -1,0 +1,15 @@
+{
+  "id": "builtin.piano",
+  "version": "1.1.0",
+  "displayName": "ピアノ",
+  "type": "melodic",
+  "main": "piano.sfz",
+  "credits": [
+    "Salamander Grand Piano V3 by Alexander Holm (CC BY 3.0, https://creativecommons.org/licenses/by/3.0/)。ShareDAW 用に縮小（8 ベロシティレイヤー、16bit、減衰を 10 秒で打ち切り、ノイズ類なし）"
+  ],
+  "defaultParams": {
+    "volumeDb": 0.0,
+    "pan": 0.0,
+    "tone": 0.0
+  }
+}

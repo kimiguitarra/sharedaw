@@ -117,7 +117,7 @@ void ChordLane::paint (juce::Graphics& g)
 
         g.setColour (colour.withAlpha (b.empty ? 0.1f : 0.25f));
         g.fillRoundedRectangle (b.box, 3.0f);
-        g.setColour (selected ? Theme::selection : colour);
+        g.setColour (selected ? Theme::selection : (Theme::light && ! b.noChord && ! b.empty ? colour.darker (0.3f) : colour));
         g.drawRoundedRectangle (b.box, 3.0f, selected ? 2.0f : 1.0f);
 
         auto textArea = b.box.reduced (6.0f, 0.0f);
@@ -127,8 +127,9 @@ void ChordLane::paint (juce::Graphics& g)
             g.setColour (Theme::text);
             g.setFont (juce::FontOptions (15.5f, juce::Font::bold));
             g.drawText (b.name, textArea.removeFromTop (textArea.getHeight() * 0.55f), juce::Justification::bottomLeft, true);
-            g.setColour (chordColour.brighter (0.3f));
-            g.setFont (juce::FontOptions (14.5f));
+            // ライトでは明るい橙が白地に溶けるので、濃い茶色にする
+            g.setColour (Theme::light ? juce::Colour (0xff8a4b00) : chordColour.brighter (0.3f));
+            g.setFont (juce::FontOptions (14.5f, Theme::light ? juce::Font::bold : juce::Font::plain));
             g.drawText (b.degree, textArea, juce::Justification::topLeft, true);
         }
         else
@@ -204,6 +205,16 @@ void ChordLane::mouseDown (const juce::MouseEvent& e)
             m.addItem ("ここに貼り付け"_ju, hasClipboard(), false, [this, tick] { paste ((double) tick); });
             m.addSeparator();
             m.addItem ("コードを一括入力…"_ju, [this, tick] { showBulkDialog (ctx.document.getTempoMap().tickToBar (tick)); });
+
+            // コードを鳴らすピアノが古い版なら更新できる（1.1.0 で打鍵の前の無音を飛ばし、遅れずに鳴るようにした）
+            const auto& inst = ctx.document.getProject().chordTrack.playback.instrument;
+
+            if (auto* latest = ctx.library.findLatest (inst.id); latest != nullptr && latest->version != inst.version)
+                m.addItem ("コードの音源を新しい版（"_ju + toJuce (latest->version) + "）に更新"_ju, [this, v = latest->version]
+                {
+                    ctx.document.perform ("コードの音源の更新"_ju, [v] (collab::Project& p) { p.chordTrack.playback.instrument.version = v; });
+                });
+
             m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
         }
 

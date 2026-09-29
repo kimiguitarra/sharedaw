@@ -496,6 +496,23 @@ juce::Path iconPath (const juce::String& name, juce::Rectangle<float> area)
         arrows.lineTo (18.5f, 16.0f);
         stroke (arrows, 2.2f);
     }
+    else if (name == "piano")
+    {
+        // ピアノの鍵盤（白鍵の枠と黒鍵 3 つ）
+        juce::Path frame;
+        frame.addRoundedRectangle (3.0f, 5.0f, 18.0f, 14.0f, 1.5f);
+
+        for (float x : { 9.0f, 15.0f })
+        {
+            frame.startNewSubPath (x, 12.0f);
+            frame.lineTo (x, 19.0f);
+        }
+
+        stroke (frame, 1.6f);
+
+        for (float x : { 7.5f, 13.5f, 17.0f })
+            p.addRectangle (x - 1.2f, 5.0f, 2.8f, 7.5f);
+    }
     else if (name == "mixer")
     {
         // ミキサー: フェーダー 3 本とつまみ

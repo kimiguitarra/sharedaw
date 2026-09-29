@@ -1081,11 +1081,11 @@ void TimelineView::paint (juce::Graphics& g)
     g.setColour (Theme::textDim);
     g.setFont (juce::FontOptions (16.5f));
 
-    const int w = headerWidth - 12;
+    const int w = effectiveHeaderWidth() - 12;
     g.drawText ("小節"_ju, 12, 0, w, rulerHeight, juce::Justification::centredLeft);
 
     g.setColour (Theme::background);
-    g.drawVerticalLine (headerWidth - 1, 0.0f, (float) getHeight());
+    g.drawVerticalLine (effectiveHeaderWidth() - 1, 0.0f, (float) getHeight());
     g.drawHorizontalLine (rulerHeight - 1, 0.0f, (float) getWidth());
 }
 
@@ -1200,6 +1200,22 @@ void TimelineView::paintOverChildren (juce::Graphics& g)
     }
 }
 
+int TimelineView::getTopAreaHeight() const
+{
+    return rulerHeight + topLanesHeight;
+}
+
+void TimelineView::setTopOnly (bool on, int leftWidth)
+{
+    if (on == topOnly && leftWidth == topOnlyLeft)
+        return;
+
+    topOnly = on;
+    topOnlyLeft = juce::jmax (40, leftWidth);
+    resized();
+    repaint();
+}
+
 void TimelineView::setHeaderWidth (int w)
 {
     w = juce::jlimit (minHeaderWidth, maxHeaderWidth, w);
@@ -1217,9 +1233,18 @@ void TimelineView::resized()
     auto area = getLocalBounds();
     auto right = area.removeFromRight (scrollBarSize);
     vScroll.setBounds (right.withTrimmedTop (rulerHeight).withTrimmedBottom (scrollBarSize));
+    vScroll.setVisible (! topOnly);
+    hScroll.setVisible (! topOnly);
+    headerResizer.setVisible (! topOnly);
 
-    auto left = area.removeFromLeft (headerWidth);
-    auto bottom = area.removeFromBottom (scrollBarSize);
+    if (topOnly && lanes.scrollY != 0)
+    {
+        lanes.scrollY = 0;   // 上の段は一番上に固定
+        vScroll.setCurrentRangeStart (0.0, juce::dontSendNotification);
+    }
+
+    auto left = area.removeFromLeft (effectiveHeaderWidth());
+    auto bottom = topOnly ? juce::Rectangle<int>() : area.removeFromBottom (scrollBarSize);
     hScroll.setBounds (bottom);
 
     ruler.setBounds (area.removeFromTop (rulerHeight));
@@ -1356,6 +1381,10 @@ void TimelineView::handleWheel (const juce::MouseEvent& e, const juce::MouseWhee
         const float d = std::abs (w.deltaX) > std::abs (w.deltaY) ? w.deltaX : w.deltaY;
         axis.scrollTick = juce::jmax (0.0, axis.scrollTick - d * 400.0 / axis.pixelsPerTick());
         stopFollowing();
+    }
+    else if (topOnly)
+    {
+        return;   // 上の段だけのときは縦に動かさない
     }
     else
     {
@@ -1500,7 +1529,7 @@ void TimelineView::followPlayhead (double tick)
 void TimelineView::mouseDown (const juce::MouseEvent& e)
 {
     // 左上を右クリックしてもトラックを追加できる
-    if (e.eventComponent == this && e.mods.isPopupMenu() && e.x < headerWidth && ctx.addTrackMenu)
+    if (e.eventComponent == this && e.mods.isPopupMenu() && e.x < effectiveHeaderWidth() && ctx.addTrackMenu)
         ctx.addTrackMenu().showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
 
     // 上の段の何もない所（段が何も選ばなかった所）で押したら、範囲選択の始まりかもしれない
@@ -1641,6 +1670,7 @@ void TimelineView::LaneHeaders::paint (juce::Graphics& g)
 void TimelineView::LaneHeaders::resized()
 {
     int y = 0;
+    chordMute.setVisible (getWidth() >= 110);   // 狭いとき（ピアノロールの全画面）は M を出さない
 
     for (auto& key : owner.ctx.state.laneOrder)
     {
