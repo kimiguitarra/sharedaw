@@ -11,8 +11,9 @@ bool usesExternalPlugin (const Track& t)
     if (t.instrument && t.instrument->kind == Instrument::Kind::external)
         return true;
 
+    // 内蔵エフェクトは誰の PC でも同じに鳴るのでバウンスはいらない
     for (auto& e : t.effects)
-        if (! e.bypass)
+        if (! e.bypass && ! e.isBuiltin())
             return true;
 
     return false;

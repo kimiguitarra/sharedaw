@@ -10,6 +10,7 @@
 #include "Translations.h"
 #include "SfizzPlugin.h"
 #include "audio/ChannelStripPlugin.h"
+#include "audio/BuiltinEffectPlugin.h"
 #include "audio/MasterLimiterPlugin.h"
 #include "update/Updater.h"
 #include "audio/MidiImport.h"
@@ -130,6 +131,7 @@ public:
         engine->getPluginManager().createBuiltInType<SfizzPlugin>();
         engine->getPluginManager().createBuiltInType<CountInPlugin>();
         engine->getPluginManager().createBuiltInType<ChannelStripPlugin>();
+        engine->getPluginManager().createBuiltInType<BuiltinEffectPlugin>();
         engine->getPluginManager().createBuiltInType<MasterLimiterPlugin>();
         engine->getPluginManager().setUsesSeparateProcessForScanning (true);
         preferProjectSampleRate();

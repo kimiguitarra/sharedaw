@@ -53,15 +53,20 @@ std::optional<AudioClip> glueAudioClips (const AudioClip& a, const AudioClip& b,
 /**
     重なったオーディオクリップのうち、実際に鳴る部分（Pro Tools と同じく、後ろにある（新しい）クリップが上になり、
     下のクリップの重なった所は鳴らない）。下のクリップのデータはそのままなので、上のクリップを動かせばまた鳴る。
+    上と下の切り替わりはクロスフェード（crossfadeSeconds の間、下を少し残して両方を等パワーで入れ替える）。
 */
 struct AudibleSegment
 {
     size_t clipIndex = 0;
     double startSeconds = 0, lengthSeconds = 0;
     double offsetSeconds = 0;              // 元ファイルの読み始め
-    bool clipStart = true, clipEnd = true; // クリップの本当の頭・終わりか（違えば切れ目なので短いフェードを付ける）
+    double fadeInSeconds = 0, fadeOutSeconds = 0;
+    bool crossfadeIn = false, crossfadeOut = false;   // そのフェードがクロスフェード（等パワーの形にする）か
 };
 
-std::vector<AudibleSegment> audibleSegments (const std::vector<AudioClip>&, const TempoMap&);
+inline constexpr double defaultCrossfadeSeconds = 0.010;
+
+std::vector<AudibleSegment> audibleSegments (const std::vector<AudioClip>&, const TempoMap&,
+                                            double crossfadeSeconds = defaultCrossfadeSeconds);
 
 } // namespace collab

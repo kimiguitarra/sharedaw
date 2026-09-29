@@ -135,39 +135,48 @@ TEST_CASE ("glue MIDI and audio clips")
     CHECK (! glueAudioClips (parts->first, other, map));
 }
 
-TEST_CASE ("newer overlapping audio clip hides the older one (Pro Tools style)")
+TEST_CASE ("newer overlapping audio clip hides the older one with crossfades (Pro Tools style)")
 {
     const TempoMap map;   // 120BPM: 1 拍 = 0.5 秒
-    auto older = clip();  // 3840 tick（2 秒）から 2 秒、読み始め 1 秒
+    auto older = clip();  // 3840 tick（2 秒）から 2 秒、読み始め 1 秒、フェード 0.05 / 0.1 秒
     auto newer = clip();
     newer.id = "b";
     newer.startTick = 3840 + 960;   // 2.5 秒から
     newer.lengthSamples = 24000;    // 0.5 秒
+    newer.fadeInSamples = newer.fadeOutSamples = 0;
 
-    const auto segs = audibleSegments ({ older, newer }, map);
+    const double xf = 0.01;
+    const auto segs = audibleSegments ({ older, newer }, map, xf);
     REQUIRE (segs.size() == 3);
 
-    // 古いクリップは前後の 2 つに分かれる
+    // 古いクリップは前後の 2 つに分かれ、切れ目で xf だけ上のクリップの下へ延びてクロスフェードする
     CHECK (segs[0].clipIndex == 0);
     CHECK (segs[0].startSeconds == doctest::Approx (2.0));
-    CHECK (segs[0].lengthSeconds == doctest::Approx (0.5));
+    CHECK (segs[0].lengthSeconds == doctest::Approx (0.5 + xf));
     CHECK (segs[0].offsetSeconds == doctest::Approx (1.0));
-    CHECK (segs[0].clipStart);
-    CHECK_FALSE (segs[0].clipEnd);
+    CHECK (segs[0].fadeInSeconds == doctest::Approx (0.05));   // 自分のフェード
+    CHECK_FALSE (segs[0].crossfadeIn);
+    CHECK (segs[0].fadeOutSeconds == doctest::Approx (xf));
+    CHECK (segs[0].crossfadeOut);
 
     CHECK (segs[1].clipIndex == 0);
-    CHECK (segs[1].startSeconds == doctest::Approx (3.0));
-    CHECK (segs[1].lengthSeconds == doctest::Approx (1.0));
-    CHECK (segs[1].offsetSeconds == doctest::Approx (2.0));
-    CHECK_FALSE (segs[1].clipStart);
-    CHECK (segs[1].clipEnd);
+    CHECK (segs[1].startSeconds == doctest::Approx (3.0 - xf));
+    CHECK (segs[1].lengthSeconds == doctest::Approx (1.0 + xf));
+    CHECK (segs[1].offsetSeconds == doctest::Approx (2.0 - xf));
+    CHECK (segs[1].fadeInSeconds == doctest::Approx (xf));
+    CHECK (segs[1].crossfadeIn);
+    CHECK (segs[1].fadeOutSeconds == doctest::Approx (0.1));
 
-    // 新しいクリップはそのまま全部鳴る
+    // 新しいクリップは全部鳴り、下のクリップの上なので入りと終わりがクロスフェード
     CHECK (segs[2].clipIndex == 1);
     CHECK (segs[2].startSeconds == doctest::Approx (2.5));
     CHECK (segs[2].lengthSeconds == doctest::Approx (0.5));
+    CHECK (segs[2].fadeInSeconds == doctest::Approx (xf));
+    CHECK (segs[2].crossfadeIn);
+    CHECK (segs[2].fadeOutSeconds == doctest::Approx (xf));
+    CHECK (segs[2].crossfadeOut);
 
     // すっかり隠れたクリップは鳴らない
-    const auto hidden = audibleSegments ({ newer, older }, map);
+    const auto hidden = audibleSegments ({ newer, older }, map, xf);
     CHECK (std::none_of (hidden.begin(), hidden.end(), [] (auto& s) { return s.clipIndex == 0; }));
 }

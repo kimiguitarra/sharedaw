@@ -2084,8 +2084,20 @@ var project_schema_default = {
     effect: {
       type: "object",
       required: [
-        "id",
-        "plugin"
+        "id"
+      ],
+      oneOf: [
+        {
+          required: [
+            "plugin"
+          ]
+        },
+        {
+          required: [
+            "builtin",
+            "params"
+          ]
+        }
       ],
       additionalProperties: false,
       properties: {
@@ -2094,6 +2106,22 @@ var project_schema_default = {
         },
         plugin: {
           $ref: "#/definitions/externalPlugin"
+        },
+        builtin: {
+          description: "Built-in effect: busComp, saturator, roomReverb, hallReverb, plateReverb",
+          enum: [
+            "busComp",
+            "saturator",
+            "roomReverb",
+            "hallReverb",
+            "plateReverb"
+          ]
+        },
+        params: {
+          type: "object",
+          additionalProperties: {
+            type: "number"
+          }
         },
         stateRef: {
           type: "string",

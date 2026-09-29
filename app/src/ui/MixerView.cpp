@@ -379,7 +379,7 @@ public:
             if (t != nullptr && i < (int) t->effects.size())
             {
                 auto& e = t->effects[(size_t) i];
-                drawRow (g, row.withTrimmedLeft (14), toJuce (e.plugin.name), ! e.bypass, true);
+                drawRow (g, row.withTrimmedLeft (14), AppContext::effectName (e), ! e.bypass, true);
                 drawPower (g, row.removeFromLeft (14).toFloat(), ! e.bypass);
             }
             else if (t != nullptr && i == (int) t->effects.size())

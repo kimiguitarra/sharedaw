@@ -2,6 +2,7 @@ add_executable(collab_core_tests
     main.cpp
     BuiltinInstrumentsTests.cpp
     ChannelStripTests.cpp
+    BuiltinEffectsTests.cpp
     MasterDspTests.cpp
     ChordPlaybackTests.cpp
     ClipEditingTests.cpp

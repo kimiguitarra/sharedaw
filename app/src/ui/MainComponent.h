@@ -103,6 +103,10 @@ private:
     std::unique_ptr<juce::DocumentWindow> mixerWindow;
     void openChannelStrip (const std::string& trackId, bool compressor);
 
+    /** 内蔵エフェクトなら画面を開いて true。 */
+    bool openBuiltinEffect (const std::string& trackId, const std::string& effectId);
+    std::map<std::string, std::unique_ptr<juce::DocumentWindow>> effectWindows;
+
     /** MIDI キーボードの録音先（録音待機の MIDI トラック、なければ選択中の MIDI トラック）。 */
     const collab::Track* midiRecordTarget() const;
     std::unique_ptr<juce::DocumentWindow> eqWindow, compWindow;

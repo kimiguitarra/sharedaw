@@ -365,7 +365,7 @@ void TrackHeader::showMenu()
             one.addItem ("画面を開く"_ju, [this, effectId] { if (ctx.openPluginEditor) ctx.openPluginEditor (trackId, effectId); });
             one.addItem ("バイパス"_ju, true, e.bypass, [this, effectId] { ctx.toggleEffectBypass (trackId, effectId); });
             one.addItem ("削除"_ju, [this, effectId] { ctx.removeEffect (trackId, effectId); });
-            fx.addSubMenu (toJuce (e.plugin.name), one);
+            fx.addSubMenu (AppContext::effectName (e), one);
         }
 
         fx.addSeparator();

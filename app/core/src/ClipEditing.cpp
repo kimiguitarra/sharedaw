@@ -164,7 +164,7 @@ std::optional<AudioClip> glueAudioClips (const AudioClip& a, const AudioClip& b,
     return r;
 }
 
-std::vector<AudibleSegment> audibleSegments (const std::vector<AudioClip>& clips, const TempoMap& map)
+std::vector<AudibleSegment> audibleSegments (const std::vector<AudioClip>& clips, const TempoMap& map, double xf)
 {
     constexpr double rate = (double) kSampleRate;
     std::vector<std::pair<double, double>> ranges;
@@ -174,6 +174,16 @@ std::vector<AudibleSegment> audibleSegments (const std::vector<AudioClip>& clips
         const double start = map.tickToSeconds ((double) c.startTick);
         ranges.push_back ({ start, start + (double) c.lengthSamples / rate });
     }
+
+    // time の所で、index より前（下）のクリップが鳴っているか
+    auto coveredBelow = [&] (size_t index, double time)
+    {
+        for (size_t k = 0; k < index; ++k)
+            if (ranges[k].first < time - 1.0e-9 && time + 1.0e-9 < ranges[k].second)
+                return true;
+
+        return false;
+    };
 
     std::vector<AudibleSegment> result;
 
@@ -202,6 +212,9 @@ std::vector<AudibleSegment> audibleSegments (const std::vector<AudioClip>& clips
             visible = std::move (next);
         }
 
+        const auto& c = clips[i];
+        const double userFadeIn = (double) c.fadeInSamples / rate, userFadeOut = (double) c.fadeOutSamples / rate;
+
         for (auto [vs, ve] : visible)
         {
             if (ve - vs < 1.0 / rate)
@@ -209,11 +222,58 @@ std::vector<AudibleSegment> audibleSegments (const std::vector<AudioClip>& clips
 
             AudibleSegment seg;
             seg.clipIndex = i;
-            seg.startSeconds = vs;
-            seg.lengthSeconds = ve - vs;
-            seg.offsetSeconds = (double) clips[i].sourceOffsetSamples / rate + (vs - ranges[i].first);
-            seg.clipStart = vs <= ranges[i].first + 1.0e-9;
-            seg.clipEnd = ve >= ranges[i].second - 1.0e-9;
+            const bool realStart = vs <= ranges[i].first + 1.0e-9;
+            const bool realEnd = ve >= ranges[i].second - 1.0e-9;
+
+            // 上のクリップに隠れて切れた所: 下のクリップを xf だけ延ばして、上のクリップと重ねて入れ替える
+            double start = vs, end = ve;
+
+            if (! realStart)
+            {
+                start = std::max (ranges[i].first, vs - xf);
+                seg.fadeInSeconds = vs - start;
+                seg.crossfadeIn = true;
+            }
+            else if (coveredBelow (i, vs))
+            {
+                // 自分が上: 下のクリップの上に始まるならクロスフェードで入る
+                seg.fadeInSeconds = std::max (userFadeIn, xf);
+                seg.crossfadeIn = userFadeIn < xf;
+            }
+            else
+            {
+                seg.fadeInSeconds = userFadeIn;
+            }
+
+            if (! realEnd)
+            {
+                end = std::min (ranges[i].second, ve + xf);
+                seg.fadeOutSeconds = end - ve;
+                seg.crossfadeOut = true;
+            }
+            else if (coveredBelow (i, ve))
+            {
+                seg.fadeOutSeconds = std::max (userFadeOut, xf);
+                seg.crossfadeOut = userFadeOut < xf;
+            }
+            else
+            {
+                seg.fadeOutSeconds = userFadeOut;
+            }
+
+            seg.startSeconds = start;
+            seg.lengthSeconds = end - start;
+            seg.offsetSeconds = (double) c.sourceOffsetSamples / rate + (start - ranges[i].first);
+
+            // フェードが長さを超えないように
+            const double total = seg.fadeInSeconds + seg.fadeOutSeconds;
+
+            if (total > seg.lengthSeconds && total > 0.0)
+            {
+                seg.fadeInSeconds *= seg.lengthSeconds / total;
+                seg.fadeOutSeconds *= seg.lengthSeconds / total;
+            }
+
             result.push_back (seg);
         }
     }

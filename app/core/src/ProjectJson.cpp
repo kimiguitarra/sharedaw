@@ -82,10 +82,19 @@ namespace
     {
         ojson o;
         o["id"] = e.id;
-        o["plugin"] = toJson (e.plugin);
 
-        if (! e.stateRef.empty())
-            o["stateRef"] = e.stateRef;
+        if (e.isBuiltin())
+        {
+            o["builtin"] = e.builtin;
+            o["params"] = canonicalise (e.params.is_object() ? e.params : json::object());
+        }
+        else
+        {
+            o["plugin"] = toJson (e.plugin);
+
+            if (! e.stateRef.empty())
+                o["stateRef"] = e.stateRef;
+        }
 
         if (e.bypass)
             o["bypass"] = true;
@@ -572,8 +581,24 @@ Project projectFromJson (const json& j)
 
             if (auto it = tj.find ("effects"); it != tj.end())
                 for (auto& ej : *it)
-                    t.effects.push_back ({ get<std::string> (ej, "id"), pluginFromJson (ej.at ("plugin")),
-                                           getOr<std::string> (ej, "stateRef", {}), getOr<bool> (ej, "bypass", false) });
+                {
+                    Effect e;
+                    e.id = get<std::string> (ej, "id");
+                    e.bypass = getOr<bool> (ej, "bypass", false);
+
+                    if (auto b = ej.find ("builtin"); b != ej.end())
+                    {
+                        e.builtin = b->get<std::string>();
+                        e.params = ej.value ("params", json::object());
+                    }
+                    else
+                    {
+                        e.plugin = pluginFromJson (ej.at ("plugin"));
+                        e.stateRef = getOr<std::string> (ej, "stateRef", {});
+                    }
+
+                    t.effects.push_back (std::move (e));
+                }
 
             if (auto it = tj.find ("strip"); it != tj.end())
                 t.strip = stripFromJson (*it);

@@ -1,6 +1,7 @@
 #include "MainComponent.h"
 
 #include "Dialogs.h"
+#include "BuiltinEffectEditor.h"
 #include "ChannelStripEditor.h"
 #include "MarkerLane.h"
 #include "MidiInputPanel.h"
@@ -104,6 +105,9 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     // 外部プラグインのエディタ
     ctx.openPluginEditor = [this] (const std::string& trackId, const std::string& effectId)
     {
+        if (openBuiltinEffect (trackId, effectId))
+            return;
+
         if (auto* plugin = bridge.getExternalPlugin (trackId, effectId))
             pluginWindows.show (*plugin, plugin->getName());
         else if (bridge.isPlayingRender (trackId))
@@ -227,6 +231,18 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
 
     if (source == &document)
     {
+        // 消したエフェクトの画面は閉じる
+        for (auto it = effectWindows.begin(); it != effectWindows.end();)
+        {
+            bool exists = false;
+
+            for (auto& t : document.getProject().tracks)
+                for (auto& e : t.effects)
+                    exists = exists || e.id == it->first;
+
+            it = exists ? std::next (it) : effectWindows.erase (it);
+        }
+
         updateTitle();
         commandManager.commandStatusChanged();
 
@@ -1029,6 +1045,49 @@ void MainComponent::toggleMixer()
         mixerWindow->toFront (true);
 
     commandManager.commandStatusChanged();
+}
+
+bool MainComponent::openBuiltinEffect (const std::string& trackId, const std::string& effectId)
+{
+    auto* t = document.getProject().findTrack (trackId);
+    const collab::Effect* effect = nullptr;
+
+    if (t != nullptr)
+        for (auto& e : t->effects)
+            if (e.id == effectId && e.isBuiltin())
+                effect = &e;
+
+    if (effect == nullptr)
+        return false;
+
+    // エフェクトごとに 1 つのウィンドウ
+    auto& slot = effectWindows[effectId];
+
+    if (slot == nullptr)
+    {
+        struct Window  : public juce::DocumentWindow
+        {
+            Window() : DocumentWindow ("Effect", Theme::panel, DocumentWindow::closeButton) {}
+            void closeButtonPressed() override      { setVisible (false); }
+        };
+
+        auto window = std::make_unique<Window>();
+        window->setUsingNativeTitleBar (true);
+        auto* editor = new BuiltinEffectEditor (ctx, trackId, effectId);
+        window->setName (editor->getTitle());
+        window->setContentOwned (editor, true);
+        window->setResizable (false, false);
+        window->addKeyListener (commandManager.getKeyMappings());
+
+        if (auto* top = getTopLevelComponent())
+            window->setTopLeftPosition (top->getX() + 180 + 24 * (int) (effectWindows.size() % 6), top->getY() + 180 + 24 * (int) (effectWindows.size() % 6));
+
+        slot = std::move (window);
+    }
+
+    slot->setVisible (true);
+    slot->toFront (true);
+    return true;
 }
 
 void MainComponent::openChannelStrip (const std::string& trackId, bool compressor)

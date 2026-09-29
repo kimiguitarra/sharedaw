@@ -4,6 +4,7 @@
 #include <set>
 
 #include "EngineBridge.h"
+#include "collab/BuiltinEffects.h"
 #include "InstrumentLibrary.h"
 #include "ProjectDocument.h"
 #include "ui/EditorState.h"
@@ -104,6 +105,10 @@ struct AppContext
     void setBuiltinInstrument (const std::string& trackId, const std::string& instrumentId);
     void setExternalInstrument (const std::string& trackId, const juce::PluginDescription&);
     void addEffect (const std::string& trackId, const juce::PluginDescription&);
+    void addBuiltinEffect (const std::string& trackId, collab::fx::Type);
+
+    /** インサートに出す名前（内蔵エフェクトは種類の名前）。 */
+    static juce::String effectName (const collab::Effect&);
     void removeEffect (const std::string& trackId, const std::string& effectId);
     void toggleEffectBypass (const std::string& trackId, const std::string& effectId);
     void bounceTrack (const std::string& trackId);

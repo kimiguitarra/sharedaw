@@ -5,6 +5,7 @@
 
 #include "SfizzPlugin.h"
 #include "audio/ChannelStripPlugin.h"
+#include "audio/BuiltinEffectPlugin.h"
 #include "audio/MasterLimiterPlugin.h"
 #include "audio/CountInPlugin.h"
 #include "collab/Recording.h"
@@ -428,7 +429,7 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
     }
 
     // オーディオクリップ（非破壊: 実体は audio/<hash>.wav、クリップはオフセット・長さ・音量・フェードの参照）
-    // 重なっているときは Pro Tools と同じく新しい（後ろの）クリップだけが鳴る。切れ目には短いフェードを付ける
+    // 重なっているときは Pro Tools と同じく新しい（後ろの）クリップだけが鳴る
     for (size_t i = 0; i < t.audioClips.size(); ++i)
     {
         auto& c = t.audioClips[i];
@@ -438,8 +439,7 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
             ++b.missingAudio;
     }
 
-    constexpr double cutFadeSeconds = 0.005;
-
+    // テイクの切り替わりはクロスフェード（下のクリップを少し延ばして、等パワーの形で入れ替える）
     for (auto& seg : collab::audibleSegments (t.audioClips, map))
     {
         auto& c = t.audioClips[seg.clipIndex];
@@ -456,10 +456,14 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
             clip->setAutoTempo (false);
             clip->setAutoPitch (false);
             clip->setGainDB ((float) c.gainDb);
-            clip->setFadeIn (te::TimeDuration::fromSeconds (seg.clipStart ? (double) c.fadeInSamples / collab::kSampleRate
-                                                                          : juce::jmin (cutFadeSeconds, seg.lengthSeconds * 0.5)));
-            clip->setFadeOut (te::TimeDuration::fromSeconds (seg.clipEnd ? (double) c.fadeOutSamples / collab::kSampleRate
-                                                                        : juce::jmin (cutFadeSeconds, seg.lengthSeconds * 0.5)));
+            clip->setFadeIn (te::TimeDuration::fromSeconds (seg.fadeInSeconds));
+            clip->setFadeOut (te::TimeDuration::fromSeconds (seg.fadeOutSeconds));
+
+            if (seg.crossfadeIn)
+                clip->setFadeInType (te::AudioFadeCurve::convex);
+
+            if (seg.crossfadeOut)
+                clip->setFadeOutType (te::AudioFadeCurve::convex);
         }
     }
 
@@ -516,7 +520,7 @@ bool EngineBridge::canPlayLive (const collab::Track& t, juce::String& why) const
             return false;
 
     for (auto& e : t.effects)
-        if (! e.bypass && ! check (e.plugin, e.stateRef))
+        if (! e.bypass && ! e.isBuiltin() && ! check (e.plugin, e.stateRef))
             return false;
 
     return true;
@@ -579,7 +583,7 @@ void EngineBridge::syncEffects (const collab::Track& t, Binding& b)
     std::string key;
 
     for (auto& e : t.effects)
-        key += e.id + "|" + e.plugin.uid + "|" + e.stateRef + ";";
+        key += e.id + "|" + e.builtin + "|" + e.plugin.uid + "|" + e.stateRef + ";";
 
     if (key != b.effectsKey)
     {
@@ -592,7 +596,19 @@ void EngineBridge::syncEffects (const collab::Track& t, Binding& b)
 
         for (auto& e : t.effects)
         {
-            if (auto p = createExternal (e.plugin, e.stateRef))
+            te::Plugin::Ptr p;
+
+            if (e.isBuiltin())
+            {
+                if (collab::fx::typeFromId (e.builtin))
+                    p = edit->getPluginCache().createNewPlugin (BuiltinEffectPlugin::xmlTypeName, {});
+            }
+            else
+            {
+                p = createExternal (e.plugin, e.stateRef);
+            }
+
+            if (p != nullptr)
             {
                 b.track->pluginList.insertPlugin (p, index < 0 ? -1 : index++, nullptr);
                 b.effects.push_back ({ e.id, e.stateRef, p });
@@ -600,11 +616,18 @@ void EngineBridge::syncEffects (const collab::Track& t, Binding& b)
         }
     }
 
-    // バイパス（エフェクトを通さない）
+    // バイパス（エフェクトを通さない）と、内蔵エフェクトの値
     for (auto& e : t.effects)
         for (auto& be : b.effects)
-            if (be.id == e.id && be.plugin->isEnabled() == e.bypass)
-                be.plugin->setEnabled (! e.bypass);
+            if (be.id == e.id)
+            {
+                if (be.plugin->isEnabled() == e.bypass)
+                    be.plugin->setEnabled (! e.bypass);
+
+                if (auto* fx = dynamic_cast<BuiltinEffectPlugin*> (be.plugin.get()))
+                    if (auto type = collab::fx::typeFromId (e.builtin))
+                        fx->setEffect (*type, e.params);
+            }
 }
 
 void EngineBridge::syncRouting (const collab::Project& project)
@@ -932,7 +955,8 @@ bool EngineBridge::flushPluginStates()
             write (b.externalInstrument.get(), b.instrumentStateRef);
 
         for (auto& e : b.effects)
-            write (e.plugin.get(), e.stateRef);
+            if (dynamic_cast<BuiltinEffectPlugin*> (e.plugin.get()) == nullptr)
+                write (e.plugin.get(), e.stateRef);
     }
 
     return changed;
@@ -953,6 +977,14 @@ te::Plugin* EngineBridge::getExternalPlugin (const std::string& trackId, const s
             return e.plugin.get();
 
     return nullptr;
+}
+
+float EngineBridge::getEffectGainReductionDb (const std::string& trackId, const std::string& effectId) const
+{
+    if (auto* fx = dynamic_cast<BuiltinEffectPlugin*> (getExternalPlugin (trackId, effectId)))
+        return fx->getGainReductionDb();
+
+    return 0.0f;
 }
 
 bool EngineBridge::isPlayingRender (const std::string& trackId) const

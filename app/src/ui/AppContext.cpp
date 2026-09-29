@@ -256,15 +256,54 @@ void AppContext::addEffect (const std::string& trackId, const juce::PluginDescri
     });
 }
 
+void AppContext::addBuiltinEffect (const std::string& trackId, collab::fx::Type type)
+{
+    auto* t = document.getProject().findTrack (trackId);
+
+    if (t == nullptr)
+        return;
+
+    collab::Effect e;
+    e.id = collab::generateUuid();
+    e.builtin = collab::fx::idOf (type);
+    e.params = collab::fx::defaultParams (type, t->type == collab::TrackType::bus);
+
+    document.perform ("エフェクトの追加"_ju, [trackId, e] (collab::Project& p)
+    {
+        if (auto* tr = p.findTrack (trackId))
+            tr->effects.push_back (e);
+    });
+
+    // 追加したらすぐ画面を開く
+    if (openPluginEditor)
+        openPluginEditor (trackId, e.id);
+}
+
+juce::String AppContext::effectName (const collab::Effect& e)
+{
+    if (auto type = collab::fx::typeFromId (e.builtin))
+        return juce::String::fromUTF8 (collab::fx::displayName (*type).c_str());
+
+    return toJuce (e.plugin.name);
+}
+
 juce::PopupMenu AppContext::addEffectMenu (const std::string& trackId)
 {
+    // 内蔵エフェクト（誰の PC でも同じに鳴る）を先に、その下に外部プラグイン
     juce::PopupMenu add;
+    add.addSectionHeader ("内蔵エフェクト"_ju);
+
+    for (auto type : collab::fx::allTypes())
+        add.addItem (juce::String::fromUTF8 (collab::fx::displayName (type).c_str()), [this, trackId, type] { addBuiltinEffect (trackId, type); });
+
+    add.addSectionHeader ("外部プラグイン"_ju);
+    const int before = add.getNumItems();
 
     for (auto& d : PluginHost::list (engine.getEngine(), false))
         add.addItem (d.name + " (" + d.manufacturerName + ")", [this, trackId, d] { addEffect (trackId, d); });
 
-    if (add.getNumItems() == 0)
-        add.addItem ("プラグインがありません（オプション → プラグイン… でスキャン）"_ju, false, false, nullptr);
+    if (add.getNumItems() == before)
+        add.addItem ("プラグインがありません（設定 → プラグイン… でスキャン）"_ju, false, false, nullptr);
 
     return add;
 }

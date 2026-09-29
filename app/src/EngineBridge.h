@@ -69,6 +69,9 @@ public:
     /** 外部プラグイン（音源は effectId を空に）。エディタを開くため。 */
     te::Plugin* getExternalPlugin (const std::string& trackId, const std::string& effectId = {}) const;
 
+    /** 内蔵エフェクト（バスコンプ）のゲインリダクション（dB）。画面のメーター用。 */
+    float getEffectGainReductionDb (const std::string& trackId, const std::string& effectId) const;
+
     /** このトラックをバウンスした音で再生しているか（プラグインを鳴らせない環境）。 */
     bool isPlayingRender (const std::string& trackId) const;
 

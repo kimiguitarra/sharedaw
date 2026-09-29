@@ -213,9 +213,15 @@ struct Instrument
 struct Effect
 {
     std::string id;
-    ExternalPlugin plugin;
+    ExternalPlugin plugin;                  // 外部プラグイン（builtin が空のとき）
     std::string stateRef;
     bool bypass = false;
+
+    // 内蔵エフェクト（collab/BuiltinEffects.h の idOf。例 "busComp"）。値は params（キーは ParamSpec::key）
+    std::string builtin;
+    nlohmann::json params = nlohmann::json::object();
+
+    bool isBuiltin() const noexcept         { return ! builtin.empty(); }
 
     bool operator== (const Effect&) const = default;
 };
