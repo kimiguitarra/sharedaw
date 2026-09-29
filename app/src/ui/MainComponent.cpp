@@ -1448,6 +1448,20 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
     const auto shift = juce::ModifierKeys::shiftModifier;
     const float currentScale = juce::Desktop::getInstance().getGlobalScaleFactor();
 
+    // Mac のメニューはショートカットを文字として登録するので、文字にできないキー（Mac の Insert は -1 など）があると起動時に落ちる。念のため外す
+    struct DropUnusableKeys
+    {
+        juce::ApplicationCommandInfo& i;
+        ~DropUnusableKeys()
+        {
+            i.defaultKeypresses.removeIf ([] (const juce::KeyPress& k)
+            {
+                const int c = k.getTextCharacter() != 0 ? (int) k.getTextCharacter() : k.getKeyCode();
+                return c <= 0 || (c >= 0xd800 && c < 0xe000) || c > 0x10ffff;
+            });
+        }
+    } dropUnusableKeys { info };
+
     switch (id)
     {
         case cmdNew:        info.setInfo ("新しい曲（サーバーに作る）…"_ju, {}, "File", 0); info.addDefaultKeypress ('n', cmd); break;
@@ -1518,7 +1532,12 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
             break;
         case cmdAddMarker:
             info.setInfo ("再生位置にマーカーを追加"_ju, {}, "Transport", 0);
+           #if JUCE_MAC
+            // Mac のキーボードには Insert がない（JUCE では -1 になり、メニューを作るときに落ちる）ので Shift+Cmd+M
+            info.addDefaultKeypress ('m', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+           #else
             info.addDefaultKeypress (KP::insertKey, 0);
+           #endif
             break;
         case cmdMarker1: case cmdMarker2: case cmdMarker3: case cmdMarker4: case cmdMarker5:
         case cmdMarker6: case cmdMarker7: case cmdMarker8: case cmdMarker9:
