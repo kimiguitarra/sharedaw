@@ -176,8 +176,11 @@ TEST_CASE ("factory presets only use known parameters within range")
         CHECK_FALSE (factoryPresets (t).empty());
 
         for (auto& preset : factoryPresets (t))
-            for (auto& [key, value] : preset.params.items())
+            for (auto p = preset.params.begin(); p != preset.params.end(); ++p)
             {
+                // 構造化束縛はラムダで捕まえられない（Apple clang）ので、イテレーターで回す
+                const auto key = p.key();
+                const auto& value = p.value();
                 const auto& specs = paramSpecs (t);
                 auto it = std::find_if (specs.begin(), specs.end(), [&] (auto& s) { return s.key == key; });
                 REQUIRE (it != specs.end());
