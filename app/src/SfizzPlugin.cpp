@@ -110,6 +110,16 @@ void SfizzPlugin::midiPanic()
     reset();
 }
 
+void SfizzPlugin::queuePreview (const juce::MidiMessage& m)
+{
+    const auto scope = previewFifo.write (1);
+
+    if (scope.blockSize1 > 0)
+        previewQueue[(size_t) scope.startIndex1] = m;
+    else if (scope.blockSize2 > 0)
+        previewQueue[(size_t) scope.startIndex2] = m;
+}
+
 void SfizzPlugin::applyToBuffer (const te::PluginRenderContext& fc)
 {
     if (fc.destBuffer == nullptr)
@@ -154,6 +164,17 @@ void SfizzPlugin::applyToBuffer (const te::PluginRenderContext& fc)
                                           juce::roundToInt ((m.getTimeStamp() + fc.midiBufferOffset) * sampleRate));
             events.add ({ pos, m });
         }
+    }
+
+    // 試し弾き（ブロックの頭で鳴らす）
+    {
+        const auto scope = previewFifo.read (previewFifo.getNumReady());
+
+        for (int i = 0; i < scope.blockSize1; ++i)
+            events.insert (0, { 0, previewQueue[(size_t) (scope.startIndex1 + i)] });
+
+        for (int i = 0; i < scope.blockSize2; ++i)
+            events.insert (0, { 0, previewQueue[(size_t) (scope.startIndex2 + i)] });
     }
 
     int eventIndex = 0;

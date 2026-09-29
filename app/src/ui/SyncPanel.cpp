@@ -4,8 +4,10 @@
 
 namespace
 {
-    const juce::Colour primaryButton = Theme::accent.darker (0.45f);
-    const juce::Colour downloadColour = Theme::accent, uploadColour = Theme::ok;
+    // 色は起動時の外観（ダーク / ライト）で決まるので、使うときに読む
+    juce::Colour primaryButton()    { return Theme::light ? Theme::accent : Theme::accent.darker (0.45f); }
+    juce::Colour downloadColour()   { return Theme::accent; }
+    juce::Colour uploadColour()     { return Theme::ok; }
 
     constexpr int columnWidth = 64;    // ダウンロード・アップロードの欄
     constexpr int rowHeight = 34;
@@ -150,7 +152,7 @@ public:
             if (st.conflict)
                 g.setColour (Theme::warning.withAlpha (0.16f));
             else if (row.checks.canDownload)
-                g.setColour (downloadColour.withAlpha (0.13f));
+                g.setColour (downloadColour().withAlpha (0.13f));
             else if (expanded)
                 g.setColour (juce::Colours::white.withAlpha (0.05f));
             else
@@ -169,7 +171,7 @@ public:
             juce::Colour tagColour;
 
             if (st.conflict)                        { tag = "競合"_ju; tagColour = Theme::warning; }
-            else if (row.checks.canDownload)        { tag = "新着"_ju; tagColour = downloadColour; }
+            else if (row.checks.canDownload)        { tag = "新着"_ju; tagColour = downloadColour(); }
 
             if (tag.isNotEmpty())
             {
@@ -186,9 +188,9 @@ public:
 
             // チェック
             drawCheckbox (g, row.downloadCell.toFloat().withSizeKeepingCentre (20.0f, 20.0f),
-                          row.checks.canDownload, row.checks.download, downloadColour);
+                          row.checks.canDownload, row.checks.download, downloadColour());
             drawCheckbox (g, row.uploadCell.toFloat().withSizeKeepingCentre (20.0f, 20.0f),
-                          row.checks.canUpload, row.checks.upload, uploadColour);
+                          row.checks.canUpload, row.checks.upload, uploadColour());
 
             // 中身
             for (auto& d : row.details)
@@ -302,7 +304,7 @@ SyncPanel::SyncPanel (SyncManager& s, ProjectDocument& d, juce::PropertiesFile& 
     addAndMakeVisible (autoPull);
 
     for (auto* b : { &downloadButton, &uploadButton, &registerButton })
-        b->setColour (juce::TextButton::buttonColourId, primaryButton);
+        b->setColour (juce::TextButton::buttonColourId, primaryButton());
 
     downloadButton.setTooltip ("ダウンロード"_ju);
     downloadButton.onClick = [this]
@@ -569,9 +571,9 @@ void SyncPanel::paint (juce::Graphics& g)
         g.setFont (juce::FontOptions (15.0f, juce::Font::bold));
         g.setColour (Theme::textDim);
         g.drawText ("トラック"_ju, cols.withTrimmedLeft (10), juce::Justification::centredLeft);
-        g.setColour (downloadColour);
+        g.setColour (downloadColour());
         g.drawText (arrow (true) + " DL", cols.withLeft (cols.getRight() - 2 * columnWidth).withWidth (columnWidth), juce::Justification::centred);
-        g.setColour (uploadColour);
+        g.setColour (uploadColour());
         g.drawText (arrow (false) + " UP", cols.withLeft (cols.getRight() - columnWidth), juce::Justification::centred);
     }
 }
@@ -721,7 +723,7 @@ void SyncPanel::rebuild()
             authors.addIfNotAlreadyThere (r.author);
 
         statusLabel.setText (authors.joinIntoString ("・"_ju) + " さんの新しい変更があります"_ju, juce::dontSendNotification);
-        statusLabel.setColour (juce::Label::textColourId, conflictCount > 0 ? Theme::warning : downloadColour);
+        statusLabel.setColour (juce::Label::textColourId, conflictCount > 0 ? Theme::warning : downloadColour());
     }
     else if (uploadCount + conflictCount > 0)
     {
@@ -749,7 +751,7 @@ void SyncPanel::rebuild()
 //==============================================================================
 SyncToast::SyncToast()
 {
-    actionButton.setColour (juce::TextButton::buttonColourId, primaryButton);
+    actionButton.setColour (juce::TextButton::buttonColourId, primaryButton());
     actionButton.onClick = [this]
     {
         setVisible (false);

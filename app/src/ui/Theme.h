@@ -5,32 +5,46 @@
 
 namespace Theme
 {
+    // 色はダーク（既定）とライト（白を基調にしたニューモーフィズム）の 2 通り。起動時に applyPalette() で決める
+    // （部品は作るときに色を読むので、切り替えは再起動で反映する）
     // Cubase のように、真っ黒ではなく落ち着いた灰色
-    const juce::Colour background     { 0xff2c2f33 };
-    const juce::Colour panel          { 0xff383b40 };
-    const juce::Colour panelLight     { 0xff464a50 };
-    const juce::Colour lane           { 0xff393c41 };
-    const juce::Colour laneAlt        { 0xff34373c };
-    const juce::Colour gridBar        { 0xff676d75 };
-    const juce::Colour gridBeat       { 0xff51565d };
-    const juce::Colour gridSub        { 0xff45494f };
-    const juce::Colour text           { 0xffeceef0 };
-    const juce::Colour textDim        { 0xffb0b6bd };
+    inline juce::Colour background     { 0xff2c2f33 };
+    inline juce::Colour panel          { 0xff383b40 };
+    inline juce::Colour panelLight     { 0xff464a50 };
+    inline juce::Colour lane           { 0xff393c41 };
+    inline juce::Colour laneAlt        { 0xff34373c };
+    inline juce::Colour gridBar        { 0xff676d75 };
+    inline juce::Colour gridBeat       { 0xff51565d };
+    inline juce::Colour gridSub        { 0xff45494f };
+    inline juce::Colour text           { 0xffeceef0 };
+    inline juce::Colour textDim        { 0xffb0b6bd };
 
     // 入力欄: 周りより暗くして、はっきりした枠を付ける（どこに打てるか分かるように）
-    const juce::Colour field          { 0xff232528 };
-    const juce::Colour fieldOutline   { 0x66ffffff };
-    const juce::Colour accent         { 0xff4fc3f7 };
-    const juce::Colour selection      { 0xffffd54f };
-    const juce::Colour playhead       { 0xffff5252 };
-    const juce::Colour loopRange      { 0x3355c1ff };
-    const juce::Colour warning        { 0xffffb74d };
-    const juce::Colour tempo          { 0xffba68c8 };
-    const juce::Colour meter          { 0xff4db6ac };
+    inline juce::Colour field          { 0xff232528 };
+    inline juce::Colour fieldOutline   { 0x66ffffff };
+    inline juce::Colour accent         { 0xff4fc3f7 };
+    inline juce::Colour selection      { 0xffffd54f };
+    inline juce::Colour playhead       { 0xffff5252 };
+    inline juce::Colour loopRange      { 0x3355c1ff };
+    inline juce::Colour warning        { 0xffffb74d };
+    inline juce::Colour tempo          { 0xffba68c8 };
+    inline juce::Colour meter          { 0xff4db6ac };
 
     // 状態の色（落ち着いた色。同期の状況など）
-    const juce::Colour ok             { 0xff66bb6a };
-    const juce::Colour danger         { 0xffef5350 };
+    inline juce::Colour ok             { 0xff66bb6a };
+    inline juce::Colour danger         { 0xffef5350 };
+
+
+    inline bool light = false;
+
+    /** 色を切り替える（アプリの起動時、部品を作る前に呼ぶ）。 */
+    void applyPalette (bool useLight);
+
+    /**
+        ニューモーフィズムの面（ライト）: 左上に白い光、右下に柔らかい影で浮き上がって見える。pressed なら凹んで見える。
+        ダークのときは不透明の板。
+    */
+    void drawRaised (juce::Graphics&, juce::Rectangle<float> area, float radius, bool pressed = false, juce::Colour fill = {});
 
     /** トラックの既定の色（追加順に使う）。 */
     juce::Colour trackColour (int index);
@@ -84,6 +98,9 @@ namespace Theme
     {
     public:
         LookAndFeel();
+
+        /** 今の色（Theme::applyPalette の後）で部品の既定の色を設定し直す。 */
+        void applyColours();
 
         void drawButtonBackground (juce::Graphics&, juce::Button&, const juce::Colour& backgroundColour,
                                    bool highlighted, bool down) override;

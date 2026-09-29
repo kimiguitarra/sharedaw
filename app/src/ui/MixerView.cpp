@@ -161,7 +161,7 @@ public:
         for (float db : { -6.0f, -12.0f, -24.0f, -36.0f })
             g.fillRect (area.getX(), toY (db), area.getWidth(), 1.0f);
 
-        g.setColour (juce::Colours::white.withAlpha (0.9f));
+        g.setColour (Theme::light ? Theme::text : juce::Colours::white.withAlpha (0.9f));
         g.fillRect (area.getX(), y0 - 1.0f, area.getWidth(), 2.0f);
     }
 

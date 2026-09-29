@@ -22,7 +22,13 @@ public:
         }
 
         inputButton.setTooltip ("入力"_ju);
-        inputButton.onClick = [this] { showInputMenu(); };
+        inputButton.onClick = [this]
+        {
+            if (auto* t = track(); t != nullptr && t->type == collab::TrackType::midi)
+                showMidiInputMenu();
+            else
+                showInputMenu();
+        };
         inputMode.setTooltip ("入力のモノ / ステレオ"_ju);
         inputMode.onClick = [this] { toggleInputChannels(); };
 
@@ -67,7 +73,7 @@ public:
         if (t == nullptr)
             return 200;
 
-        int h = titleHeight + sectionHeight + rowHeight * (t->type == collab::TrackType::audio ? 2 : 1) + 8;
+        int h = titleHeight + sectionHeight + rowHeight * (t->type == collab::TrackType::bus ? 1 : 2) + 8;
 
         if (t->type == collab::TrackType::midi)
             h += sectionHeight + rowHeight * 2 + 8;
@@ -87,8 +93,16 @@ public:
 
         const bool audio = t->type == collab::TrackType::audio;
         const bool midi = t->type == collab::TrackType::midi;
-        inputButton.setVisible (audio);
+        inputButton.setVisible (audio || midi);
         inputMode.setVisible (audio);
+
+        if (midi)
+        {
+            // MIDI の入力: どの MIDI 鍵盤（機器）から受けるか
+            const auto choice = ctx.engine.getTrackMidiInput (trackId);
+            inputButton.setButtonText (choice.isEmpty() ? "すべての MIDI 入力"_ju : choice == "-" ? "なし"_ju : choice);
+            inputButton.setTooltip ("MIDI の入力（鍵盤など）"_ju);
+        }
         instrumentButton.setVisible (midi);
         adjustButton.setVisible (midi);
 
@@ -201,6 +215,8 @@ public:
 
         if (t->type == collab::TrackType::audio)
             row ("入力"_ju, inputButton, &inputMode);
+        else if (t->type == collab::TrackType::midi)
+            row ("入力"_ju, inputButton, nullptr);
 
         row ("出力"_ju, outputButton, &outputMode);
         area.removeFromTop (8);
@@ -287,6 +303,32 @@ private:
             ctx.state.changed();
         });
         m.addItem ("（オーディオインターフェースのダイレクトモニタリングがおすすめです）"_ju, false, false, nullptr);
+
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&inputButton));
+    }
+
+    void showMidiInputMenu()
+    {
+        const auto current = ctx.engine.getTrackMidiInput (trackId);
+        juce::PopupMenu m;
+        auto set = [this] (juce::String v) { ctx.engine.setTrackMidiInput (trackId, v); ctx.state.changed(); };
+
+        m.addItem ("すべての MIDI 入力"_ju, true, current.isEmpty(), [set] { set ({}); });
+        m.addItem ("なし"_ju, true, current == "-", [set] { set ("-"); });
+        m.addSeparator();
+        bool any = false;
+
+        for (auto& in : ctx.engine.getMidiInputs())
+        {
+            if (! in.enabled)
+                continue;
+
+            any = true;
+            m.addItem (in.name, true, current == in.name, [set, name = in.name] { set (name); });
+        }
+
+        if (! any)
+            m.addItem ("MIDI 鍵盤が有効になっていません（設定 → オーディオ・MIDI の設定）"_ju, false, false, nullptr);
 
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&inputButton));
     }

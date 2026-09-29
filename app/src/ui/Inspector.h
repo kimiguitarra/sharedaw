@@ -15,7 +15,7 @@ public:
     explicit Inspector (AppContext&);
     ~Inspector() override;
 
-    static constexpr int preferredWidth = 250;
+    static constexpr int defaultWidth = 200, minWidth = 170, maxWidth = 420;
 
     void paint (juce::Graphics&) override;
     void resized() override;

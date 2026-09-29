@@ -75,6 +75,36 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     addChildComponent (inspector);
     inspector.setVisible (settings.getBoolValue ("inspectorVisible", true));
 
+    // インスペクター・トラックヘッダー・同期パネルの幅は境目をドラッグで変える（この PC の設定）。
+    // 作業する場所（タイムライン）を広く取れるよう、最初は細めにしておく
+    inspectorWidth = juce::jlimit (Inspector::minWidth, Inspector::maxWidth, settings.getIntValue ("inspectorWidth", Inspector::defaultWidth));
+    timeline.setHeaderWidth (settings.getIntValue ("trackHeaderWidth", 170));
+    syncPanel.setExpandedWidth (settings.getIntValue ("syncPanelWidth", 240));
+    timeline.onHeaderWidthChanged = [this] { settings.setValue ("trackHeaderWidth", timeline.getHeaderWidth()); };
+
+    auto setupResizer = [this] (PaneResizer& r, std::function<int()> get, std::function<void (int)> set, const char* key)
+    {
+        r.onResize = [this, &r, get, set] (int dx)
+        {
+            if (resizeStartWidth == 0)
+                resizeStartWidth = get();
+
+            set (resizeStartWidth + (&r == &syncResizer ? -dx : dx));   // 同期パネルは左の端を動かす
+            resized();
+        };
+        r.onResizeEnd = [this, get, key]
+        {
+            resizeStartWidth = 0;
+            settings.setValue (key, get());
+        };
+        addAndMakeVisible (r);
+    };
+
+    setupResizer (inspectorResizer, [this] { return inspectorWidth; },
+                  [this] (int w) { inspectorWidth = juce::jlimit (Inspector::minWidth, Inspector::maxWidth, w); }, "inspectorWidth");
+    setupResizer (syncResizer, [this] { return syncPanel.getExpandedWidth(); },
+                  [this] (int w) { syncPanel.setExpandedWidth (w); }, "syncPanelWidth");
+
     // 上の段（拍子〜マーカー）の並びはこの PC の設定
     {
         auto saved = juce::StringArray::fromTokens (settings.getValue ("laneOrder"), ",", {});
@@ -189,15 +219,22 @@ void MainComponent::resized()
     transport.onMixer = [this] { toggleMixer(); };
 
     syncPanel.setBounds (area.removeFromRight (juce::jmin (syncPanel.getPreferredWidth(), area.getWidth() / 2)));
+    syncResizer.setVisible (! syncPanel.isCollapsed());
+    syncResizer.setBounds (syncPanel.getX() - 3, syncPanel.getY(), 6, syncPanel.getHeight());
 
     // 左にインスペクター（選択中のトラックのチャンネルストリップ。Alt+I で表示 / 非表示）
     if (inspector.isVisible())
-        inspector.setBounds (area.removeFromLeft (Inspector::preferredWidth));
+        inspector.setBounds (area.removeFromLeft (inspectorWidth));
+
+    inspectorResizer.setVisible (inspector.isVisible());
+    inspectorResizer.setBounds (inspector.getRight() - 3, inspector.getY(), 6, inspector.getHeight());
 
     toast.setTopLeftPosition (area.getRight() - toast.getWidth() - 12, area.getBottom() - toast.getHeight() - 12);
 
     juce::Component* comps[] = { &timeline, resizer.get(), &pianoRoll };
     layout.layOutComponents (comps, 3, area.getX(), area.getY(), area.getWidth(), area.getHeight(), true, true);
+    inspectorResizer.toFront (false);
+    syncResizer.toFront (false);
 }
 
 void MainComponent::setStatus (const juce::String& text)
@@ -1230,7 +1267,7 @@ void MainComponent::zoom (double factor)
     const bool piano = pianoRoll.hasKeyboardFocus (true);
     auto& axis = piano ? state.pianoRoll : state.timeline;
     const double x = axis.tickToX (bridge.getPositionTick());
-    const double width = piano ? pianoRoll.getWidth() : timeline.getWidth() - TimelineView::headerWidth;
+    const double width = piano ? pianoRoll.getWidth() : timeline.getWidth() - timeline.getHeaderWidth();
     axis.zoomAround (juce::jlimit (0.0, juce::jmax (0.0, width), x), factor);
     state.changed();
 }
@@ -1829,6 +1866,23 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             modes.addCommandItem (cm, cmdModeCubase);
             modes.addCommandItem (cm, cmdModeStudioOne);
             m.addSubMenu ("操作モード"_ju, modes);
+
+            // 外観（色）: ダーク / ライト。部品が作るときに色を読むので、再起動で切り替わる
+            juce::PopupMenu looks;
+            auto chooseLook = [this] (bool useLight)
+            {
+                if (useLight == (settings.getValue ("uiTheme") == "light"))
+                    return;
+
+                settings.setValue ("uiTheme", useLight ? "light" : "dark");
+                settings.saveIfNeeded();
+                Dialogs::confirm ("外観の切り替え"_ju, "アプリを再起動すると切り替わります。今すぐ終了しますか？（保存していない変更があれば確認します）"_ju,
+                                  "終了する"_ju, [] { juce::JUCEApplication::getInstance()->systemRequestedQuit(); });
+            };
+            const bool savedLight = settings.getValue ("uiTheme") == "light";
+            looks.addItem ("ダーク"_ju, true, ! savedLight, [chooseLook] { chooseLook (false); });
+            looks.addItem ("ライト（白を基調にしたニューモーフィズム）"_ju, true, savedLight, [chooseLook] { chooseLook (true); });
+            m.addSubMenu ("外観"_ju, looks);
             break;
         }
         case 7:

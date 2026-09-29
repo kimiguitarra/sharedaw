@@ -697,13 +697,24 @@ void VelocityLane::applyAt (float x1, float x2, float y)
     if (x1 > x2)
         std::swap (x1, x2);
 
-    x1 -= 4.0f;
-    x2 += 4.0f;
+    // 棒の上をぴったり押さなくてよいように、左右 7 ピクセルまで拾う
+    x1 -= 7.0f;
+    x2 += 7.0f;
 
     const int vel = juce::jlimit (1, 127, (int) std::round ((1.0f - (y - 4.0f) / ((float) getHeight() - 4.0f)) * 127.0f));
     const auto t1 = owner.axis().xToTick (x1) - (double) clip->startTick;
     const auto t2 = owner.axis().xToTick (x2) - (double) clip->startTick;
-    const auto sel = owner.selectedNotes;
+
+    // 選択中のノートがその場所にあるときだけ選択中のノートに絞る（選んでいなくても、棒を触ればそのまま変えられる）
+    auto sel = owner.selectedNotes;
+    bool touchesSelection = false;
+
+    for (auto& n : clip->notes)
+        if ((double) n.tick >= t1 && (double) n.tick <= t2 && sel.count (n.id) > 0)
+            touchesSelection = true;
+
+    if (! touchesSelection)
+        sel.clear();
 
     owner.lastVelocity = vel;
     owner.editNotes ("ベロシティの変更"_ju, [t1, t2, vel, sel] (collab::MidiClip& c)
@@ -712,6 +723,11 @@ void VelocityLane::applyAt (float x1, float x2, float y)
             if ((double) n.tick >= t1 && (double) n.tick <= t2 && (sel.empty() || sel.count (n.id) > 0))
                 n.velocity = vel;
     }, mergeId);
+}
+
+void VelocityLane::mouseMove (const juce::MouseEvent&)
+{
+    setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
 }
 
 void VelocityLane::mouseDown (const juce::MouseEvent& e)

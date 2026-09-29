@@ -975,6 +975,23 @@ TimelineView::TimelineView (AppContext& c)
     }
 
     addAndMakeVisible (headerHolder);
+
+    // ヘッダーとレーンの境目をドラッグしてヘッダーの幅を変える
+    headerResizer.onResize = [this] (int dx)
+    {
+        if (headerWidthAtDrag == 0)
+            headerWidthAtDrag = headerWidth;
+
+        setHeaderWidth (headerWidthAtDrag + dx);
+    };
+    headerResizer.onResizeEnd = [this]
+    {
+        headerWidthAtDrag = 0;
+
+        if (onHeaderWidthChanged)
+            onHeaderWidthChanged();
+    };
+    addAndMakeVisible (headerResizer);
     headerHolder.addAndMakeVisible (laneHeaders);
     laneHeaders.addMouseListener (this, false);
     updateChordControls();
@@ -1131,6 +1148,18 @@ void TimelineView::paintOverChildren (juce::Graphics& g)
     }
 }
 
+void TimelineView::setHeaderWidth (int w)
+{
+    w = juce::jlimit (minHeaderWidth, maxHeaderWidth, w);
+
+    if (w != headerWidth)
+    {
+        headerWidth = w;
+        resized();
+        repaint();
+    }
+}
+
 void TimelineView::resized()
 {
     auto area = getLocalBounds();
@@ -1145,6 +1174,8 @@ void TimelineView::resized()
     lanes.setBounds (area);
     left.removeFromTop (rulerHeight);
     headerHolder.setBounds (left.withTrimmedRight (1));
+    headerResizer.setBounds (left.getRight() - 3, 0, 6, getHeight());
+    headerResizer.toFront (false);
 
     playhead.setBounds (ruler.getX(), ruler.getY(), ruler.getWidth(), lanes.getBottom() - ruler.getY());
     playhead.refresh();

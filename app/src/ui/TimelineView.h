@@ -7,6 +7,7 @@
 #include "ui/Ruler.h"
 #include "ui/TempoMeterLanes.h"
 #include "ui/TrackHeader.h"
+#include "ui/PaneResizer.h"
 
 /** トラックのレーン（クリップの表示・作成・移動・長さ変更、オーディオの非破壊編集）。 */
 class TrackLanes  : public juce::Component,
@@ -131,13 +132,20 @@ public:
     /** 再生位置が見えるようにスクロールする。 */
     void followPlayhead (double tick);
 
-    static constexpr int headerWidth = 240;
+    /** トラックヘッダーの列の幅（境目をドラッグで変える。この PC の設定）。 */
+    int getHeaderWidth() const noexcept             { return headerWidth; }
+    void setHeaderWidth (int w);
+    std::function<void()> onHeaderWidthChanged;
+    static constexpr int minHeaderWidth = 130, maxHeaderWidth = 400;
 
     /** 上の段の並びを変えたとき（この PC の設定として保存する）。 */
     std::function<void()> onLaneOrderChanged;
 
 private:
     AppContext& ctx;
+    int headerWidth = 170;
+    PaneResizer headerResizer;
+    int headerWidthAtDrag = 0;
     Ruler ruler;
     TempoLane tempoLane;
     MeterLane meterLane;

@@ -51,12 +51,17 @@ public:
     void setCollapsed (bool);
     int getPreferredWidth() const noexcept      { return collapsed ? collapsedWidth : expandedWidth; }
 
+    /** 開いたときの幅（左の端をドラッグで変える。この PC の設定）。 */
+    void setExpandedWidth (int w) noexcept      { expandedWidth = juce::jlimit (minExpandedWidth, maxExpandedWidth, w); }
+    int getExpandedWidth() const noexcept       { return expandedWidth; }
+
     void paint (juce::Graphics&) override;
     void resized() override;
     void visibilityChanged() override;
     void mouseUp (const juce::MouseEvent&) override;
 
-    static constexpr int expandedWidth = 310, collapsedWidth = 46;
+    static constexpr int collapsedWidth = 46, minExpandedWidth = 210, maxExpandedWidth = 520;
+    int expandedWidth = 240;
 
 private:
     class List;

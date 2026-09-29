@@ -65,6 +65,7 @@ class VelocityLane  : public juce::Component,
 public:
     explicit VelocityLane (PianoRollView& o);
     void paint (juce::Graphics&) override;
+    void mouseMove (const juce::MouseEvent&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;

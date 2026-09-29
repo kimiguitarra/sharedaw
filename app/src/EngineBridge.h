@@ -162,6 +162,13 @@ public:
     };
 
     std::vector<MidiInputStatus> getMidiInputs() const;
+
+    /**
+        MIDI トラックの入力（受ける MIDI 機器の名前。空ならすべての MIDI 入力、"-" ならなし）。この PC だけの設定。
+        MIDI の録音先・試し弾きの先（録音待機、なければ選択中の MIDI トラック）がこの入力を受ける。
+    */
+    juce::String getTrackMidiInput (const std::string& trackId) const;
+    void setTrackMidiInput (const std::string& trackId, const juce::String& device);
     void setMidiInputEnabled (const juce::String& name, bool enabled);
 
     /** 入力の強さを更新する（UI のタイマーから 30Hz 程度で呼ぶ）。 */
@@ -284,6 +291,7 @@ private:
 
     std::vector<std::unique_ptr<MidiIn>> midiInputs;
     std::string midiTargetId;
+    std::map<std::string, juce::String> trackMidiInputs;
     std::string spectrumTrackId;
     std::vector<RecordedMidi> pendingMidi;
     void refreshMidiInputs();

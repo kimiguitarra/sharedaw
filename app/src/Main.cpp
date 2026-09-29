@@ -126,6 +126,10 @@ public:
 
         MainComponent::applyFontScale ((float) settings->getDoubleValue ("uiScale", 1.0));
 
+        // 画面の色（ダーク / ライト）。部品を作る前に決める
+        Theme::applyPalette (settings->getValue ("uiTheme") == "light");
+        lookAndFeel.applyColours();
+
         engine = std::make_unique<te::Engine> (getApplicationName(), std::make_unique<CollabUIBehaviour>(),
                                                std::make_unique<CollabEngineBehaviour>());
         engine->getPluginManager().createBuiltInType<SfizzPlugin>();

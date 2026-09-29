@@ -4,6 +4,7 @@
 
 #include "ui/AppContext.h"
 #include "ui/Inspector.h"
+#include "ui/PaneResizer.h"
 #include "ui/PianoRoll.h"
 #include "ui/SyncPanel.h"
 #include "ui/TimelineView.h"
@@ -70,6 +71,8 @@ private:
     PianoRollView pianoRoll { ctx };
     SyncPanel syncPanel { sync, document, settings };
     Inspector inspector { ctx };
+    PaneResizer inspectorResizer, syncResizer;
+    int inspectorWidth = Inspector::defaultWidth, resizeStartWidth = 0;
     SyncToast toast;
     juce::TooltipWindow tooltips { nullptr, 400 };   // マウスを少し止めるとボタンの説明を出す
     std::unique_ptr<juce::FileChooser> chooser;

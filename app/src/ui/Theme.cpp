@@ -47,8 +47,84 @@ void drawSectionHeader (juce::Graphics& g, juce::Rectangle<int> area, const juce
     }
 }
 
+void applyPalette (bool useLight)
+{
+    light = useLight;
+
+    if (! light)
+        return;   // ダークは Theme.h の初期値のまま
+
+    // 白を基調にしたニューモーフィズム: 面は同じ明るい灰色で、影と光だけで凹凸を出す。文字は濃い灰色
+    background   = juce::Colour (0xffe3e7ed);
+    panel        = juce::Colour (0xffe8ecf1);
+    panelLight   = juce::Colour (0xffeff2f6);
+    lane         = juce::Colour (0xfff1f3f6);
+    laneAlt      = juce::Colour (0xffe9ecf1);
+    gridBar      = juce::Colour (0xffadb5c0);
+    gridBeat     = juce::Colour (0xffcbd1d9);
+    gridSub      = juce::Colour (0xffdce0e6);
+    text         = juce::Colour (0xff2b313b);
+    textDim      = juce::Colour (0xff6a7382);
+    field        = juce::Colour (0xffdde2e9);
+    fieldOutline = juce::Colour (0x26000000);
+    accent       = juce::Colour (0xff2a86d1);
+    selection    = juce::Colour (0xffd89a00);
+    playhead     = juce::Colour (0xffe53935);
+    loopRange    = juce::Colour (0x302a86d1);
+    warning      = juce::Colour (0xffd98200);
+    tempo        = juce::Colour (0xff9442c4);
+    meter        = juce::Colour (0xff00897b);
+    ok           = juce::Colour (0xff2e9d4a);
+    danger       = juce::Colour (0xffd9363e);
+}
+
+void drawRaised (juce::Graphics& g, juce::Rectangle<float> r, float radius, bool pressed, juce::Colour fill)
+{
+    if (fill.isTransparent())
+        fill = panel;
+
+    if (! light)
+    {
+        g.setColour (pressed ? fill.darker (0.15f) : fill);
+        g.fillRoundedRectangle (r, radius);
+        return;
+    }
+
+    juce::Path shape;
+    shape.addRoundedRectangle (r, radius);
+
+    if (! pressed)
+    {
+        // 右下に柔らかい影、左上に白い光（面が浮き上がって見える）
+        juce::DropShadow (juce::Colour (0x40a3b1c6), 8, { 3, 3 }).drawForPath (g, shape);
+        juce::DropShadow (juce::Colours::white.withAlpha (0.9f), 8, { -3, -3 }).drawForPath (g, shape);
+        g.setColour (fill);
+        g.fillPath (shape);
+        return;
+    }
+
+    // 凹み: 面を少し暗くし、内側の左上に影、右下に光
+    g.setColour (fill.darker (0.04f));
+    g.fillPath (shape);
+    juce::Graphics::ScopedSaveState save (g);
+    g.reduceClipRegion (shape);
+    juce::Path outer;
+    outer.addRectangle (r.expanded (12.0f));
+    outer.addRoundedRectangle (r, radius);
+    outer.setUsingNonZeroWinding (false);
+    juce::DropShadow (juce::Colour (0x50a3b1c6), 6, { 2, 2 }).drawForPath (g, outer);
+    juce::DropShadow (juce::Colours::white.withAlpha (0.8f), 6, { -2, -2 }).drawForPath (g, outer);
+}
+
 void drawGlass (juce::Graphics& g, juce::Rectangle<float> r, float radius, juce::Colour tint)
 {
+    // ライト: ガラスの代わりにニューモーフィズムの浮き上がった面
+    if (light)
+    {
+        drawRaised (g, r, radius, false, tint.isTransparent() ? panel : panel.interpolatedWith (tint.withAlpha (1.0f), 0.18f));
+        return;
+    }
+
     // 本体: 半透明の白（下地が透けて見える）
     g.setColour (juce::Colours::white.withAlpha (0.055f));
     g.fillRoundedRectangle (r, radius);
@@ -86,6 +162,11 @@ void drawStatusDot (juce::Graphics& g, juce::Rectangle<float> area, juce::Colour
 
 LookAndFeel::LookAndFeel()
 {
+    applyColours();
+}
+
+void LookAndFeel::applyColours()
+{
     setColourScheme ({ panel, background, panelLight, gridBar, text, accent, juce::Colours::black, panelLight, text });
 
     setColour (juce::ResizableWindow::backgroundColourId, background);
@@ -101,15 +182,30 @@ LookAndFeel::LookAndFeel()
     setColour (juce::Slider::backgroundColourId, background);
     setColour (juce::ScrollBar::thumbColourId, gridBar);
     // ツールチップとスライダーの値の吹き出し: 明るい文字にする（黒い吹き出しに黒い文字にならないように）
-    setColour (juce::TooltipWindow::backgroundColourId, juce::Colour (0xff2b2f36));
+    const auto bubble = light ? juce::Colour (0xfffbfcfd) : juce::Colour (0xff2b2f36);
+    const auto bubbleOutline = light ? juce::Colours::black.withAlpha (0.15f) : juce::Colours::white.withAlpha (0.25f);
+    setColour (juce::TooltipWindow::backgroundColourId, bubble);
     setColour (juce::TooltipWindow::textColourId, text);
-    setColour (juce::TooltipWindow::outlineColourId, juce::Colours::white.withAlpha (0.25f));
-    setColour (juce::BubbleComponent::backgroundColourId, juce::Colour (0xff2b2f36));
-    setColour (juce::BubbleComponent::outlineColourId, juce::Colours::white.withAlpha (0.25f));
+    setColour (juce::TooltipWindow::outlineColourId, bubbleOutline);
+    setColour (juce::BubbleComponent::backgroundColourId, bubble);
+    setColour (juce::BubbleComponent::outlineColourId, bubbleOutline);
     setColour (juce::TextEditor::backgroundColourId, field);
     setColour (juce::TextEditor::outlineColourId, fieldOutline);
     setColour (juce::AlertWindow::backgroundColourId, panel);
-    setColour (juce::AlertWindow::outlineColourId, juce::Colours::white.withAlpha (0.25f));
+    setColour (juce::AlertWindow::outlineColourId, bubbleOutline);
+    setColour (juce::PopupMenu::textColourId, text);
+    setColour (juce::PopupMenu::highlightedTextColourId, text);
+    setColour (juce::ListBox::backgroundColourId, panel);
+    setColour (juce::ToggleButton::textColourId, text);
+    setColour (juce::ToggleButton::tickColourId, accent);
+    setColour (juce::ToggleButton::tickDisabledColourId, textDim);
+    setColour (juce::TextButton::textColourOffId, text);
+    setColour (juce::TextButton::textColourOnId, light ? text : juce::Colours::white);
+    setColour (juce::ComboBox::textColourId, text);
+    setColour (juce::ComboBox::arrowColourId, textDim);
+    setColour (juce::TextEditor::textColourId, text);
+    setColour (juce::TextEditor::highlightColourId, accent.withAlpha (0.3f));
+    setColour (juce::CaretComponent::caretColourId, text);
     setColour (juce::AlertWindow::textColourId, text);
     setColour (juce::TextEditor::focusedOutlineColourId, accent);
 }
@@ -172,6 +268,21 @@ void LookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& b, cons
     const float radius = juce::jmin (r.getHeight() * 0.5f, 10.0f);
     const bool plain = backgroundColour == findColour (juce::TextButton::buttonColourId);   // 色を指定していないボタン
 
+    // ライト: ニューモーフィズム（浮き上がったボタン、押している・オンのときは凹む）
+    if (light)
+    {
+        const bool on = b.getToggleState() || down;
+        drawRaised (g, r, radius, on, plain ? panel : backgroundColour.interpolatedWith (panel, on ? 0.25f : 0.35f));
+
+        if (highlighted && b.isEnabled() && ! on)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.35f));
+            g.fillRoundedRectangle (r, radius);
+        }
+
+        return;
+    }
+
     // ボタンは不透明（ガラスにすると色が薄く見えて押せるものか分かりにくい）。
     // ガラスはツールバー・トランスポートのまとまり（浮いている操作面）だけに使う
     const auto fill = plain ? panelLight : backgroundColour;
@@ -201,10 +312,18 @@ void LookAndFeel::drawComboBox (juce::Graphics& g, int width, int height, bool, 
 {
     auto r = juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height).reduced (1.0f, 1.5f);
     const float radius = juce::jmin (r.getHeight() * 0.5f, 10.0f);
-    g.setColour (panelLight);
-    g.fillRoundedRectangle (r, radius);
-    g.setColour (juce::Colours::black.withAlpha (0.35f));
-    g.drawRoundedRectangle (r, radius, 1.0f);
+
+    if (light)
+    {
+        drawRaised (g, r, radius, true, panel);   // 選ぶ欄は凹ませる
+    }
+    else
+    {
+        g.setColour (panelLight);
+        g.fillRoundedRectangle (r, radius);
+        g.setColour (juce::Colours::black.withAlpha (0.35f));
+        g.drawRoundedRectangle (r, radius, 1.0f);
+    }
 
     if (box.hasKeyboardFocus (true))
     {
@@ -465,11 +584,17 @@ juce::Path iconPath (const juce::String& name, juce::Rectangle<float> area)
 void IconButton::paintButton (juce::Graphics& g, bool highlighted, bool down)
 {
     const bool on = getToggleState();
-    getLookAndFeel().drawButtonBackground (g, *this, findColour (on ? buttonOnColourId : buttonColourId), highlighted, down);
+
+    // ライト: オンは凹んだ面に青いアイコン（色の塊にしない）
+    if (light)
+        drawRaised (g, getLocalBounds().toFloat().reduced (1.0f, 1.5f), juce::jmin ((float) getHeight() * 0.5f - 1.5f, 10.0f), on || down, panel);
+    else
+        getLookAndFeel().drawButtonBackground (g, *this, findColour (on ? buttonOnColourId : buttonColourId), highlighted, down);
 
     const float size = juce::jmin ((float) getHeight() - 12.0f, 22.0f);
     auto area = getLocalBounds().toFloat().withSizeKeepingCentre (size, size);
-    g.setColour (findColour (on ? textColourOnId : textColourOffId).withMultipliedAlpha (isEnabled() ? 1.0f : 0.4f));
+    const auto colour = light ? (on ? Theme::accent : Theme::text) : findColour (on ? textColourOnId : textColourOffId);
+    g.setColour (colour.withMultipliedAlpha (isEnabled() ? 1.0f : 0.4f));
     g.fillPath (iconPath (icon, area));
 }
 

@@ -194,6 +194,18 @@ void EngineBridge::refreshMidiInputs()
     }
 }
 
+juce::String EngineBridge::getTrackMidiInput (const std::string& trackId) const
+{
+    auto it = trackMidiInputs.find (trackId);
+    return it != trackMidiInputs.end() ? it->second : juce::String();
+}
+
+void EngineBridge::setTrackMidiInput (const std::string& trackId, const juce::String& device)
+{
+    trackMidiInputs[trackId] = device;
+    applyInputs();
+}
+
 std::vector<EngineBridge::MidiInputStatus> EngineBridge::getMidiInputs() const
 {
     std::vector<MidiInputStatus> result;
@@ -1510,7 +1522,13 @@ void EngineBridge::applyInputs()
             te::AudioTrack* target = nullptr;
 
             if (auto b = bindings.find (midiTargetId); b != bindings.end() && b->second.track != nullptr && ! b->second.renderMode)
-                target = b->second.track.get();
+            {
+                // トラックで入力を選んでいれば、その機器だけ
+                const auto choice = getTrackMidiInput (midiTargetId);
+
+                if (choice.isEmpty() || choice == in->getInputDevice().getName())
+                    target = b->second.track.get();
+            }
 
             for (auto id : in->getTargets())
                 if (target == nullptr || id != target->itemID)
@@ -1841,7 +1859,22 @@ void EngineBridge::previewNote (const std::string& trackId, int pitch, int veloc
     if (it == bindings.end() || it->second.track == nullptr || it->second.renderMode || isPlaying())
         return;
 
-    // ノートを置いた直後はクリップを作り直していて、音の経路が組み直される間に送った MIDI は消えてしまう。
+    // 内蔵音源は音源に直接渡す（経路の組み直しに左右されない）
+    if (auto* synth = it->second.synth)
+    {
+        synth->queuePreview (juce::MidiMessage::noteOn (1, pitch, (juce::uint8) juce::jlimit (1, 127, velocity)));
+
+        juce::Timer::callAfterDelay (300, [this, alive = std::weak_ptr<bool> (aliveFlag), trackId, pitch]
+        {
+            if (! alive.expired())
+                if (auto b = bindings.find (trackId); b != bindings.end() && b->second.synth != nullptr)
+                    b->second.synth->queuePreview (juce::MidiMessage::noteOff (1, pitch));
+        });
+
+        return;
+    }
+
+    // 外部プラグイン: ノートを置いた直後はクリップを作り直していて、音の経路が組み直される間に送った MIDI は消えてしまう。
     // 作り直してから少し待ってから鳴らす（ピアノロールで続けて打ち込んだとき、2 音目から鳴らなかった）
     constexpr juce::uint32 settleMs = 120;
     const auto elapsed = juce::Time::getMillisecondCounter() - it->second.clipsRebuiltAt;

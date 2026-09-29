@@ -47,6 +47,12 @@ public:
 
     const juce::String& getLoadedSfzText() const noexcept       { return loadedText; }
 
+    /**
+        試し弾きの MIDI（鉛筆で置いた音など）。トラックの MIDI 入力を通さず、次のブロックでこの音源に直接渡す。
+        ノートを置くたびに Tracktion が音の経路を組み直しても消えない（続けて打ち込むと鳴らなくなっていた）。メッセージスレッドから。
+    */
+    void queuePreview (const juce::MidiMessage&);
+
 private:
     bool freeWheeling = false;   // synthLock の中で読み書きする
     std::unique_ptr<sfz::Sfizz> createSynth (const juce::String& path, const juce::String& text) const;
@@ -60,6 +66,10 @@ private:
 
     std::atomic<float> gainLeft { 1.0f }, gainRight { 1.0f };
     juce::AudioBuffer<float> scratch;
+
+    static constexpr int previewCapacity = 128;
+    juce::AbstractFifo previewFifo { previewCapacity };
+    std::array<juce::MidiMessage, previewCapacity> previewQueue;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SfizzPlugin)
 };
