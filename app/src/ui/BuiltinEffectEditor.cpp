@@ -250,8 +250,8 @@ void BuiltinEffectEditor::showPresets()
                 if (auto* t = p.findTrack (track))
                     for (auto& e : t->effects)
                         if (e.id == fx)
-                            for (auto& [key, value] : params.items())
-                                e.params[key] = value;
+                            for (auto it = params.begin(); it != params.end(); ++it)   // MSVC は入れ子のラムダで構造化束縛を使えない
+                                e.params[it.key()] = it.value();
             });
         });
 
