@@ -74,6 +74,8 @@
 
 - `assets/instruments/<id>/<version>/manifest.json` にパーツ・キット・既定パラメータを書く。
   サンプルは変えずにマップだけ変える版は `"samplesFrom": "1.0.0"` のように前の版のサンプルを使う（サンプルを複製しない）。
+  新しいサンプルを足しつつ前の版のサンプルも使う版（ドラム 1.2.0、ピアノ 1.1.0）は、SFZ の `sample=../1.0.0/audio/...` で前の版を指す。
+  ドラムの `kitOrder` は画面に並べる順、`kitAliases` は名前を変えたキットの旧名 → 新名。
 - `instrument.params`（JSON）から `collab::generateSfz()` で SFZ テキストを生成し、sfizz の `loadSfzString()` に渡す。
   パーツごとのサンプル差し替え・音量・パン・チューニングとトーン（高域シェルフ）は SFZ に反映し、
   全体の音量・パンは SFZ を読み直さずにプラグイン側で掛ける。

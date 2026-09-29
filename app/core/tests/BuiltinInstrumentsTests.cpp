@@ -25,7 +25,8 @@ TEST_CASE ("bundled manifests are valid and reference existing files")
 {
     for (auto [id, version] : { std::pair (builtin::drums, "0.1.0"), std::pair (builtin::bass, "0.1.0"), std::pair (builtin::piano, "0.1.0"),
                                 std::pair (builtin::drums, "1.0.0"), std::pair (builtin::bass, "1.0.0"), std::pair (builtin::piano, "1.0.0"),
-                                std::pair (builtin::drums, "1.1.0") })
+                                std::pair (builtin::drums, "1.1.0"), std::pair (builtin::drums, "1.2.0"), std::pair (builtin::bass, "3.2.0"),
+                                std::pair (builtin::piano, "1.1.0") })
     {
         CAPTURE (id);
         CAPTURE (version);
@@ -105,6 +106,17 @@ TEST_CASE ("unknown kit falls back to the first kit")
     auto m = loadManifest (builtin::drums, "0.1.0");
     auto r = resolveInstrumentParams (m, nlohmann::json::parse (R"({ "kit": "nope" })"));
     CHECK (m.kits.count (r.kit) == 1);
+}
+
+TEST_CASE ("renamed kits of an older version resolve to the new names")
+{
+    auto m = loadManifest (builtin::drums, "1.2.0");
+    CHECK (m.kitOrder == std::vector<std::string> { "PopAcoustic", "JazzAcoustic", "Electronic" });
+    CHECK (resolveInstrumentParams (m, nlohmann::json::parse (R"({ "kit": "acoustic" })")).kit == "PopAcoustic");
+    CHECK (resolveInstrumentParams (m, nlohmann::json::parse (R"({ "kit": "electronic" })")).kit == "Electronic");
+    CHECK (resolveInstrumentParams (m, nlohmann::json::parse (R"({ "kit": "nope" })")).kit == "PopAcoustic");
+    CHECK (resolveInstrumentParams (m, nlohmann::json::object()).kit == "PopAcoustic");
+    CHECK (resolveInstrumentParams (m, nlohmann::json::parse (R"({ "kit": "JazzAcoustic" })")).pieces.at ("ride2").sample == "virtuosity/flatRide");
 }
 
 TEST_CASE ("melodic instrument sfz with tone")

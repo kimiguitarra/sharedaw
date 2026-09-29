@@ -41,6 +41,8 @@ struct BuiltinInstrumentManifest
     std::vector<InstrumentPreset> presets;                            // melodic の音色
     std::vector<DrumPiece> pieces;                                    // drums のみ
     std::map<std::string, std::map<std::string, std::string>> kits;   // kit -> piece -> sample
+    std::vector<std::string> kitOrder;                                // 画面に並べる順（kitOrder が無ければ名前順）
+    std::map<std::string, std::string> kitAliases;                    // 前の版のキット名 -> この版のキット名（名前を変えたとき）
     std::vector<std::string> samples;                                 // 差し替え可能なサンプル ID
     std::vector<std::string> credits;                                 // CC-BY 等のクレジット表記
     nlohmann::json defaultParams = nlohmann::json::object();

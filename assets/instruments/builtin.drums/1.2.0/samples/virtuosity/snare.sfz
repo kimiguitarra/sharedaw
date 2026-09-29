@@ -1,0 +1,38 @@
+// snare: Virtuosity Drums（CC0）snare_center のキック・スネア・オーバーヘッドのマイクを同じ音量でまとめたもの
+<group> loop_mode=one_shot off_mode=normal ampeg_release=0.05 group_volume=7 amp_veltrack=0
+<region> sample=audio/virtuosity/snare/snare_center_vl1.flac hivel=3
+<region> sample=audio/virtuosity/snare/snare_center_vl2.flac lovel=4 hivel=7
+<region> sample=audio/virtuosity/snare/snare_center_vl3.flac lovel=8 hivel=10
+<region> sample=audio/virtuosity/snare/snare_center_vl4.flac lovel=11 hivel=14
+<region> sample=audio/virtuosity/snare/snare_center_vl5.flac lovel=15 hivel=17
+<region> sample=audio/virtuosity/snare/snare_center_vl6.flac lovel=18 hivel=21
+<region> sample=audio/virtuosity/snare/snare_center_vl7.flac lovel=22 hivel=24
+<region> sample=audio/virtuosity/snare/snare_center_vl8.flac lovel=25 hivel=27
+<region> sample=audio/virtuosity/snare/snare_center_vl9.flac lovel=28 hivel=31
+<region> sample=audio/virtuosity/snare/snare_center_vl10.flac lovel=32 hivel=34
+<region> sample=audio/virtuosity/snare/snare_center_vl11.flac lovel=35 hivel=38
+<region> sample=audio/virtuosity/snare/snare_center_vl12.flac lovel=39 hivel=41
+<region> sample=audio/virtuosity/snare/snare_center_vl13.flac lovel=42 hivel=45
+<region> sample=audio/virtuosity/snare/snare_center_vl14.flac lovel=46 hivel=48
+<region> sample=audio/virtuosity/snare/snare_center_vl15.flac lovel=49 hivel=52
+<region> sample=audio/virtuosity/snare/snare_center_vl16.flac lovel=53 hivel=55
+<region> sample=audio/virtuosity/snare/snare_center_vl17.flac lovel=56 hivel=59
+<region> sample=audio/virtuosity/snare/snare_center_vl18.flac lovel=60 hivel=63
+<region> sample=audio/virtuosity/snare/snare_center_vl19.flac lovel=64 hivel=66
+<region> sample=audio/virtuosity/snare/snare_center_vl20.flac lovel=67 hivel=70
+<region> sample=audio/virtuosity/snare/snare_center_vl21.flac lovel=71 hivel=73
+<region> sample=audio/virtuosity/snare/snare_center_vl22.flac lovel=74 hivel=77
+<region> sample=audio/virtuosity/snare/snare_center_vl23.flac lovel=78 hivel=80
+<region> sample=audio/virtuosity/snare/snare_center_vl24.flac lovel=81 hivel=84
+<region> sample=audio/virtuosity/snare/snare_center_vl25.flac lovel=85 hivel=87
+<region> sample=audio/virtuosity/snare/snare_center_vl26.flac lovel=88 hivel=91
+<region> sample=audio/virtuosity/snare/snare_center_vl27.flac lovel=92 hivel=95
+<region> sample=audio/virtuosity/snare/snare_center_vl28.flac lovel=96 hivel=98
+<region> sample=audio/virtuosity/snare/snare_center_vl29.flac lovel=99 hivel=102
+<region> sample=audio/virtuosity/snare/snare_center_vl30.flac lovel=103 hivel=105
+<region> sample=audio/virtuosity/snare/snare_center_vl31.flac lovel=106 hivel=109
+<region> sample=audio/virtuosity/snare/snare_center_vl32.flac lovel=110 hivel=112
+<region> sample=audio/virtuosity/snare/snare_center_vl33.flac lovel=113 hivel=116
+<region> sample=audio/virtuosity/snare/snare_center_vl34.flac lovel=117 hivel=119
+<region> sample=audio/virtuosity/snare/snare_center_vl35.flac lovel=120 hivel=123
+<region> sample=audio/virtuosity/snare/snare_center_vl36.flac lovel=124

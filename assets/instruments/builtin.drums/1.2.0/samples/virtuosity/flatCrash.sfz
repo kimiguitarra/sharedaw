@@ -1,0 +1,6 @@
+// flatCrash: Virtuosity Drums（CC0）flatride_crash のキック・スネア・オーバーヘッドのマイクを同じ音量でまとめたもの
+<group> loop_mode=one_shot off_mode=normal ampeg_release=0.05 group_volume=7 amp_veltrack=50
+<region> sample=audio/virtuosity/flatCrash/flatride_crash_vl1.flac hivel=31 amp_velcurve_31=1
+<region> sample=audio/virtuosity/flatCrash/flatride_crash_vl2.flac lovel=32 hivel=63 amp_velcurve_63=1
+<region> sample=audio/virtuosity/flatCrash/flatride_crash_vl3.flac lovel=64 hivel=95 amp_velcurve_95=1
+<region> sample=audio/virtuosity/flatCrash/flatride_crash_vl4.flac lovel=96

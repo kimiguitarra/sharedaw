@@ -85,7 +85,7 @@ InstrumentPanel::InstrumentPanel (AppContext& c, const std::string& id)
     {
         int kitId = 1;
 
-        for (auto& [kit, pieces] : manifest->kits)
+        for (auto& kit : manifest->kitOrder)
             kitBox.addItem (toJuce (kit), kitId++);
 
         kitBox.onChange = [this]

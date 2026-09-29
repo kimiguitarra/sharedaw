@@ -45,6 +45,18 @@ BuiltinInstrumentManifest BuiltinInstrumentManifest::fromJson (const json& j)
                 for (auto& [piece, sample] : map.items())
                     m.kits[kit][piece] = sample.get<std::string>();
 
+            for (auto& k : j.value ("kitOrder", json::array()))
+                if (m.kits.count (k.get<std::string>()) != 0)
+                    m.kitOrder.push_back (k.get<std::string>());
+
+            for (auto& [kit, _] : m.kits)
+                if (std::find (m.kitOrder.begin(), m.kitOrder.end(), kit) == m.kitOrder.end())
+                    m.kitOrder.push_back (kit);
+
+            if (j.contains ("kitAliases"))
+                for (auto it = j.at ("kitAliases").begin(); it != j.at ("kitAliases").end(); ++it)
+                    m.kitAliases[it.key()] = it.value().get<std::string>();
+
             m.samples = j.at ("samples").get<std::vector<std::string>>();
         }
         else if (m.type == "melodic")
@@ -126,10 +138,17 @@ ResolvedInstrumentParams resolveInstrumentParams (const BuiltinInstrumentManifes
 
     if (m.type == "drums")
     {
-        r.kit = str (params, "kit", str (defaults, "kit", m.kits.empty() ? std::string() : m.kits.begin()->first));
+        r.kit = str (params, "kit", str (defaults, "kit", m.kitOrder.empty() ? std::string() : m.kitOrder.front()));
 
-        if (m.kits.find (r.kit) == m.kits.end() && ! m.kits.empty())
-            r.kit = m.kits.begin()->first;
+        // 前の版で使っていたキット名（名前を変えたもの）は、この版の名前に読み替える
+        if (auto a = m.kitAliases.find (r.kit); m.kits.find (r.kit) == m.kits.end() && a != m.kitAliases.end())
+            r.kit = a->second;
+
+        if (m.kits.find (r.kit) == m.kits.end() && ! m.kitOrder.empty())
+            r.kit = str (defaults, "kit", m.kitOrder.front());
+
+        if (m.kits.find (r.kit) == m.kits.end() && ! m.kitOrder.empty())
+            r.kit = m.kitOrder.front();
 
         const json pieces = params.contains ("pieces") && params["pieces"].is_object() ? params["pieces"] : json::object();
 

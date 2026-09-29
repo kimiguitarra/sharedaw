@@ -1,0 +1,2 @@
+<region> sample=*noise volume=1 fil_type=hpf_2p cutoff=7000 amp_veltrack=90
+ ampeg_attack=0 ampeg_decay=0.5 ampeg_sustain=0 ampeg_release=0.5 loop_mode=one_shot
