@@ -43,6 +43,5 @@ private:
 
     void select();
     void showMenu();
-    bool isAudioTrack() const;
     void editTrack (const juce::String& description, std::function<void (collab::Track&)> fn, const juce::String& mergeId = {});
 };

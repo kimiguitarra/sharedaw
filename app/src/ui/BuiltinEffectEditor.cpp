@@ -1,5 +1,6 @@
 #include "BuiltinEffectEditor.h"
 
+#include "ValueText.h"
 #include "Theme.h"
 
 namespace
@@ -18,7 +19,7 @@ namespace
         }
 
         if (spec.unit == "Hz")
-            return v >= 1000.0 ? juce::String (v / 1000.0, v >= 10000.0 ? 1 : 2) + " kHz" : juce::String (juce::roundToInt (v)) + " Hz";
+            return ValueText::formatHz (v);
 
         if (spec.unit == "%" || spec.unit == "ms")
             return juce::String (juce::roundToInt (v)) + " " + utf8 (spec.unit);

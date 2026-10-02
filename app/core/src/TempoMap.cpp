@@ -105,11 +105,6 @@ SampleCount TempoMap::tickToSamples (double tick, double sampleRate) const
     return (SampleCount) std::llround (tickToSeconds (tick) * sampleRate);
 }
 
-double TempoMap::samplesToTick (SampleCount samples, double sampleRate) const
-{
-    return secondsToTick ((double) samples / sampleRate);
-}
-
 double TempoMap::bpmAtTick (Tick tick) const
 {
     auto it = std::upper_bound (tempos.begin(), tempos.end(), tick,

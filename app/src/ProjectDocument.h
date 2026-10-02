@@ -41,7 +41,6 @@ public:
     bool redo();
 
     /** 変更の世代番号（エンジン側の差分同期に使う）。 */
-    std::uint64_t getRevision() const noexcept               { return revision; }
 
     //==============================================================================
     bool hasLocation() const                                 { return projectDir != juce::File(); }
@@ -97,7 +96,6 @@ private:
     juce::File projectDir;
     bool dirty = false;
     bool autosaveDirty = false;
-    std::uint64_t revision = 0;
     juce::int64 lastChangeTime = 0, firstUnsavedChangeTime = 0;
 
     std::vector<UndoEntry> undoStack, redoStack;

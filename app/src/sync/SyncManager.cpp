@@ -1,6 +1,7 @@
 #include "SyncManager.h"
 
 #include "AppPaths.h"
+#include "audio/AudioFiles.h"
 
 #include "CredentialStore.h"
 #include "collab/ProjectJson.h"
@@ -428,7 +429,7 @@ juce::Result SyncManager::uploadMissingBlobs (const SyncClient& client, const st
         }
         else
         {
-            item.file = projectDir.getChildFile ("audio").getChildFile (toJuce (item.url.hash) + ".wav");
+            item.file = AudioFiles::fileForHash (projectDir, item.url.hash);
 
             if (! item.file.existsAsFile())
                 return juce::Result::fail ("オーディオが見つかりません: "_ju + item.file.getFullPathName());

@@ -1,6 +1,8 @@
 #include "Updater.h"
 
 #include "AppPaths.h"
+#include "audio/AudioFiles.h"
+#include "plugins/PluginHost.h"
 
 #include "collab/Sha256.h"
 
@@ -30,29 +32,6 @@ namespace
        #endif
     }
 
-    juce::String hashFile (const juce::File& f)
-    {
-        juce::FileInputStream in (f);
-
-        if (! in.openedOk())
-            return {};
-
-        collab::Sha256 sha;
-        juce::HeapBlock<char> buffer (1 << 16);
-
-        for (;;)
-        {
-            const auto n = in.read (buffer.get(), 1 << 16);
-
-            if (n <= 0)
-                break;
-
-            sha.update (buffer.get(), (size_t) n);
-        }
-
-        return toJuce (sha.finishHex());
-    }
-
     /** マニフェストのパスが installRoot の外を指していないこと。 */
     struct FileEntry
     {
@@ -76,13 +55,7 @@ int currentBuild()
 
 juce::String platformName()
 {
-   #if JUCE_WINDOWS
-    return "windows";
-   #elif JUCE_MAC
-    return "mac";
-   #else
-    return "linux";
-   #endif
+    return toJuce (PluginHost::currentOs());   // 更新の配信も、プラグインの記録と同じ OS 名（windows / mac / linux）
 }
 
 juce::File installRoot()
@@ -254,7 +227,7 @@ juce::Result downloadAndInstall (const SyncClient& client, const Info& info, std
         if (! report (0.05 * (double) i / (double) files.size(), "手元のファイルを確認しています…"_ju))
             return juce::Result::fail ("中止しました"_ju);
 
-        if (local.existsAsFile() && local.getSize() == e.size && hashFile (local) == e.hash)
+        if (local.existsAsFile() && local.getSize() == e.size && toJuce (AudioFiles::hashFile (local)) == e.hash)
             continue;
 
         changed.push_back (e);
@@ -283,7 +256,7 @@ juce::Result downloadAndInstall (const SyncClient& client, const Info& info, std
         if (! report (0.05 + 0.9 * (double) doneBytes / (double) std::max<juce::int64> (1, totalBytes), text))
             return juce::Result::fail ("中止しました"_ju);
 
-        if (! (target.existsAsFile() && hashFile (target) == e.hash))   // 前回の途中までを再利用する
+        if (! (target.existsAsFile() && toJuce (AudioFiles::hashFile (target)) == e.hash))   // 前回の途中までを再利用する
         {
             auto t = client.get ("/blobs/" + e.hash);
 

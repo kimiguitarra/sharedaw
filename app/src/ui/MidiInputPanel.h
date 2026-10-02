@@ -33,15 +33,3 @@ private:
     void rebuild();
     void timerCallback() override;
 };
-
-/** 小さな MIDI 入力のランプ（トランスポート用）。 */
-class MidiActivityLight  : public juce::Component,
-                           public juce::SettableTooltipClient
-{
-public:
-    void setLevel (float level);
-    void paint (juce::Graphics&) override;
-
-private:
-    float level = 0.0f;
-};

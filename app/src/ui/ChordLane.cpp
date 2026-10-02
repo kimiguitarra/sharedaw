@@ -8,8 +8,6 @@
 
 namespace
 {
-    const juce::Colour chordColour { 0xffffb74d };
-
     void applyResult (collab::ChordEvent& e, const ChordEditor::Result& r)
     {
         e.noChord = r.noChord;
@@ -106,12 +104,12 @@ void ChordLane::paint (juce::Graphics& g)
             continue;
 
         const bool selected = b.id == ctx.state.selectedChordId || ctx.state.rangeChordIds.count (b.id) > 0;
-        const auto colour = b.noChord || b.empty ? Theme::textDim : chordColour;
+        const auto colour = b.noChord || b.empty ? Theme::textDim : Theme::chordLane;
 
         // 鳴っている長さ（細い線）
         if (! b.empty && ! b.noChord)
         {
-            g.setColour (chordColour.withAlpha (0.35f));
+            g.setColour (Theme::chordLane.withAlpha (0.35f));
             g.fillRect (juce::Rectangle<float> (b.box.getX(), (float) getHeight() - 5.0f, b.soundEndX - b.box.getX(), 2.0f));
         }
 
@@ -128,7 +126,7 @@ void ChordLane::paint (juce::Graphics& g)
             g.setFont (juce::FontOptions (15.5f, juce::Font::bold));
             g.drawText (b.name, textArea.removeFromTop (textArea.getHeight() * 0.55f), juce::Justification::bottomLeft, true);
             // ライトでは明るい橙が白地に溶けるので、濃い茶色にする
-            g.setColour (Theme::light ? juce::Colour (0xff8a4b00) : chordColour.brighter (0.3f));
+            g.setColour (Theme::light ? juce::Colour (0xff8a4b00) : Theme::chordLane.brighter (0.3f));
             g.setFont (juce::FontOptions (14.5f, Theme::light ? juce::Font::bold : juce::Font::plain));
             g.drawText (b.degree, textArea, juce::Justification::topLeft, true);
         }
@@ -148,11 +146,6 @@ std::string ChordLane::findHit (float x) const
             return b.id;
 
     return {};
-}
-
-std::string ChordLane::findStartHit (float x) const
-{
-    return findHit (x);
 }
 
 void ChordLane::mouseMove (const juce::MouseEvent& e)

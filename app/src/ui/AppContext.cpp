@@ -715,6 +715,16 @@ std::string AppContext::addBusTrack (const juce::String& name)
     return t.id;
 }
 
+void AppContext::editTrack (const std::string& trackId, const juce::String& description, std::function<void (collab::Track&)> fn,
+                            const juce::String& mergeId)
+{
+    document.perform (description, [trackId, fn = std::move (fn)] (collab::Project& p)
+    {
+        if (auto* t = p.findTrack (trackId))
+            fn (*t);
+    }, mergeId);
+}
+
 void AppContext::setTrackOutput (const std::string& trackId, const std::string& busId)
 {
     document.perform ("出力先の変更"_ju, [trackId, busId] (collab::Project& p)

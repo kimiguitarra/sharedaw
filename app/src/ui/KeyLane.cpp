@@ -7,7 +7,6 @@
 
 namespace
 {
-    const juce::Colour keyColour { 0xff9ccc65 };
     constexpr float hitRadius = 6.0f;
 
     juce::String longName (const collab::chord::Key& k)
@@ -97,7 +96,7 @@ void KeyLane::paint (juce::Graphics& g)
 
         if (current != nullptr && nextX > 90.0f)
         {
-            g.setColour (keyColour.withAlpha (0.2f));
+            g.setColour (Theme::keyLane.withAlpha (0.2f));
             g.fillRect (juce::Rectangle<float> (0.0f, 3.0f, 80.0f, (float) getHeight() - 6.0f));
             g.setColour (Theme::text);
             g.drawText ("Key: "_ju + toJuce (collab::chord::keyName ({ current->tonic, current->minor })),
@@ -113,7 +112,7 @@ void KeyLane::paint (juce::Graphics& g)
             continue;
 
         const bool selected = e.id == ctx.state.selectedKeyId;
-        g.setColour (selected ? Theme::selection : keyColour);
+        g.setColour (selected ? Theme::selection : Theme::keyLane);
         g.fillRect (juce::Rectangle<float> (x, 0.0f, selected ? 3.0f : 2.0f, (float) getHeight()));
         g.setColour (Theme::text);
         g.drawText ("Key: "_ju + toJuce (collab::chord::keyName ({ e.tonic, e.minor })),

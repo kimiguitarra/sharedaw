@@ -71,6 +71,8 @@ target_sources(ShareDAW PRIVATE
     src/audio/CountInPlugin.cpp
     src/audio/Takes.cpp
     src/EngineBridge.cpp
+    src/EngineBridgeRecording.cpp
+    src/EngineBridgeRender.cpp
     src/InstrumentLibrary.cpp
     src/ProjectDocument.cpp
     src/SessionGuard.cpp
@@ -89,6 +91,10 @@ target_sources(ShareDAW PRIVATE
     src/ui/Ruler.cpp
     src/ui/Theme.cpp
     src/ui/MainComponent.cpp
+    src/ui/MainComponentCommands.cpp
+    src/ui/MainComponentFiles.cpp
+    src/ui/MainComponentRecording.cpp
+    src/ui/MainComponentWindows.cpp
     src/ui/MainComponentSync.cpp
     src/ui/MainComponentUpdate.cpp
     src/ui/KeyLane.cpp
@@ -102,9 +108,14 @@ target_sources(ShareDAW PRIVATE
     src/ui/SyncPanel.cpp
     src/ui/TransportBar.cpp
     src/ui/TimelineView.cpp
+    src/ui/TimelineRangeClipboard.cpp
+    src/ui/TrackLanes.cpp
     src/ui/TrackHeader.cpp
     src/ui/TempoMeterLanes.cpp
     src/ui/PianoRoll.cpp
+    src/ui/PianoNoteGrid.cpp
+    src/ui/PianoRollEditing.cpp
+    src/ui/PianoRollParts.cpp
     src/ui/PianoRollPage.cpp
     src/ui/ProjectPicker.cpp
     src/ui/InstrumentPanel.cpp

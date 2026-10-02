@@ -95,8 +95,6 @@ private:
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
     void timerCallback() override;
 
-    void newProject();
-    void openProject();
     void saveProject (std::function<void (bool)> onDone = {});
     void showAudioSettings();
 

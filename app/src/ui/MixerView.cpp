@@ -352,12 +352,7 @@ protected:
 
     void editTrack (const juce::String& description, std::function<void (collab::Track&)> fn, const juce::String& mergeId = {})
     {
-        auto id = trackId;
-        ctx.document.perform (description, [id, fn] (collab::Project& p)
-        {
-            if (auto* t = p.findTrack (id))
-                fn (*t);
-        }, mergeId);
+        ctx.editTrack (trackId, description, std::move (fn), mergeId);
     }
 };
 
@@ -1168,12 +1163,7 @@ private:
 
     void editTrack (const juce::String& description, std::function<void (collab::Track&)> fn)
     {
-        auto id = trackId;
-        ctx.document.perform (description, [id, fn] (collab::Project& p)
-        {
-            if (auto* t = p.findTrack (id))
-                fn (*t);
-        }, mergeId);
+        ctx.editTrack (trackId, description, std::move (fn), mergeId);
     }
 };
 

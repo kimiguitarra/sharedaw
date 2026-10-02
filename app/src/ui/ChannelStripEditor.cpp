@@ -136,12 +136,7 @@ const collab::Track* ChannelStripEditor::getTrack() const
 
 void ChannelStripEditor::edit (const juce::String& description, std::function<void (collab::ChannelStrip&)> fn, bool merge)
 {
-    auto id = trackId;
-    ctx.document.perform (description, [id, fn] (collab::Project& p)
-    {
-        if (auto* t = p.findTrack (id))
-            fn (t->strip);
-    }, merge ? mergeId : juce::String());
+    ctx.editTrack (trackId, description, [fn] (collab::Track& t) { fn (t.strip); }, merge ? mergeId : juce::String());
 }
 
 void ChannelStripEditor::update()

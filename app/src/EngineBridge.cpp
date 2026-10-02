@@ -1,4 +1,5 @@
 #include "EngineBridge.h"
+#include "EngineBridgeDetail.h"
 #include "collab/ClipEditing.h"
 
 #include <sstream>
@@ -16,11 +17,10 @@
 #include "collab/Uuid.h"
 #include "plugins/PluginHost.h"
 
+using namespace EngineBridgeDetail;
+
 namespace
 {
-    te::TimePosition secondsToTime (double s)     { return te::TimePosition::fromSeconds (juce::jmax (0.0, s)); }
-    te::BeatPosition secondsToBeats (double s)    { return te::BeatPosition::fromBeats (s); }   // 60BPM 固定なので 1拍 = 1秒
-
     std::string makeTempoKey (const collab::Project& p)
     {
         std::ostringstream s;
@@ -238,17 +238,6 @@ void EngineBridge::pollMidiActivity()
     }
 }
 
-float EngineBridge::getMidiActivity() const
-{
-    float a = 0.0f;
-
-    for (auto& in : midiInputs)
-        if (in->device->isEnabled())
-            a = juce::jmax (a, in->activity);
-
-    return a;
-}
-
 void EngineBridge::setMidiTarget (const std::string& trackId)
 {
     if (trackId == midiTargetId)
@@ -421,7 +410,7 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
         if (! t.render)
             return;
 
-        auto file = document.getProjectDir().getChildFile ("audio").getChildFile (toJuce (t.render->audioHash) + ".wav");
+        auto file = AudioFiles::fileForHash (document.getProjectDir(), t.render->audioHash);
 
         if (! document.hasLocation() || ! file.existsAsFile())
         {
@@ -447,7 +436,7 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
     for (size_t i = 0; i < t.audioClips.size(); ++i)
     {
         auto& c = t.audioClips[i];
-        auto file = document.getProjectDir().getChildFile ("audio").getChildFile (toJuce (c.audioHash) + ".wav");
+        auto file = AudioFiles::fileForHash (document.getProjectDir(), c.audioHash);
 
         if (! document.hasLocation() || ! file.existsAsFile())
             ++b.missingAudio;
@@ -460,7 +449,7 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
     for (auto& seg : collab::audibleSegments (t.audioClips, map, juce::jlimit (0.0, 1.0, t.crossfadeMs / 1000.0)))
     {
         auto& c = t.audioClips[seg.clipIndex];
-        auto file = document.getProjectDir().getChildFile ("audio").getChildFile (toJuce (c.audioHash) + ".wav");
+        auto file = AudioFiles::fileForHash (document.getProjectDir(), c.audioHash);
 
         if (! document.hasLocation() || ! file.existsAsFile())
             continue;
@@ -999,38 +988,6 @@ te::Plugin* EngineBridge::getExternalPlugin (const std::string& trackId, const s
     return nullptr;
 }
 
-double EngineBridge::tailSecondsFor (const std::string& trackId, double minimum) const
-{
-    double tail = minimum;
-    const auto& project = document.getProject();
-
-    for (auto& t : project.tracks)
-    {
-        // 対象のトラックと、その出力先・センド先のバス（バスのリバーブの余韻も入る）
-        bool relevant = trackId.empty() || t.id == trackId;
-
-        if (! relevant)
-            if (auto* src = project.findTrack (trackId))
-                relevant = src->output == t.id || std::any_of (src->sends.begin(), src->sends.end(), [&] (auto& s) { return s.busId == t.id; });
-
-        if (! relevant)
-            continue;
-
-        for (auto& e : t.effects)
-        {
-            if (e.bypass)
-                continue;
-
-            if (auto type = collab::fx::typeFromId (e.builtin))
-                tail = std::max (tail, collab::fx::tailSeconds (*type, e.params) + 0.5);
-            else if (auto* p = getExternalPlugin (t.id, e.id))
-                tail = std::max (tail, std::min (30.0, p->getTailLength() + 0.5));
-        }
-    }
-
-    return std::min (tail, 30.0);
-}
-
 float EngineBridge::getEffectGainReductionDb (const std::string& trackId, const std::string& effectId) const
 {
     if (auto* fx = dynamic_cast<BuiltinEffectPlugin*> (getExternalPlugin (trackId, effectId)))
@@ -1043,190 +1000,6 @@ bool EngineBridge::isPlayingRender (const std::string& trackId) const
 {
     auto it = bindings.find (trackId);
     return it != bindings.end() && it->second.renderMode;
-}
-
-juce::Result EngineBridge::renderTrack (const std::string& trackId, const juce::File& output, double tailSeconds)
-{
-    const auto& project = document.getProject();
-    const double end = document.getTempoMap().tickToSeconds ((double) collab::chordTrackEndTick (project, document.getTempoMap())) + tailSeconds;
-    return renderOneTrack (trackId, output, end, false, 32);
-}
-
-juce::Result EngineBridge::renderStem (const std::string& trackId, const juce::File& output, double endSeconds, int bitDepth)
-{
-    if (! trackId.empty())
-        return renderOneTrack (trackId, output, endSeconds, true, bitDepth);
-
-    // コードトラック
-    sync();
-    stop();
-
-    if (chordTrack == nullptr)
-        return juce::Result::fail ("コードトラックがありません"_ju);
-
-    // ふだんはミックス用のトラックを通って鳴る。単独で書き出すときは直接出す（通さないと何も聞こえない）
-    std::vector<te::Plugin::Ptr> noSends;
-    const ScopedIsolatedTrack isolated (*chordTrack, noSends, nullptr, false);
-    const auto* chord = chordTrack.get();
-    const bool ok = renderTracksToWav (tracksMatching ([chord] (te::Track* t) { return t == chord; }),
-                                       output, endSeconds, bitDepth, (double) collab::kSampleRate);
-
-    return ok ? juce::Result::ok() : juce::Result::fail ("書き出しに失敗しました"_ju);
-}
-
-juce::BigInteger EngineBridge::tracksMatching (const std::function<bool (te::Track*)>& pred) const
-{
-    juce::BigInteger mask;
-    auto all = te::getAllTracks (*edit);
-
-    for (int i = 0; i < all.size(); ++i)
-        if (pred (all[i]))
-            mask.setBit (i);
-
-    return mask;
-}
-
-EngineBridge::ScopedIsolatedTrack::ScopedIsolatedTrack (te::AudioTrack& t, std::vector<te::Plugin::Ptr>& s, te::Plugin* stripToBypass, bool dry)
-    : track (t), sends (s), strip (stripToBypass)
-{
-    // バウンス（dry）はトラックの音量・パン・ミュートの前の音（受け取った側でも同じ設定がかかるため）
-    if (dry)
-        volume = track.getVolumePlugin();
-
-    if (volume != nullptr)
-    {
-        oldDb = volume->getVolumeDb();
-        oldPan = volume->getPan();
-        volume->setVolumeDb (0.0f);
-        volume->setPan (0.0f);
-    }
-
-    oldMute = track.isMuted (false);
-    track.setMute (false);
-
-    // バスへの出力・センドは通さない（トラックそのものの音を書き出す）
-    oldDest = track.getOutput().getDestinationTrack();
-
-    if (oldDest != nullptr)
-        track.getOutput().setOutputToDefaultDevice (false);
-
-    for (auto& send : sends)
-    {
-        sendsWereEnabled.push_back (send->isEnabled());
-        send->setEnabled (false);
-    }
-
-    if (strip != nullptr)
-    {
-        stripWasEnabled = strip->isEnabled();
-        strip->setEnabled (false);
-    }
-}
-
-EngineBridge::ScopedIsolatedTrack::~ScopedIsolatedTrack()
-{
-    if (volume != nullptr)
-    {
-        volume->setVolumeDb (oldDb);
-        volume->setPan (oldPan);
-    }
-
-    track.setMute (oldMute);
-
-    if (strip != nullptr)
-        strip->setEnabled (stripWasEnabled);
-
-    if (oldDest != nullptr)
-        track.getOutput().setOutputToTrack (oldDest);
-
-    for (size_t i = 0; i < sends.size() && i < sendsWereEnabled.size(); ++i)
-        sends[i]->setEnabled (sendsWereEnabled[i]);
-}
-
-bool EngineBridge::renderTracksToWav (const juce::BigInteger& tracksToDo, const juce::File& output, double endSeconds, int bitDepth, double sampleRate)
-{
-    juce::WavAudioFormat wav;
-    te::Renderer::Parameters params (*edit);
-    params.destFile = output;
-    params.audioFormat = &wav;
-    params.bitDepth = bitDepth;
-    params.sampleRateForAudio = sampleRate;
-    params.blockSizeForAudio = 512;
-    params.time = te::TimeRange (secondsToTime (0), secondsToTime (endSeconds));
-    params.tracksToDo = tracksToDo;
-    params.canRenderInMono = false;
-    params.usePlugins = true;
-    params.useMasterPlugins = false;
-    params.checkNodesForAudio = false;
-
-    // レンダリング中はオーディオデバイスから切り離す（終了後に再接続される）
-    const te::Edit::ScopedRenderStatus renderStatus (*edit, true);
-    output.deleteFile();
-    return te::Renderer::renderToFile ("ShareDAW render", params).existsAsFile();
-}
-
-juce::Result EngineBridge::renderOneTrack (const std::string& trackId, const juce::File& output, double endSeconds, bool asStem, int bitDepth)
-{
-    sync();
-    stop();
-
-    auto it = bindings.find (trackId);
-
-    if (it == bindings.end())
-        return juce::Result::fail ("トラックが見つかりません"_ju);
-
-    if (it->second.renderMode)
-        return juce::Result::fail ("この環境ではプラグインを鳴らせないため、バウンスできません"_ju);
-
-    auto& track = *it->second.track;
-    const ScopedIsolatedTrack isolated (track, it->second.sends, asStem ? nullptr : it->second.strip, ! asStem);
-    const bool ok = renderTracksToWav (tracksMatching ([&track] (te::Track* t) { return t == &track; }),
-                                       output, endSeconds, bitDepth, (double) collab::kSampleRate);
-
-    return ok ? juce::Result::ok() : juce::Result::fail ("書き出しに失敗しました"_ju);
-}
-
-std::string EngineBridge::trackFingerprint (const collab::Track& t) const
-{
-    const auto dir = document.getProjectDir();
-    return collab::trackSourceFingerprint (t, [dir] (const std::string& ref) { return PluginHost::stateHash (dir, ref); });
-}
-
-juce::Result EngineBridge::bounceTrack (const std::string& trackId, collab::Render& result)
-{
-    if (! document.hasLocation())
-        return juce::Result::fail ("プロジェクトがまだ保存されていません"_ju);
-
-    const auto* track = document.getProject().findTrack (trackId);
-
-    if (track == nullptr)
-        return juce::Result::fail ("トラックが見つかりません"_ju);
-
-    const auto fingerprint = trackFingerprint (*track);
-    const auto audioDir = document.getProjectDir().getChildFile ("audio");
-    audioDir.createDirectory();
-
-    juce::TemporaryFile temp (audioDir.getChildFile ("bounce.wav"));
-    const double tailSeconds = tailSecondsFor (trackId);   // リバーブの余韻まで入れる
-
-    if (auto r = renderTrack (trackId, temp.getFile(), tailSeconds); r.failed())
-        return r;
-
-    const auto hash = AudioFiles::hashFile (temp.getFile());
-
-    if (hash.empty())
-        return juce::Result::fail ("ハッシュを計算できません"_ju);
-
-    auto target = AudioFiles::fileForHash (document.getProjectDir(), hash);
-
-    if (! target.existsAsFile() && ! temp.getFile().moveFileTo (target))
-        return juce::Result::fail ("保存できません: "_ju + target.getFullPathName());
-
-    result.audioHash = hash;
-    result.renderedAt = collab::nowUtcIso8601();
-    result.sourceFingerprint = fingerprint;
-    result.tailSeconds = tailSeconds;
-    return juce::Result::ok();
 }
 
 juce::String EngineBridge::getInstrumentProblem (const std::string& trackId) const
@@ -1486,389 +1259,6 @@ void EngineBridge::applyLoop()
                                                secondsToTime (map.tickToSeconds ((double) loopEnd))));
 
     transport.looping = loopEnabled;
-}
-
-bool EngineBridge::isLooping() const
-{
-    return edit->getTransport().looping;
-}
-
-//==============================================================================
-bool EngineBridge::renderToFile (const juce::File& output, collab::Tick endTick, double tailSeconds, int bitDepth, double sampleRate)
-{
-    sync();
-    stop();
-
-    const bool withChords = document.getProject().chordTrack.playback.enabled;
-    const auto tracksToDo = tracksMatching ([this, withChords] (te::Track* t)
-    {
-        return dynamic_cast<te::AudioTrack*> (t) != nullptr && t != metronomeTrack.get() && (t != chordTrack.get() || withChords);
-    });
-
-    const double end = document.getTempoMap().tickToSeconds ((double) endTick) + tailSeconds;
-    return renderTracksToWav (tracksToDo, output, end, bitDepth, sampleRate);
-}
-
-//==============================================================================
-void EngineBridge::InputMeter::audioDeviceIOCallbackWithContext (const float* const* in, int numIn, float* const* out, int numOut,
-                                                                 int numSamples, const juce::AudioIODeviceCallbackContext&)
-{
-    for (int ch = 0; ch < juce::jmin (numIn, maxChannels); ++ch)
-    {
-        if (in[ch] == nullptr)
-            continue;
-
-        const auto range = juce::FloatVectorOperations::findMinAndMax (in[ch], numSamples);
-        const float peak = juce::jmax (std::abs (range.getStart()), std::abs (range.getEnd()));
-
-        if (peak > peaks[(size_t) ch].load (std::memory_order_relaxed))
-            peaks[(size_t) ch].store (peak, std::memory_order_relaxed);
-    }
-
-    // 音は出さない（ほかのコールバックの音に足されるので 0 にしておく）
-    for (int ch = 0; ch < numOut; ++ch)
-        if (out[ch] != nullptr)
-            juce::FloatVectorOperations::clear (out[ch], numSamples);
-}
-
-std::vector<EngineBridge::InputLevel> EngineBridge::getInputLevels()
-{
-    std::vector<InputLevel> result;
-    auto* device = engine.getDeviceManager().deviceManager.getCurrentAudioDevice();
-
-    if (device == nullptr)
-        return result;
-
-    const auto names = device->getInputChannelNames();
-    const auto active = device->getActiveInputChannels();
-    int index = 0;   // コールバックには有効なチャンネルだけが順に来る
-
-    for (int ch = 0; ch < names.size(); ++ch)
-    {
-        if (! active[ch])
-            continue;
-
-        if (index < InputMeter::maxChannels)
-        {
-            const float peak = inputMeter.peaks[(size_t) index].exchange (0.0f, std::memory_order_relaxed);
-            result.push_back ({ names[ch], juce::Decibels::gainToDecibels (peak, -100.0f) });
-        }
-
-        ++index;
-    }
-
-    return result;
-}
-
-juce::StringArray EngineBridge::getAudioInputs() const
-{
-    juce::StringArray names;
-    auto& dm = engine.getDeviceManager();
-
-    for (int i = 0; i < dm.getNumWaveInDevices(); ++i)
-        if (auto* w = dm.getWaveInDevice (i); w != nullptr && w->isEnabled())
-            names.add (w->getName());
-
-    return names;
-}
-
-EngineBridge::TrackInput EngineBridge::getTrackInput (const std::string& trackId) const
-{
-    auto it = trackInputs.find (trackId);
-    return it != trackInputs.end() ? it->second : TrackInput {};
-}
-
-void EngineBridge::setTrackInput (const std::string& trackId, const TrackInput& input)
-{
-    // 1 つの入力は 1 つのトラックにだけ割り当てる
-    for (auto& [id, other] : trackInputs)
-        if (id != trackId)
-            for (auto& name : { input.device, input.deviceRight })
-                if (name.isNotEmpty() && (other.device == name || other.deviceRight == name))
-                    other = {};
-
-    trackInputs[trackId] = input;
-    applyInputs();
-}
-
-void EngineBridge::applyInputs()
-{
-    edit->getTransport().ensureContextAllocated();
-
-    for (auto* in : edit->getAllInputDevices())
-    {
-        // MIDI キーボード: 選択中の MIDI トラックの音源で鳴らし、録音もそのトラックへ
-        if (in->getInputDevice().getDeviceType() == te::InputDevice::physicalMidiDevice)
-        {
-            te::AudioTrack* target = nullptr;
-
-            if (auto b = bindings.find (midiTargetId); b != bindings.end() && b->second.track != nullptr && ! b->second.renderMode)
-            {
-                // トラックで入力を選んでいれば、その機器だけ
-                const auto choice = getTrackMidiInput (midiTargetId);
-
-                if (choice.isEmpty() || choice == in->getInputDevice().getName())
-                    target = b->second.track.get();
-            }
-
-            for (auto id : in->getTargets())
-                if (target == nullptr || id != target->itemID)
-                    [[maybe_unused]] auto r = in->removeTarget (id, nullptr);
-
-            in->getInputDevice().setMonitorMode (te::InputDevice::MonitorMode::on);
-
-            if (target != nullptr)
-            {
-                if (! in->getTargets().contains (target->itemID))
-                    [[maybe_unused]] auto r = in->setTarget (target->itemID, true, nullptr);
-
-                in->setRecordingEnabled (target->itemID, true);
-            }
-
-            continue;
-        }
-
-        if (in->getInputDevice().getDeviceType() != te::InputDevice::waveDevice)
-            continue;
-
-        const auto name = in->getInputDevice().getName();
-        te::AudioTrack* target = nullptr;
-        TrackInput setting;
-
-        for (auto& [id, ti] : trackInputs)
-        {
-            auto b = bindings.find (id);
-
-            if ((ti.device == name || ti.deviceRight == name) && (ti.armed || ti.monitor) && b != bindings.end() && b->second.track != nullptr)
-            {
-                target = b->second.track.get();
-                setting = ti;
-            }
-        }
-
-        for (auto id : in->getTargets())
-            if (target == nullptr || id != target->itemID)
-                [[maybe_unused]] auto r = in->removeTarget (id, nullptr);
-
-        in->getInputDevice().setMonitorMode (setting.monitor ? te::InputDevice::MonitorMode::on
-                                                             : te::InputDevice::MonitorMode::off);
-
-        if (target != nullptr)
-        {
-            if (! in->getTargets().contains (target->itemID))
-                [[maybe_unused]] auto r = in->setTarget (target->itemID, false, nullptr);
-
-            in->setRecordingEnabled (target->itemID, setting.armed);
-        }
-    }
-}
-
-void EngineBridge::setManualLatencySamples (int samples)
-{
-    manualLatencySamples = samples;
-    auto& dm = engine.getDeviceManager();
-    const double rate = dm.getSampleRate() > 0 ? dm.getSampleRate() : (double) collab::kSampleRate;
-
-    for (int i = 0; i < dm.getNumWaveInDevices(); ++i)
-        if (auto* w = dm.getWaveInDevice (i))
-            w->setRecordAdjustmentMs (samples * 1000.0 / rate);
-}
-
-juce::Result EngineBridge::startRecording (int countInBars)
-{
-    auto& transport = edit->getTransport();
-
-    if (transport.isRecording())
-        return juce::Result::ok();
-
-    bool anyArmed = false;
-
-    for (auto& [id, ti] : trackInputs)
-        anyArmed = anyArmed || (ti.armed && ti.device.isNotEmpty() && bindings.count (id) > 0);
-
-    // MIDI キーボードは選択中の MIDI トラックに録音する
-    const bool midiReady = bindings.count (midiTargetId) > 0
-                            && std::any_of (midiInputs.begin(), midiInputs.end(), [] (auto& in) { return in->device->isEnabled(); });
-    anyArmed = anyArmed || midiReady;
-
-    if (! anyArmed)
-        return juce::Result::fail ("録音するトラックがありません。オーディオトラックの録音待機（●）をオンにするか、"_ju
-                                   "MIDI キーボードをつないで MIDI トラックを選んでください。"_ju);
-
-    // 録音はいったん一時フォルダに書き、終わったら 48kHz / 32bit float に変換して audio/ に取り込む
-    auto dir = engine.getTemporaryFileManager().getTempDirectory().getChildFile ("recordings");
-    dir.createDirectory();
-    auto& dm = engine.getDeviceManager();
-
-    for (int i = 0; i < dm.getNumWaveInDevices(); ++i)
-        if (auto* w = dm.getWaveInDevice (i))
-            w->setFilenameMask (dir.getChildFile ("take").getFullPathName());
-
-    setManualLatencySamples (manualLatencySamples);
-    applyInputs();
-
-    punchInSeconds = getPositionSeconds();
-
-    if (! transport.isPlaying())
-    {
-        // カウントイン: Edit は 60BPM（1拍 = 1秒）なので、1小節 = ceil(秒数) 拍の拍子にして
-        // Tracktion にプリロールさせ、クリックは CountInPlugin がテンポマップどおりに鳴らす
-        const double start = getPositionSeconds();
-        const auto& map = document.getTempoMap();
-        const double length = collab::countInSeconds (map, start, countInBars);
-
-        if (length > 0.0)
-        {
-            std::vector<collab::Click> clicks;
-
-            for (auto& c : collab::countInClicks (map, start, countInBars))
-                if (c.seconds < 0.0 || ! metronomeEnabled)   // 0 秒以降はメトロノームのトラックが鳴る
-                    clicks.push_back (c);
-
-            if (countIn != nullptr)
-                countIn->setClicks (std::move (clicks), metronomeVolumeDb);
-
-            edit->tempoSequence.getTimeSig (0)->setStringTimeSig (juce::String ((int) std::ceil (length - 1.0e-6)) + "/4");
-            edit->setCountInMode (te::Edit::CountIn::oneBar);
-        }
-        else
-        {
-            edit->setCountInMode (te::Edit::CountIn::none);
-        }
-    }
-
-    startLoudness();
-    transport.record (false);
-
-    // Tracktion 自身のカウントインのクリック（Edit の 60BPM で鳴る）は使わない。
-    // 最初のクリックはプリロール開始の 0.5 拍以上あとなので、ここで消せば鳴らない
-    edit->setClickTrackRange ({});
-
-    if (! transport.isRecording())
-    {
-        restoreAfterRecording();
-        return juce::Result::fail ("録音を開始できませんでした。オーディオ設定で入力デバイスを確認してください。"_ju);
-    }
-
-    return juce::Result::ok();
-}
-
-bool EngineBridge::isRecording() const
-{
-    return edit->getTransport().isRecording();
-}
-
-void EngineBridge::restoreAfterRecording()
-{
-    if (countIn != nullptr)
-        countIn->setClicks ({}, metronomeVolumeDb);
-
-    edit->setCountInMode (te::Edit::CountIn::none);
-    edit->tempoSequence.getTimeSig (0)->setStringTimeSig ("4/4");
-}
-
-void EngineBridge::recordingStopped (te::SyncPoint, bool)
-{
-    juce::MessageManager::callAsync ([this, alive = std::weak_ptr<bool> (aliveFlag)]
-    {
-        if (alive.expired())
-            return;
-
-        restoreAfterRecording();
-    });
-}
-
-void EngineBridge::recordingFinished (te::InputDeviceInstance& input, te::EditItemID targetID,
-                                      const juce::ReferenceCountedArray<te::Clip>& recordedClips)
-{
-    std::string trackId;
-
-    for (auto& [id, b] : bindings)
-        if (b.track != nullptr && b.track->itemID == targetID)
-            trackId = id;
-
-    for (auto& clip : recordedClips)
-    {
-        // MIDI: Edit は 60BPM（1 拍 = 1 秒）なので、拍 = 秒としてプロジェクトの tick に直す
-        if (auto* midi = dynamic_cast<te::MidiClip*> (clip); midi != nullptr && ! trackId.empty())
-        {
-            const auto& map = document.getTempoMap();
-            const double clipStart = midi->getPosition().getStart().inSeconds();
-            const double offset = midi->getPosition().getOffset().inSeconds();
-            RecordedMidi rec;
-            rec.trackId = trackId;
-            rec.punchInTick = (collab::Tick) std::llround (map.secondsToTick (juce::jmax (0.0, punchInSeconds)));
-
-            for (auto* n : midi->getSequence().getNotes())
-            {
-                const double start = clipStart + n->getStartBeat().inBeats() - offset;
-                const double end = start + n->getLengthBeats().inBeats();
-
-                if (start < punchInSeconds - 0.05)   // カウントイン中の音は捨てる
-                    continue;
-
-                collab::Note note;
-                note.id = collab::generateUuid();
-                note.tick = (collab::Tick) std::llround (map.secondsToTick (juce::jmax (0.0, start)));
-                note.lengthTick = std::max<collab::Tick> (10, (collab::Tick) std::llround (map.secondsToTick (end)) - note.tick);
-                note.pitch = n->getNoteNumber();
-                note.velocity = juce::jlimit (1, 127, n->getVelocity());
-                rec.notes.push_back (note);
-            }
-
-            if (! rec.notes.empty())
-                pendingMidi.push_back (std::move (rec));
-        }
-
-        if (auto* wave = dynamic_cast<te::WaveAudioClip*> (clip))
-        {
-            const auto pos = wave->getPosition();
-            RecordedTake take;
-            take.trackId = trackId;
-            take.file = wave->getAudioFile().getFile();
-            take.startSeconds = pos.getStart().inSeconds();
-            take.offsetSeconds = pos.getOffset().inSeconds();
-            take.lengthSeconds = pos.getLength().inSeconds();
-            take.punchInSeconds = punchInSeconds;
-
-            if (auto ti = trackInputs.find (trackId); ti != trackInputs.end() && ti->second.deviceRight.isNotEmpty())
-            {
-                take.stereo = true;
-                take.channel = input.getInputDevice().getName() == ti->second.deviceRight ? 1 : 0;
-            }
-
-            if (! trackId.empty() && take.file.existsAsFile())
-                pendingTakes.push_back (take);
-        }
-
-        // Edit には JSON から作り直したクリップだけを置く
-        clip->removeFromParent();
-    }
-
-    // 入力ごとに呼ばれるので、まとめてから知らせる
-    juce::MessageManager::callAsync ([this, alive = std::weak_ptr<bool> (aliveFlag)]
-    {
-        if (alive.expired())
-            return;
-
-        if (! pendingMidi.empty())
-        {
-            auto midi = std::move (pendingMidi);
-            pendingMidi.clear();
-
-            if (onMidiRecorded)
-                onMidiRecorded (std::move (midi));
-        }
-
-        if (pendingTakes.empty())
-            return;
-
-        auto takes = std::move (pendingTakes);
-        pendingTakes.clear();
-
-        if (onRecordingFinished)
-            onRecordingFinished (std::move (takes));
-    });
 }
 
 //==============================================================================

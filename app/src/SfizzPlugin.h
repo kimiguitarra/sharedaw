@@ -45,7 +45,6 @@ public:
     /** 音源全体の音量・パン（SFZ の再読み込みなしで変更できる）。 */
     void setGainAndPan (float gainDb, float pan);
 
-    const juce::String& getLoadedSfzText() const noexcept       { return loadedText; }
 
     /**
         試し弾きの MIDI（鉛筆で置いた音など）。トラックの MIDI 入力を通さず、次のブロックでこの音源に直接渡す。

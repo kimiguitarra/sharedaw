@@ -12,6 +12,24 @@ namespace ValueText
         return db <= -59.9 ? juce::String ("-inf") : (db > 0.05 ? "+" : "") + juce::String (db, 1);
     }
 
+    /** dB を単位付きで（「+3.0 dB」）。EQ・コンプの値の表示。 */
+    inline juce::String formatDbUnit (double db)
+    {
+        return (db > 0.05 ? "+" : "") + juce::String (db, 1) + " dB";
+    }
+
+    /** 周波数（「120 Hz」「2.50 kHz」「12.0 kHz」）。 */
+    inline juce::String formatHz (double hz)
+    {
+        return hz >= 1000.0 ? juce::String (hz / 1000.0, hz >= 10000.0 ? 1 : 2) + " kHz" : juce::String (juce::roundToInt (hz)) + " Hz";
+    }
+
+    /** 時間（10 ms 未満は小数 2 桁）。 */
+    inline juce::String formatMs (double ms)
+    {
+        return ms < 10.0 ? juce::String (ms, 2) + " ms" : juce::String (juce::roundToInt (ms)) + " ms";
+    }
+
     inline juce::String formatPan (double v)
     {
         const int n = juce::roundToInt (std::abs (v) * 100.0);

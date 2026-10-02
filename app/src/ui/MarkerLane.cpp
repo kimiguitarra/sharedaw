@@ -6,7 +6,6 @@
 
 namespace
 {
-    const juce::Colour markerColour { 0xff4dd0e1 };
 
     juce::String labelText (const collab::Marker& m, int number)
     {
@@ -76,9 +75,9 @@ void MarkerLane::paint (juce::Graphics& g)
             continue;
 
         const bool selected = m.id == ctx.state.selectedMarkerId || ctx.state.rangeMarkerIds.count (m.id) > 0;
-        g.setColour (markerColour.withAlpha (0.25f));
+        g.setColour (Theme::markerLane.withAlpha (0.25f));
         g.fillRoundedRectangle (r, 3.0f);
-        g.setColour (selected ? Theme::selection : markerColour);
+        g.setColour (selected ? Theme::selection : Theme::markerLane);
         g.fillRect (r.getX(), 0.0f, 2.0f, (float) getHeight());
         g.drawRoundedRectangle (r, 3.0f, selected ? 2.0f : 1.0f);
         g.setColour (Theme::text);

@@ -42,6 +42,10 @@ struct AppContext
     // バス（Cubase のグループ・FX チャンネル）
     /** バストラックを追加する（選択中のトラックの下）。ID を返す。 */
     std::string addBusTrack (const juce::String& name);
+    /** トラック 1 本を変更する（元に戻せる）。トラックが消えていれば何もしない。mergeId が同じ操作は 1 回の「元に戻す」にまとめる。 */
+    void editTrack (const std::string& trackId, const juce::String& description, std::function<void (collab::Track&)> fn,
+                    const juce::String& mergeId = {});
+
     void setTrackOutput (const std::string& trackId, const std::string& busId);
     void setSend (const std::string& trackId, const std::string& busId, std::optional<double> levelDb,
                   std::optional<bool> preFader, const juce::String& mergeId = {});

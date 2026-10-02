@@ -1,5 +1,6 @@
 #include "EqGraph.h"
 
+#include "ValueText.h"
 #include "Theme.h"
 
 #include <collab/ChannelStripDsp.h>
@@ -11,12 +12,8 @@ namespace
     constexpr double maxGainDb = 15.0;            // 設定できるゲイン（±）
     constexpr float spectrumFloorDb = -90.0f;     // スペクトラムの表示範囲（dBFS）
 
-    juce::String formatHz (double hz)
-    {
-        return hz >= 1000.0 ? juce::String (hz / 1000.0, hz >= 10000.0 ? 1 : 2) + " kHz" : juce::String (juce::roundToInt (hz)) + " Hz";
-    }
-
-    juce::String formatDb (double db)     { return (db > 0.05 ? "+" : "") + juce::String (db, 1) + " dB"; }
+    using ValueText::formatHz;
+    juce::String formatDb (double db)     { return ValueText::formatDbUnit (db); }
 
     /** バンドごとの周波数の範囲。 */
     std::pair<double, double> freqRange (int band)

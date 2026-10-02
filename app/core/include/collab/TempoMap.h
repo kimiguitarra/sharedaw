@@ -40,7 +40,6 @@ public:
     double secondsToTick (double seconds) const;
 
     SampleCount tickToSamples (double tick, double sampleRate = kSampleRate) const;
-    double samplesToTick (SampleCount samples, double sampleRate = kSampleRate) const;
 
     double bpmAtTick (Tick) const;
 

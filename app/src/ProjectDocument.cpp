@@ -90,7 +90,6 @@ bool ProjectDocument::redo()
 void ProjectDocument::changed()
 {
     tempoMap = collab::TempoMap (project);
-    ++revision;
     const auto now = juce::Time::currentTimeMillis();
 
     if (! autosaveDirty)

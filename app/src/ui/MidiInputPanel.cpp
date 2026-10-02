@@ -116,22 +116,3 @@ void MidiInputPanel::Row::paint (juce::Graphics& g)
     auto r = getLocalBounds().toFloat().removeFromRight (180.0f).reduced (0.0f, 8.0f);
     drawBar (g, r, activity);
 }
-
-//==============================================================================
-void MidiActivityLight::setLevel (float l)
-{
-    if (std::abs (l - level) > 0.01f)
-    {
-        level = l;
-        repaint();
-    }
-}
-
-void MidiActivityLight::paint (juce::Graphics& g)
-{
-    auto r = getLocalBounds().toFloat().reduced (2.0f, 6.0f);
-    g.setColour (Theme::textDim);
-    g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-    g.drawText ("MIDI", r.removeFromTop (12.0f), juce::Justification::centred);
-    drawBar (g, r.reduced (0.0f, 4.0f), level);
-}

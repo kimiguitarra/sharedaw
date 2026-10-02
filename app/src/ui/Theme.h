@@ -30,6 +30,11 @@ namespace Theme
     inline juce::Colour tempo          { 0xffba68c8 };
     inline juce::Colour meter          { 0xff4db6ac };
 
+    // 上の段（キー・コード・マーカー）の色。外観（ダーク / ライト）で変えない
+    inline const juce::Colour keyLane    { 0xff9ccc65 };
+    inline const juce::Colour chordLane  { 0xffffb74d };
+    inline const juce::Colour markerLane { 0xff4dd0e1 };
+
     // 状態の色（落ち着いた色。同期の状況など）
     inline juce::Colour ok             { 0xff66bb6a };
     inline juce::Colour danger         { 0xffef5350 };

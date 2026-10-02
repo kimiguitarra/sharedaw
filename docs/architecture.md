@@ -12,7 +12,7 @@
   /chord     collab_chord: コード名の解析とボイシング
   /src       JUCE + Tracktion Engine のアプリ本体
     ProjectDocument   編集中の Project（正）・元に戻す履歴・保存・自動保存
-    EngineBridge      Project → Tracktion Edit の変換層
+    EngineBridge      Project → Tracktion Edit の変換層（*Render.cpp: 書き出し・バウンス、*Recording.cpp: 録音）
     SfizzPlugin       sfizz を Tracktion の内部プラグインとして鳴らす
     InstrumentLibrary 同梱の内蔵音源マニフェストの読み込み
     SessionGuard      異常終了の検知
@@ -20,13 +20,15 @@
     /plugins          外部プラグイン（スキャン、状態ファイル、エディタのウィンドウ）
     /sync             同期（SyncManager、HTTP クライアント、資格情報ストア）
     /ui               画面（タイムライン、テンポ・拍子・コードレーン、ピアノロール、音源パネル、トランスポート、同期）
+                      大きい画面は役割ごとにファイルを分けている（MainComponent{Commands,Files,Recording,Windows}.cpp、
+                      TimelineView / TrackLanes / TimelineRangeClipboard、PianoRoll / PianoNoteGrid / PianoRollParts / PianoRollEditing）
   /external  git submodule: tracktion_engine（JUCE 同梱）、sfizz
 /shared
   /schema    project.schema.json（アプリはビルド時に埋め込んで読み込み時に検証する）
   /fixtures  テスト用のプロジェクト JSON
 /assets      内蔵音源（instruments/<id>/<version>/）、メトロノーム
 /server      同期サーバー（Cloudflare Workers + D1 + R2）
-/tools       リテラルの確認、テスト用プラグイン、プラグインのスモークテスト
+/tools       リテラルの確認、テスト用プラグイン、プラグインとアプリのスモークテスト、リリースの公開
 ```
 
 ## データの流れ

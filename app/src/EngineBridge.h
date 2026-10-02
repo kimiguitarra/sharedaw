@@ -28,7 +28,6 @@ public:
     EngineBridge (te::Engine&, ProjectDocument&, const InstrumentLibrary&);
     ~EngineBridge() override;
 
-    te::Edit& getEdit() noexcept                    { return *edit; }
 
     //==============================================================================
     void play();
@@ -42,10 +41,8 @@ public:
     void setPositionTick (double tick);
 
     void setLoop (bool enabled, collab::Tick start, collab::Tick end);
-    bool isLooping() const;
 
     void setMetronome (bool enabled, float volumeDb);
-    bool isMetronomeEnabled() const noexcept        { return metronomeEnabled; }
 
     /** トラックの音源が読み込めていない場合の理由（問題なければ空）。 */
     juce::String getInstrumentProblem (const std::string& trackId) const;
@@ -186,7 +183,6 @@ public:
 
     /** 入力の強さを更新する（UI のタイマーから 30Hz 程度で呼ぶ）。 */
     void pollMidiActivity();
-    float getMidiActivity() const;
 
     /** MIDI キーボードで鳴らす・録音するトラック（選択中の MIDI トラック。空なら鳴らさない）。 */
     void setMidiTarget (const std::string& trackId);

@@ -1,5 +1,6 @@
 #include "CompressorPanel.h"
 
+#include "ValueText.h"
 #include "Theme.h"
 
 namespace
@@ -9,8 +10,8 @@ namespace
     const juce::Colour optoPanelTop   { 0xffd9d5cb }, optoPanelBottom { 0xffb9b4a8 }, optoText { 0xff1d1d1f };
     const juce::Colour meterFace      { 0xfff2e3b5 };
 
-    juce::String formatDb (double db)     { return (db > 0.05 ? "+" : "") + juce::String (db, 1) + " dB"; }
-    juce::String formatMs (double ms)     { return ms < 10.0 ? juce::String (ms, 2) + " ms" : juce::String (juce::roundToInt (ms)) + " ms"; }
+    juce::String formatDb (double db)     { return ValueText::formatDbUnit (db); }
+    using ValueText::formatMs;
 
     /** VU メーターの目盛りの位置（0〜1）。-20 VU が左端、+3 VU が右端。 */
     float vuPosition (float vu)

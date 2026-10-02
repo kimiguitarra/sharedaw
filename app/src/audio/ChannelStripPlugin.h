@@ -31,7 +31,6 @@ public:
 
     /** 設定を渡す（メッセージスレッドから）。次のブロックから反映される。 */
     void setStrip (const collab::ChannelStrip&);
-    const collab::ChannelStrip& getStrip() const noexcept       { return current; }
 
     /** 出力をモノにする（トラックの outputChannels = 1）。 */
     void setMonoOutput (bool mono) noexcept                     { monoOutput = mono; }

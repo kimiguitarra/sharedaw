@@ -55,7 +55,6 @@ private:
     juce::String mergeId;
 
     std::string findHit (float x) const;
-    std::string findStartHit (float x) const;   // イベントの先頭の近く
     collab::Tick snapToBeat (double tick, const juce::ModifierKeys&) const;
     void openEditor (const std::string& id);
     void addAt (collab::Tick tick);                  // 置いてコードエディタを開く

@@ -29,6 +29,7 @@
 #include "ui/Theme.h"
 
 #include <iostream>
+#include <optional>
 
 namespace
 {
@@ -176,68 +177,10 @@ public:
         sync = std::make_unique<SyncManager> (*document, *settings);
         document->beforeSave = [this] { bridge->flushPluginStates(); };
 
-        // コマンドライン: --render <プロジェクトフォルダ> <出力.wav>（動作確認・CI 用）
-        if (auto args = getCommandLineParameterArray(); args.size() >= 3 && args[0] == "--render")
+        // コマンドラインの操作（動作確認・CI・スクリプト用）。GUI を出さずに終わる
+        if (auto code = runCommandLine (getCommandLineParameterArray()))
         {
-            setApplicationReturnValue (renderProject (juce::File (args[1]), juce::File (args[2])));
-            quit();
-            return;
-        }
-
-        // --export <wav|mp3|stems|midi> <プロジェクトフォルダ> <出力>（動作確認・CI 用: ファイル → 書き出し と同じ処理）
-        if (auto args = getCommandLineParameterArray(); args.size() >= 4 && args[0] == "--export")
-        {
-            setApplicationReturnValue (exportCommand (args[1], juce::File (args[2]), juce::File (args[3])));
-            quit();
-            return;
-        }
-
-        // --import-audio <プロジェクトフォルダ> <ファイル>...（動作確認用）
-        if (auto args = getCommandLineParameterArray(); args.size() >= 3 && args[0] == "--import-audio")
-        {
-            setApplicationReturnValue (importAudioCommand (args));
-            quit();
-            return;
-        }
-
-        // --midi-info <ファイル>（動作確認用: MIDI ファイルの読み込み結果を表示する）
-        if (auto args = getCommandLineParameterArray(); args.size() >= 2 && args[0] == "--midi-info")
-        {
-            auto r = MidiImport::read (juce::File (args[1]));
-
-            if (! r.ok())
-                std::cout << "error: " << r.error.toStdString() << std::endl;
-
-            if (r.bpm) std::cout << "bpm " << *r.bpm << std::endl;
-            if (r.meter) std::cout << "meter " << r.meter->first << "/" << r.meter->second << std::endl;
-
-            for (auto& p : r.parts)
-                std::cout << "part '" << p.name << "' ch" << p.channel << " prog" << p.program << " notes " << p.notes.size()
-                          << " end " << p.endTick << " -> " << p.builtinInstrument() << std::endl;
-
-            setApplicationReturnValue (r.ok() ? 0 : 1);
-            quit();
-            return;
-        }
-
-        // --scan-plugins（動作確認用: 別プロセスでスキャンし、クラッシュしたものはブラックリストへ）
-        if (auto args = getCommandLineParameterArray(); ! args.isEmpty() && args[0] == "--scan-plugins")
-        {
-            auto result = PluginHost::scan (*engine, nullptr);
-            std::cout << "found " << result.found << " plugin(s)" << std::endl;
-
-            for (auto& f : result.blacklisted)
-                std::cout << "blacklisted: " << f << std::endl;
-
-            setApplicationReturnValue (0);
-            quit();
-            return;
-        }
-
-        // --bounce <プロジェクトフォルダ> [トラック名]  /  --render-status <プロジェクトフォルダ>（動作確認用）
-        if (auto args = getCommandLineParameterArray(); args.size() >= 2 && (args[0] == "--bounce" || args[0] == "--render-status"))
-        {
-            setApplicationReturnValue (bounceCommand (args));
+            setApplicationReturnValue (*code);
             quit();
             return;
         }
@@ -247,14 +190,6 @@ public:
         {
             // 入力デバイスの一覧ができるのを待つ
             juce::Timer::callAfterDelay (1000, [this, args] { recordTest (args); });
-            return;
-        }
-
-        // 同期のコマンドライン操作（動作確認・スクリプト用）
-        if (auto args = getCommandLineParameterArray(); ! args.isEmpty() && args[0].startsWith ("--sync-"))
-        {
-            setApplicationReturnValue (runSyncCommand (args));
-            quit();
             return;
         }
 
@@ -385,17 +320,103 @@ private:
     SessionGuard sessionGuard;
     bool childProcessMode = false;
 
-    int importAudioCommand (const juce::StringArray& args)
+    /**
+        GUI を出さずに終わるコマンドライン操作（動作確認・CI・スクリプト用）。当てはまらなければ nullopt。
+          --render <曲のフォルダ> <出力.wav>               32 bit で書き出して、無音なら失敗（CI）
+          --export <wav|mp3|stems|midi> <曲のフォルダ> <出力>  ファイル → 書き出し と同じ処理（CI）
+          --import-audio <曲のフォルダ> <ファイル>...
+          --midi-info <ファイル>                           MIDI ファイルの読み込み結果
+          --scan-plugins                                   別プロセスでスキャン（落ちたものはブラックリストへ）
+          --bounce <曲のフォルダ> [トラック名] / --render-status <曲のフォルダ>
+          --sync-*                                         runSyncCommand を参照
+    */
+    std::optional<int> runCommandLine (const juce::StringArray& args)
+    {
+        if (args.isEmpty())
+            return std::nullopt;
+
+        const auto& name = args[0];
+
+        if (name == "--render" && args.size() >= 3)                              return renderProject (juce::File (args[1]), juce::File (args[2]));
+        if (name == "--export" && args.size() >= 4)                              return exportCommand (args[1], juce::File (args[2]), juce::File (args[3]));
+        if (name == "--import-audio" && args.size() >= 3)                        return importAudioCommand (args);
+        if (name == "--midi-info" && args.size() >= 2)                           return midiInfoCommand (juce::File (args[1]));
+        if (name == "--scan-plugins")                                            return scanPluginsCommand();
+        if ((name == "--bounce" || name == "--render-status") && args.size() >= 2) return bounceCommand (args);
+        if (name.startsWith ("--sync-"))                                         return runSyncCommand (args);
+
+        return std::nullopt;
+    }
+
+    /** コマンドライン用: 曲を開く（開けなければ理由を出して false）。 */
+    bool loadForCommand (const juce::File& folder)
     {
         try
         {
-            document->load (juce::File (args[1]));
+            document->load (folder);
+            return true;
         }
         catch (const std::exception& e)
         {
             std::cerr << "load failed: " << e.what() << std::endl;
-            return 2;
+            return false;
         }
+    }
+
+    /** 書き出した音を読み直して、長さ・レート・ピークを出す。読めなければ nullopt。 */
+    static std::optional<float> printAudioSummary (const juce::File& f, const char* label)
+    {
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (f));
+
+        if (reader == nullptr)
+        {
+            std::cerr << "cannot read " << f.getFullPathName() << std::endl;
+            return std::nullopt;
+        }
+
+        juce::Range<float> range[2];
+        reader->readMaxLevels (0, reader->lengthInSamples, range, 2);
+        const float peak = juce::jmax (std::abs (range[0].getStart()), std::abs (range[0].getEnd()),
+                                       std::abs (range[1].getStart()), std::abs (range[1].getEnd()));
+        std::cout << label << " " << f.getFileName() << ": " << reader->lengthInSamples << " samples @ " << reader->sampleRate
+                  << " Hz, " << reader->numChannels << " ch, " << reader->bitsPerSample << " bit, peak " << peak << std::endl;
+        return peak;
+    }
+
+    int midiInfoCommand (const juce::File& file)
+    {
+        auto r = MidiImport::read (file);
+
+        if (! r.ok())
+            std::cout << "error: " << r.error.toStdString() << std::endl;
+
+        if (r.bpm) std::cout << "bpm " << *r.bpm << std::endl;
+        if (r.meter) std::cout << "meter " << r.meter->first << "/" << r.meter->second << std::endl;
+
+        for (auto& p : r.parts)
+            std::cout << "part '" << p.name << "' ch" << p.channel << " prog" << p.program << " notes " << p.notes.size()
+                      << " end " << p.endTick << " -> " << p.builtinInstrument() << std::endl;
+
+        return r.ok() ? 0 : 1;
+    }
+
+    int scanPluginsCommand()
+    {
+        auto result = PluginHost::scan (*engine, nullptr);
+        std::cout << "found " << result.found << " plugin(s)" << std::endl;
+
+        for (auto& f : result.blacklisted)
+            std::cout << "blacklisted: " << f << std::endl;
+
+        return 0;
+    }
+
+    int importAudioCommand (const juce::StringArray& args)
+    {
+        if (! loadForCommand (juce::File (args[1])))
+            return 2;
 
         collab::Track track;
         track.id = collab::generateUuid();
@@ -434,15 +455,8 @@ private:
     {
         auto finish = [this] (int code) { setApplicationReturnValue (code); quit(); };
 
-        try
-        {
-            document->load (juce::File (args[1]));
-        }
-        catch (const std::exception& e)
-        {
-            std::cerr << "load failed: " << e.what() << std::endl;
+        if (! loadForCommand (juce::File (args[1])))
             return finish (2);
-        }
 
         if (auto* device = engine->getDeviceManager().deviceManager.getCurrentAudioDevice())
             std::cout << "device: " << device->getTypeName() << " / " << device->getName()
@@ -514,15 +528,8 @@ private:
 
     int bounceCommand (const juce::StringArray& args)
     {
-        try
-        {
-            document->load (juce::File (args[1]));
-        }
-        catch (const std::exception& e)
-        {
-            std::cerr << "load failed: " << e.what() << std::endl;
+        if (! loadForCommand (juce::File (args[1])))
             return 2;
-        }
 
         bridge->sync();
 
@@ -572,15 +579,8 @@ private:
 
     int exportCommand (const juce::String& kind, const juce::File& folder, const juce::File& output)
     {
-        try
-        {
-            document->load (folder);
-        }
-        catch (const std::exception& e)
-        {
-            std::cerr << "load failed: " << e.what() << std::endl;
+        if (! loadForCommand (folder))
             return 2;
-        }
 
         juce::Result r = juce::Result::fail ("unknown export kind: " + kind);
         juce::Array<juce::File> files { output };
@@ -612,43 +612,19 @@ private:
             return m.ok() && ! m.parts.empty() ? 0 : 4;
         }
 
-        juce::AudioFormatManager formats;
-        formats.registerBasicFormats();
         int status = 0;
 
         for (auto& f : files)
-        {
-            std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (f));
-
-            if (reader == nullptr)
-            {
-                std::cerr << "cannot read " << f.getFullPathName() << std::endl;
+            if (! printAudioSummary (f, "exported"))
                 status = 4;
-                continue;
-            }
-
-            juce::Range<float> range[2];
-            reader->readMaxLevels (0, reader->lengthInSamples, range, 2);
-            const float peak = juce::jmax (std::abs (range[0].getStart()), std::abs (range[0].getEnd()),
-                                           std::abs (range[1].getStart()), std::abs (range[1].getEnd()));
-            std::cout << "exported " << f.getFileName() << ": " << reader->lengthInSamples << " samples @ " << reader->sampleRate
-                      << " Hz, " << reader->numChannels << " ch, " << reader->bitsPerSample << " bit, peak " << peak << std::endl;
-        }
 
         return status;
     }
 
     int renderProject (const juce::File& folder, const juce::File& output)
     {
-        try
-        {
-            document->load (folder);
-        }
-        catch (const std::exception& e)
-        {
-            std::cerr << "load failed: " << e.what() << std::endl;
+        if (! loadForCommand (folder))
             return 2;
-        }
 
         if (! bridge->renderToFile (output, collab::chordTrackEndTick (document->getProject(), document->getTempoMap()), bridge->tailSecondsFor ({})))
         {
@@ -656,19 +632,12 @@ private:
             return 3;
         }
 
-        juce::AudioFormatManager formats;
-        formats.registerBasicFormats();
-        std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (output));
+        const auto peak = printAudioSummary (output, "rendered");
 
-        if (reader == nullptr)
+        if (! peak)
             return 4;
 
-        juce::Range<float> range[2];
-        reader->readMaxLevels (0, reader->lengthInSamples, range, 2);
-        const float peak = juce::jmax (std::abs (range[0].getStart()), std::abs (range[0].getEnd()));
-        std::cout << "rendered " << output.getFullPathName() << ": " << reader->lengthInSamples << " samples @ "
-                  << reader->sampleRate << " Hz, peak " << peak << std::endl;
-        return peak > 0.001f ? 0 : 5;
+        return *peak > 0.001f ? 0 : 5;   // 無音は失敗（CI で音源が読めていないことに気付く）
     }
 
     /**
@@ -712,14 +681,8 @@ private:
         if (args.size() < 2)
             return fail ("usage: " + command + " <dir> ...");
 
-        try
-        {
-            document->load (juce::File (args[1]));
-        }
-        catch (const std::exception& e)
-        {
-            return fail (juce::String::fromUTF8 (e.what()));
-        }
+        if (! loadForCommand (juce::File (args[1])))
+            return 1;
 
         sync->reloadForDocument();
         const auto dir = document->getProjectDir();

@@ -59,12 +59,7 @@ TrackHeader::TrackHeader (AppContext& c, const std::string& id)
 
 void TrackHeader::editTrack (const juce::String& description, std::function<void (collab::Track&)> fn, const juce::String& mergeId)
 {
-    auto id = trackId;
-    ctx.document.perform (description, [id, fn] (collab::Project& p)
-    {
-        if (auto* t = p.findTrack (id))
-            fn (*t);
-    }, mergeId);
+    ctx.editTrack (trackId, description, std::move (fn), mergeId);
 }
 
 void TrackHeader::update()
@@ -215,12 +210,6 @@ void TrackHeader::resized()
         top.removeFromRight (4);
 
     nameLabel.setBounds (top);
-}
-
-bool TrackHeader::isAudioTrack() const
-{
-    auto* t = ctx.document.getProject().findTrack (trackId);
-    return t != nullptr && t->type == collab::TrackType::audio;
 }
 
 void TrackHeader::select()
