@@ -343,3 +343,43 @@ describe("app updates", () => {
     expect((await release("GET", "/users")).status).toBe(403);
   });
 });
+
+describe("input validation", () => {
+  const release = api("test-release-key");
+
+  it("answers malformed input with 400 instead of a server error", async () => {
+    const id = "11111111-2222-4333-8444-555555555555";
+    expect((await alice("GET", "/projects/%E0%A4%A")).status).toBe(400);
+    expect((await alice("POST", "/projects", { id, name: "x".repeat(201) })).status).toBe(400);
+    expect((await alice("POST", "/projects", { id, name: "Song", memberIds: "u-bob" })).status).toBe(400);
+    expect((await alice("POST", "/projects", { id, name: "Song", memberIds: [1] })).status).toBe(400);
+    expect((await alice("POST", "/projects", { id, name: "Song" })).status).toBe(201);
+    expect((await alice("GET", `/projects/${id}/revisions/abc`)).status).toBe(400);
+    expect((await alice("POST", `/projects/${id}/locks`, { trackId: "t".repeat(201) })).status).toBe(400);
+    expect((await alice("POST", "/blobs/check", { hashes: "nope" })).status).toBe(400);
+
+    const many = Array.from({ length: 1001 }, (_, i) => i.toString(16).padStart(64, "0"));
+    expect((await alice("POST", "/blobs/check", { hashes: many })).status).toBe(400);
+
+    const project = clone(minimalFixture) as any;
+    project.projectId = id;
+    const hash = await upload(alice, JSON.stringify(project));
+    const bad = await alice("POST", `/projects/${id}/revisions`, { parentNumber: 0, message: 42, projectJsonHash: hash });
+    expect(bad.status).toBe(400);
+  });
+
+  it("does not let an older build replace the release, but accepts the same build again", async () => {
+    const publish = async (build: number) => {
+      const exe = await upload(release, `exe ${build}`);
+      const manifestHash = await upload(release, JSON.stringify({ build, files: [{ path: "ShareDAW", hash: exe }] }));
+      return release("POST", "/app/releases", { platform: "linux", build, version: "x", manifestHash });
+    };
+
+    expect((await publish(5)).status).toBe(201);
+    expect((await publish(5)).status).toBe(201);   // 配信だけやり直す
+    const older = await publish(4);
+    expect(older.status).toBe(409);
+    expect(older.data.current).toBe(5);
+    expect((await alice("GET", "/app/latest?platform=linux")).data.build).toBe(5);
+  });
+});

@@ -58,6 +58,49 @@ var blobKey = /* @__PURE__ */ __name((hash2) => `blobs/${hash2}`, "blobKey");
 var releasePlatforms = ["windows", "mac", "linux"];
 var isReleasePlatform = /* @__PURE__ */ __name((s) => releasePlatforms.includes(s), "isReleasePlatform");
 var releaseKey = /* @__PURE__ */ __name((platform) => `app-releases/${platform}/latest.json`, "releaseKey");
+var releaseBuildKey = /* @__PURE__ */ __name((platform, build) => `app-releases/${platform}/${build}.json`, "releaseBuildKey");
+var limits = {
+  projectName: 200,
+  message: 2e3,
+  trackId: 200,
+  memberIds: 100,
+  hashesPerCheck: 1e3
+};
+function requireString(value, field, max) {
+  if (typeof value !== "string" || !value.trim()) throw new HttpError(400, "bad_request", `${field} \u304C\u5FC5\u8981\u3067\u3059`);
+  const s = value.trim();
+  if (s.length > max) throw new HttpError(400, "bad_request", `${field} \u304C\u9577\u3059\u304E\u307E\u3059\uFF08${max} \u6587\u5B57\u307E\u3067\uFF09`);
+  return s;
+}
+__name(requireString, "requireString");
+function optionalString(value, field, max, fallback = "") {
+  if (value === void 0 || value === null) return fallback;
+  if (typeof value !== "string") throw new HttpError(400, "bad_request", `${field} \u306F\u6587\u5B57\u5217\u3067\u3059`);
+  if (value.length > max) throw new HttpError(400, "bad_request", `${field} \u304C\u9577\u3059\u304E\u307E\u3059\uFF08${max} \u6587\u5B57\u307E\u3067\uFF09`);
+  return value;
+}
+__name(optionalString, "optionalString");
+function requirePositiveInt(value, field) {
+  const n = Number(value);
+  if (!Number.isSafeInteger(n) || n < 1) throw new HttpError(400, "bad_request", `${field} \u306F 1 \u4EE5\u4E0A\u306E\u6574\u6570\u3067\u3059`);
+  return n;
+}
+__name(requirePositiveInt, "requirePositiveInt");
+function requireSha256(value, field = "hash") {
+  if (!isSha256(value)) throw new HttpError(400, "bad_request", `${field} \u306E\u5F62\u5F0F\u304C\u6B63\u3057\u304F\u3042\u308A\u307E\u305B\u3093`);
+  return value;
+}
+__name(requireSha256, "requireSha256");
+async function queryInChunks(db, sql, values, chunkSize = 50) {
+  const rows = [];
+  for (let i = 0; i < values.length; i += chunkSize) {
+    const chunk = values.slice(i, i + chunkSize);
+    const result = await db.prepare(sql.replace("{in}", chunk.map(() => "?").join(","))).bind(...chunk).all();
+    rows.push(...result.results);
+  }
+  return rows;
+}
+__name(queryInChunks, "queryInChunks");
 
 // src/admin.ts
 var escapeHtml = /* @__PURE__ */ __name((s) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]), "escapeHtml");
@@ -99,6 +142,7 @@ async function passwordMatches(env, given) {
   return diff === 0;
 }
 __name(passwordMatches, "passwordMatches");
+var wrongPasswordDelayMs = 1500;
 function newToken() {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -110,11 +154,18 @@ async function handleAdmin(request, env) {
       <code>ADMIN_PASSWORD</code> \u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002</p>`, 503);
   if (request.method === "GET") return page(form());
   if (request.method !== "POST") return page("<p>\u5BFE\u5FDC\u3057\u3066\u3044\u306A\u3044\u64CD\u4F5C\u3067\u3059\u3002</p>", 405);
-  const data = await request.formData();
+  let data;
+  try {
+    data = await request.formData();
+  } catch {
+    return page(form(`<p class="error">\u9001\u4FE1\u3055\u308C\u305F\u5185\u5BB9\u3092\u8AAD\u307F\u8FBC\u3081\u307E\u305B\u3093\u3002</p>`), 400);
+  }
   const password = String(data.get("password") ?? "");
   const name = String(data.get("name") ?? "").trim().normalize("NFC");
-  if (!await passwordMatches(env, password))
+  if (!await passwordMatches(env, password)) {
+    await new Promise((resolve) => setTimeout(resolve, wrongPasswordDelayMs));
     return page(form(`<p class="error">\u7BA1\u7406\u30D1\u30B9\u30EF\u30FC\u30C9\u304C\u9055\u3044\u307E\u3059\u3002</p>`), 403);
+  }
   if (!name || name.length > 40) return page(form(`<p class="error">\u8868\u793A\u540D\u3092 40 \u6587\u5B57\u4EE5\u5185\u3067\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044\u3002</p>`), 400);
   const id = crypto.randomUUID();
   const token = newToken();
@@ -454,16 +505,20 @@ async function transferUrl(env, origin, hash2, method) {
 }
 __name(transferUrl, "transferUrl");
 async function registeredHashes(env, hashes) {
-  const found = /* @__PURE__ */ new Set();
-  for (let i = 0; i < hashes.length; i += 50) {
-    const chunk = hashes.slice(i, i + 50);
-    const placeholders = chunk.map(() => "?").join(",");
-    const rows = await env.DB.prepare(`SELECT hash FROM blobs WHERE hash IN (${placeholders})`).bind(...chunk).all();
-    for (const r of rows.results) found.add(r.hash);
-  }
-  return found;
+  const rows = await queryInChunks(env.DB, "SELECT hash FROM blobs WHERE hash IN ({in})", hashes);
+  return new Set(rows.map((r) => r.hash));
 }
 __name(registeredHashes, "registeredHashes");
+async function registerBlob(env, hash2, size) {
+  await env.DB.prepare("INSERT OR IGNORE INTO blobs (hash, size, created_at) VALUES (?, ?, ?)").bind(hash2, size, nowIso()).run();
+  return { hash: hash2, size };
+}
+__name(registerBlob, "registerBlob");
+async function rejectMismatch(env, hash2, actual) {
+  await env.BLOBS.delete(blobKey(hash2));
+  throw new HttpError(400, "hash_mismatch", "\u30A2\u30C3\u30D7\u30ED\u30FC\u30C9\u3055\u308C\u305F\u5185\u5BB9\u306E\u30CF\u30C3\u30B7\u30E5\u304C\u4E00\u81F4\u3057\u307E\u305B\u3093", actual ? { actual } : {});
+}
+__name(rejectMismatch, "rejectMismatch");
 async function verifyAndRegister(env, hash2) {
   const existing = await env.DB.prepare("SELECT size FROM blobs WHERE hash = ?").bind(hash2).first();
   if (existing) return { hash: hash2, size: existing.size };
@@ -471,24 +526,16 @@ async function verifyAndRegister(env, hash2) {
   if (!head) throw new HttpError(404, "blob_not_uploaded", "\u30A2\u30C3\u30D7\u30ED\u30FC\u30C9\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
   const stored = head.checksums?.sha256;
   if (stored) {
-    if (hex(stored) !== hash2) {
-      await env.BLOBS.delete(blobKey(hash2));
-      throw new HttpError(400, "hash_mismatch", "\u30A2\u30C3\u30D7\u30ED\u30FC\u30C9\u3055\u308C\u305F\u5185\u5BB9\u306E\u30CF\u30C3\u30B7\u30E5\u304C\u4E00\u81F4\u3057\u307E\u305B\u3093", { actual: hex(stored) });
-    }
-    await env.DB.prepare("INSERT OR IGNORE INTO blobs (hash, size, created_at) VALUES (?, ?, ?)").bind(hash2, head.size, nowIso()).run();
-    return { hash: hash2, size: head.size };
+    if (hex(stored) !== hash2) return rejectMismatch(env, hash2, hex(stored));
+    return registerBlob(env, hash2, head.size);
   }
   const obj = await env.BLOBS.get(blobKey(hash2));
   if (!obj) throw new HttpError(404, "blob_not_uploaded", "\u30A2\u30C3\u30D7\u30ED\u30FC\u30C9\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
   const digestStream = new crypto.DigestStream("SHA-256");
   await obj.body.pipeTo(digestStream);
   const actual = hex(await digestStream.digest);
-  if (actual !== hash2) {
-    await env.BLOBS.delete(blobKey(hash2));
-    throw new HttpError(400, "hash_mismatch", "\u30A2\u30C3\u30D7\u30ED\u30FC\u30C9\u3055\u308C\u305F\u5185\u5BB9\u306E\u30CF\u30C3\u30B7\u30E5\u304C\u4E00\u81F4\u3057\u307E\u305B\u3093", { actual });
-  }
-  await env.DB.prepare("INSERT OR IGNORE INTO blobs (hash, size, created_at) VALUES (?, ?, ?)").bind(hash2, obj.size, nowIso()).run();
-  return { hash: hash2, size: obj.size };
+  if (actual !== hash2) return rejectMismatch(env, hash2, actual);
+  return registerBlob(env, hash2, obj.size);
 }
 __name(verifyAndRegister, "verifyAndRegister");
 async function directUpload(env, hash2, request) {
@@ -509,8 +556,7 @@ async function directUpload(env, hash2, request) {
       throw new HttpError(400, "hash_mismatch", "\u30A2\u30C3\u30D7\u30ED\u30FC\u30C9\u3055\u308C\u305F\u5185\u5BB9\u306E\u30CF\u30C3\u30B7\u30E5\u304C\u4E00\u81F4\u3057\u307E\u305B\u3093");
     throw e;
   }
-  await env.DB.prepare("INSERT OR IGNORE INTO blobs (hash, size, created_at) VALUES (?, ?, ?)").bind(hash2, size, nowIso()).run();
-  return { hash: hash2, size };
+  return registerBlob(env, hash2, size);
 }
 __name(directUpload, "directUpload");
 async function directDownload(env, hash2) {
@@ -519,6 +565,218 @@ async function directDownload(env, hash2) {
   return new Response(obj.body, { headers: { "content-type": "application/octet-stream", "content-length": String(obj.size) } });
 }
 __name(directDownload, "directDownload");
+
+// src/health.ts
+var tables = ["users", "projects", "project_members", "revisions", "locks", "lock_events", "blobs"];
+async function healthCheck(env) {
+  const lines = [];
+  let ok = true;
+  const check = /* @__PURE__ */ __name(async (label, fn) => {
+    try {
+      const note = await fn();
+      lines.push(`OK  ${label}${note ? `\uFF08${note}\uFF09` : ""}`);
+    } catch (e) {
+      ok = false;
+      lines.push(`NG  ${label}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, "check");
+  await check("D1 \u30D0\u30A4\u30F3\u30C7\u30A3\u30F3\u30B0 DB", async () => {
+    if (!env.DB) throw new Error("\u30D0\u30A4\u30F3\u30C7\u30A3\u30F3\u30B0 DB \u304C\u3042\u308A\u307E\u305B\u3093\uFF08Worker \u306E\u300C\u30D0\u30A4\u30F3\u30C7\u30A3\u30F3\u30B0\u300D\u3067 D1 \u3092\u5909\u6570\u540D DB \u3067\u8FFD\u52A0\uFF09");
+  });
+  await check("D1 \u306E\u30C6\u30FC\u30D6\u30EB", async () => {
+    if (!env.DB) throw new Error("DB \u304C\u306A\u3044\u305F\u3081\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093");
+    for (const table of tables)
+      await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first().catch(() => {
+        throw new Error(`\u30C6\u30FC\u30D6\u30EB ${table} \u304C\u3042\u308A\u307E\u305B\u3093\uFF08migrations/ \u306E SQL \u3092 D1 \u306E\u30B3\u30F3\u30BD\u30FC\u30EB\u3067\u5B9F\u884C\uFF09`);
+      });
+  });
+  await check("R2 \u30D0\u30A4\u30F3\u30C7\u30A3\u30F3\u30B0 BLOBS", async () => {
+    if (!env.BLOBS) throw new Error("\u30D0\u30A4\u30F3\u30C7\u30A3\u30F3\u30B0 BLOBS \u304C\u3042\u308A\u307E\u305B\u3093\uFF08Worker \u306E\u300C\u30D0\u30A4\u30F3\u30C7\u30A3\u30F3\u30B0\u300D\u3067 R2 \u3092\u5909\u6570\u540D BLOBS \u3067\u8FFD\u52A0\uFF09");
+    await env.BLOBS.head("health-check");
+  });
+  lines.push(`--  \u7F72\u540D\u4ED8\u304D URL\uFF08R2 \u306E API \u30AD\u30FC\uFF09: ${presignEnabled(env) ? "\u8A2D\u5B9A\u3042\u308A" : "\u306A\u3057\uFF08Worker \u7D4C\u7531\u3067\u8EE2\u9001\u30021 \u30D5\u30A1\u30A4\u30EB 100MB \u307E\u3067\uFF09"}`);
+  lines.push(`--  ADMIN_PASSWORD: ${env.ADMIN_PASSWORD ? "\u8A2D\u5B9A\u3042\u308A" : "\u306A\u3057"}`);
+  lines.push(`--  RELEASE_KEY: ${env.RELEASE_KEY ? "\u8A2D\u5B9A\u3042\u308A" : "\u306A\u3057"}`);
+  const text = `ShareDAW sync server: ${ok ? "OK" : "\u8A2D\u5B9A\u306B\u554F\u984C\u304C\u3042\u308A\u307E\u3059"}
+
+${lines.join("\n")}
+`;
+  return new Response(text, { status: ok ? 200 : 500, headers: { "content-type": "text/plain; charset=utf-8" } });
+}
+__name(healthCheck, "healthCheck");
+
+// src/router.ts
+var routes = [];
+function route(method, path, handler) {
+  const keys = [];
+  const pattern = new RegExp("^" + path.replace(/:([a-zA-Z]+)/g, (_, k) => (keys.push(k), "([^/]+)")) + "$");
+  routes.push({ method, pattern, keys, handler });
+}
+__name(route, "route");
+async function authenticate(env, request) {
+  const header = request.headers.get("authorization") ?? "";
+  const match = /^Bearer\s+(.+)$/i.exec(header);
+  if (!match) throw new HttpError(401, "unauthorized", "\u30C8\u30FC\u30AF\u30F3\u304C\u3042\u308A\u307E\u305B\u3093");
+  const tokenHash = await sha256Hex(match[1].trim());
+  if (env.RELEASE_KEY && tokenHash === await sha256Hex(env.RELEASE_KEY))
+    return { id: "release", displayName: "release", isRelease: true };
+  const row = await env.DB.prepare("SELECT id, display_name FROM users WHERE token_hash = ?").bind(tokenHash).first();
+  if (!row) throw new HttpError(401, "unauthorized", "\u30C8\u30FC\u30AF\u30F3\u304C\u6B63\u3057\u304F\u3042\u308A\u307E\u305B\u3093");
+  return { id: row.id, displayName: row.display_name };
+}
+__name(authenticate, "authenticate");
+async function requireMember(ctx, projectId) {
+  const project = await ctx.env.DB.prepare(
+    `SELECT p.id, p.name, p.head_revision, p.created_by, p.created_at FROM projects p
+     JOIN project_members m ON m.project_id = p.id AND m.user_id = ? WHERE p.id = ?`
+  ).bind(ctx.user.id, projectId).first();
+  if (!project) throw new HttpError(404, "project_not_found", "\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u304C\u898B\u3064\u304B\u3089\u306A\u3044\u304B\u3001\u53C2\u52A0\u3057\u3066\u3044\u307E\u305B\u3093");
+  return project;
+}
+__name(requireMember, "requireMember");
+function decodeParam(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    throw new HttpError(400, "bad_request", "URL \u306E\u5F62\u5F0F\u304C\u6B63\u3057\u304F\u3042\u308A\u307E\u305B\u3093");
+  }
+}
+__name(decodeParam, "decodeParam");
+async function dispatch(request, env, url) {
+  for (const r of routes) {
+    if (r.method !== request.method) continue;
+    const m = r.pattern.exec(url.pathname);
+    if (!m) continue;
+    const params = {};
+    r.keys.forEach((k, i) => params[k] = decodeParam(m[i + 1]));
+    const user = await authenticate(env, request);
+    if (user.isRelease && !url.pathname.startsWith("/blobs") && !url.pathname.startsWith("/app/"))
+      throw new HttpError(403, "forbidden", "\u30EA\u30EA\u30FC\u30B9\u7528\u306E\u30AD\u30FC\u3067\u4F7F\u3048\u308B\u306E\u306F\u66F4\u65B0\u306E\u914D\u4FE1\u3060\u3051\u3067\u3059");
+    return await r.handler({ env, request, url, user }, params);
+  }
+  return null;
+}
+__name(dispatch, "dispatch");
+function handleError(e) {
+  if (e instanceof HttpError) return errorResponse(e);
+  console.error(e);
+  return json({ error: "internal", message: "\u30B5\u30FC\u30D0\u30FC\u30A8\u30E9\u30FC" }, 500);
+}
+__name(handleError, "handleError");
+
+// src/routes/projects.ts
+route("GET", "/me", async (ctx) => json({ id: ctx.user.id, displayName: ctx.user.displayName }));
+route("GET", "/users", async (ctx) => {
+  const rows = await ctx.env.DB.prepare("SELECT id, display_name FROM users ORDER BY display_name").all();
+  return json(rows.results.map((r) => ({ id: r.id, displayName: r.display_name })));
+});
+route("GET", "/projects", async (ctx) => {
+  const rows = await ctx.env.DB.prepare(
+    `SELECT p.id, p.name, p.head_revision, p.created_by, p.created_at, r.created_at AS updated_at, u.display_name AS updated_by
+     FROM projects p
+     JOIN project_members m ON m.project_id = p.id
+     LEFT JOIN revisions r ON r.project_id = p.id AND r.number = p.head_revision
+     LEFT JOIN users u ON u.id = r.author_id
+     WHERE m.user_id = ? ORDER BY COALESCE(r.created_at, p.created_at) DESC`
+  ).bind(ctx.user.id).all();
+  return json(
+    rows.results.map((p) => ({
+      id: p.id,
+      name: p.name,
+      headRevision: p.head_revision,
+      createdBy: p.created_by,
+      createdAt: p.created_at,
+      updatedAt: p.updated_at ?? p.created_at,
+      updatedBy: p.updated_by ?? null
+    }))
+  );
+});
+route("POST", "/projects", async (ctx) => {
+  const body = await readJson(ctx.request);
+  if (!isUuid(body.id)) throw new HttpError(400, "bad_request", "id\uFF08\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8 JSON \u306E projectId\uFF09\u304C\u5FC5\u8981\u3067\u3059");
+  const id = body.id;
+  const name = requireString(body.name, "name", limits.projectName);
+  const memberIds = body.memberIds ?? [];
+  if (!Array.isArray(memberIds) || memberIds.length > limits.memberIds || !memberIds.every((m) => typeof m === "string"))
+    throw new HttpError(400, "bad_request", "memberIds \u306F\u6587\u5B57\u5217\u306E\u914D\u5217\u3067\u3059");
+  const exists = await ctx.env.DB.prepare("SELECT id FROM projects WHERE id = ?").bind(id).first();
+  if (exists) throw new HttpError(409, "project_exists", "\u540C\u3058 ID \u306E\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u304C\u65E2\u306B\u3042\u308A\u307E\u3059");
+  const now = nowIso();
+  const members = /* @__PURE__ */ new Set([ctx.user.id, ...memberIds]);
+  await ctx.env.DB.batch([
+    ctx.env.DB.prepare("INSERT INTO projects (id, name, head_revision, created_by, created_at) VALUES (?, ?, 0, ?, ?)").bind(id, name, ctx.user.id, now),
+    ...[...members].map(
+      (m) => ctx.env.DB.prepare("INSERT OR IGNORE INTO project_members (project_id, user_id) SELECT ?, id FROM users WHERE id = ?").bind(id, m)
+    )
+  ]);
+  return json({ id, name, headRevision: 0, createdBy: ctx.user.id, createdAt: now }, 201);
+});
+route("GET", "/projects/:id", async (ctx, { id }) => {
+  const p = await requireMember(ctx, id);
+  const members = await ctx.env.DB.prepare(
+    "SELECT u.id, u.display_name FROM project_members m JOIN users u ON u.id = m.user_id WHERE m.project_id = ? ORDER BY u.display_name"
+  ).bind(id).all();
+  return json({
+    id: p.id,
+    name: p.name,
+    headRevision: p.head_revision,
+    createdBy: p.created_by,
+    createdAt: p.created_at,
+    members: members.results.map((m) => ({ id: m.id, displayName: m.display_name }))
+  });
+});
+route("DELETE", "/projects/:id", async (ctx, { id }) => {
+  await requireMember(ctx, id);
+  const revs = await ctx.env.DB.prepare("SELECT project_json_hash FROM revisions WHERE project_id = ?").bind(id).all();
+  const jsonHashes = [...new Set(revs.results.map((r) => r.project_json_hash))];
+  await ctx.env.DB.batch([
+    ctx.env.DB.prepare("DELETE FROM lock_events WHERE project_id = ?").bind(id),
+    ctx.env.DB.prepare("DELETE FROM locks WHERE project_id = ?").bind(id),
+    ctx.env.DB.prepare("DELETE FROM revisions WHERE project_id = ?").bind(id),
+    ctx.env.DB.prepare("DELETE FROM project_members WHERE project_id = ?").bind(id),
+    ctx.env.DB.prepare("DELETE FROM projects WHERE id = ?").bind(id)
+  ]);
+  const stillUsed = await queryInChunks(
+    ctx.env.DB,
+    "SELECT DISTINCT project_json_hash AS h FROM revisions WHERE project_json_hash IN ({in})",
+    jsonHashes
+  );
+  const used = new Set(stillUsed.map((r) => r.h));
+  const orphans = jsonHashes.filter((h) => !used.has(h));
+  for (let i = 0; i < orphans.length; i += 50) {
+    const chunk = orphans.slice(i, i + 50);
+    await ctx.env.BLOBS.delete(chunk.map(blobKey));
+    await ctx.env.DB.prepare(`DELETE FROM blobs WHERE hash IN (${chunk.map(() => "?").join(",")})`).bind(...chunk).run();
+  }
+  return json({ ok: true, deletedRevisions: revs.results.length, deletedBlobs: orphans.length });
+});
+route("PATCH", "/projects/:id", async (ctx, { id }) => {
+  await requireMember(ctx, id);
+  const body = await readJson(ctx.request);
+  const name = requireString(body.name, "name", limits.projectName);
+  await ctx.env.DB.prepare("UPDATE projects SET name = ? WHERE id = ?").bind(name, id).run();
+  return json({ id, name });
+});
+route("DELETE", "/projects/:id/members/me", async (ctx, { id }) => {
+  const project = await requireMember(ctx, id);
+  if (project.created_by === ctx.user.id) {
+    throw new HttpError(400, "owner_cannot_leave", "\u4F5C\u3063\u305F\u4EBA\u306F\u53C2\u52A0\u3092\u3084\u3081\u3089\u308C\u307E\u305B\u3093\uFF08\u66F2\u3092\u524A\u9664\u3057\u3066\u304F\u3060\u3055\u3044\uFF09");
+  }
+  await ctx.env.DB.batch([
+    ctx.env.DB.prepare("DELETE FROM locks WHERE project_id = ? AND user_id = ?").bind(id, ctx.user.id),
+    ctx.env.DB.prepare("DELETE FROM project_members WHERE project_id = ? AND user_id = ?").bind(id, ctx.user.id)
+  ]);
+  return json({ ok: true });
+});
+route("POST", "/projects/:id/members", async (ctx, { id }) => {
+  await requireMember(ctx, id);
+  const body = await readJson(ctx.request);
+  const userId = typeof body.userId === "string" ? body.userId : "";
+  const user = await ctx.env.DB.prepare("SELECT id FROM users WHERE id = ?").bind(userId).first();
+  if (!user) throw new HttpError(404, "user_not_found", "\u30E6\u30FC\u30B6\u30FC\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093");
+  await ctx.env.DB.prepare("INSERT OR IGNORE INTO project_members (project_id, user_id) VALUES (?, ?)").bind(id, userId).run();
+  return json({ ok: true });
+});
 
 // node_modules/@cfworker/json-schema/dist/esm/deep-compare-strict.js
 function deepCompareStrict(a, b) {
@@ -2711,38 +2969,7 @@ function referencedBlobs(p) {
 }
 __name(referencedBlobs, "referencedBlobs");
 
-// src/index.ts
-var routes = [];
-function route(method, path, handler) {
-  const keys = [];
-  const pattern = new RegExp(
-    "^" + path.replace(/:([a-zA-Z]+)/g, (_, k) => (keys.push(k), "([^/]+)")) + "$"
-  );
-  routes.push({ method, pattern, keys, handler });
-}
-__name(route, "route");
-async function authenticate(env, request) {
-  const header = request.headers.get("authorization") ?? "";
-  const match = /^Bearer\s+(.+)$/i.exec(header);
-  if (!match) throw new HttpError(401, "unauthorized", "\u30C8\u30FC\u30AF\u30F3\u304C\u3042\u308A\u307E\u305B\u3093");
-  const tokenHash = await sha256Hex(match[1].trim());
-  if (env.RELEASE_KEY && tokenHash === await sha256Hex(env.RELEASE_KEY))
-    return { id: "release", displayName: "release", isRelease: true };
-  const row = await env.DB.prepare("SELECT id, display_name FROM users WHERE token_hash = ?").bind(tokenHash).first();
-  if (!row) throw new HttpError(401, "unauthorized", "\u30C8\u30FC\u30AF\u30F3\u304C\u6B63\u3057\u304F\u3042\u308A\u307E\u305B\u3093");
-  return { id: row.id, displayName: row.display_name };
-}
-__name(authenticate, "authenticate");
-async function requireMember(ctx, projectId) {
-  if (ctx.user.isRelease) throw new HttpError(403, "forbidden", "\u30EA\u30EA\u30FC\u30B9\u7528\u306E\u30AD\u30FC\u3067\u306F\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u3092\u64CD\u4F5C\u3067\u304D\u307E\u305B\u3093");
-  const project = await ctx.env.DB.prepare(
-    `SELECT p.id, p.name, p.head_revision, p.created_by, p.created_at FROM projects p
-     JOIN project_members m ON m.project_id = p.id AND m.user_id = ? WHERE p.id = ?`
-  ).bind(ctx.user.id, projectId).first();
-  if (!project) throw new HttpError(404, "project_not_found", "\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u304C\u898B\u3064\u304B\u3089\u306A\u3044\u304B\u3001\u53C2\u52A0\u3057\u3066\u3044\u307E\u305B\u3093");
-  return project;
-}
-__name(requireMember, "requireMember");
+// src/routes/revisions.ts
 async function loadProjectJson(env, hash2) {
   const obj = await env.BLOBS.get(blobKey(hash2));
   if (!obj) throw new HttpError(400, "missing_blobs", "\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8 JSON \u304C\u30A2\u30C3\u30D7\u30ED\u30FC\u30C9\u3055\u308C\u3066\u3044\u307E\u305B\u3093", { hashes: [hash2] });
@@ -2753,119 +2980,27 @@ async function loadProjectJson(env, hash2) {
   }
 }
 __name(loadProjectJson, "loadProjectJson");
-route("GET", "/me", async (ctx) => json({ id: ctx.user.id, displayName: ctx.user.displayName }));
-route("GET", "/users", async (ctx) => {
-  const rows = await ctx.env.DB.prepare("SELECT id, display_name FROM users ORDER BY display_name").all();
-  return json(rows.results.map((r) => ({ id: r.id, displayName: r.display_name })));
-});
-route("GET", "/projects", async (ctx) => {
-  const rows = await ctx.env.DB.prepare(
-    `SELECT p.id, p.name, p.head_revision, p.created_by, p.created_at, r.created_at AS updated_at, u.display_name AS updated_by
-     FROM projects p
-     JOIN project_members m ON m.project_id = p.id
-     LEFT JOIN revisions r ON r.project_id = p.id AND r.number = p.head_revision
-     LEFT JOIN users u ON u.id = r.author_id
-     WHERE m.user_id = ? ORDER BY COALESCE(r.created_at, p.created_at) DESC`
-  ).bind(ctx.user.id).all();
-  return json(
-    rows.results.map((p) => ({
-      id: p.id,
-      name: p.name,
-      headRevision: p.head_revision,
-      createdBy: p.created_by,
-      createdAt: p.created_at,
-      updatedAt: p.updated_at ?? p.created_at,
-      updatedBy: p.updated_by ?? null
-    }))
-  );
-});
-route("POST", "/projects", async (ctx) => {
-  const body = await readJson(ctx.request);
-  if (!isUuid(body.id)) throw new HttpError(400, "bad_request", "id\uFF08\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8 JSON \u306E projectId\uFF09\u304C\u5FC5\u8981\u3067\u3059");
-  if (typeof body.name !== "string" || !body.name.trim()) throw new HttpError(400, "bad_request", "name \u304C\u5FC5\u8981\u3067\u3059");
-  const exists = await ctx.env.DB.prepare("SELECT id FROM projects WHERE id = ?").bind(body.id).first();
-  if (exists) throw new HttpError(409, "project_exists", "\u540C\u3058 ID \u306E\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u304C\u65E2\u306B\u3042\u308A\u307E\u3059");
-  const now = nowIso();
-  const members = /* @__PURE__ */ new Set([ctx.user.id, ...body.memberIds ?? []]);
-  const statements = [
-    ctx.env.DB.prepare("INSERT INTO projects (id, name, head_revision, created_by, created_at) VALUES (?, ?, 0, ?, ?)").bind(
-      body.id,
-      body.name.trim(),
-      ctx.user.id,
-      now
-    ),
-    ...[...members].map((m) => ctx.env.DB.prepare("INSERT OR IGNORE INTO project_members (project_id, user_id) SELECT ?, id FROM users WHERE id = ?").bind(body.id, m))
-  ];
-  await ctx.env.DB.batch(statements);
-  return json({ id: body.id, name: body.name.trim(), headRevision: 0, createdBy: ctx.user.id, createdAt: now }, 201);
-});
-route("GET", "/projects/:id", async (ctx, { id }) => {
-  const p = await requireMember(ctx, id);
-  const members = await ctx.env.DB.prepare(
-    "SELECT u.id, u.display_name FROM project_members m JOIN users u ON u.id = m.user_id WHERE m.project_id = ? ORDER BY u.display_name"
-  ).bind(id).all();
-  return json({
-    id: p.id,
-    name: p.name,
-    headRevision: p.head_revision,
-    createdBy: p.created_by,
-    createdAt: p.created_at,
-    members: members.results.map((m) => ({ id: m.id, displayName: m.display_name }))
-  });
-});
-route("DELETE", "/projects/:id", async (ctx, { id }) => {
-  await requireMember(ctx, id);
-  const revs = await ctx.env.DB.prepare("SELECT project_json_hash FROM revisions WHERE project_id = ?").bind(id).all();
-  const jsonHashes = [...new Set(revs.results.map((r) => r.project_json_hash))];
-  await ctx.env.DB.batch([
-    ctx.env.DB.prepare("DELETE FROM lock_events WHERE project_id = ?").bind(id),
-    ctx.env.DB.prepare("DELETE FROM locks WHERE project_id = ?").bind(id),
-    ctx.env.DB.prepare("DELETE FROM revisions WHERE project_id = ?").bind(id),
-    ctx.env.DB.prepare("DELETE FROM project_members WHERE project_id = ?").bind(id),
-    ctx.env.DB.prepare("DELETE FROM projects WHERE id = ?").bind(id)
-  ]);
-  let deletedBlobs = 0;
-  for (let i = 0; i < jsonHashes.length; i += 50) {
-    const chunk = jsonHashes.slice(i, i + 50);
-    const placeholders = chunk.map(() => "?").join(",");
-    const stillUsed = await ctx.env.DB.prepare(`SELECT DISTINCT project_json_hash AS h FROM revisions WHERE project_json_hash IN (${placeholders})`).bind(...chunk).all();
-    const used = new Set(stillUsed.results.map((r) => r.h));
-    const orphans = chunk.filter((h) => !used.has(h));
-    if (orphans.length === 0) continue;
-    await ctx.env.BLOBS.delete(orphans.map(blobKey));
-    await ctx.env.DB.prepare(`DELETE FROM blobs WHERE hash IN (${orphans.map(() => "?").join(",")})`).bind(...orphans).run();
-    deletedBlobs += orphans.length;
-  }
-  return json({ ok: true, deletedRevisions: revs.results.length, deletedBlobs });
-});
-route("PATCH", "/projects/:id", async (ctx, { id }) => {
-  await requireMember(ctx, id);
-  const body = await readJson(ctx.request);
-  const name = typeof body.name === "string" ? body.name.trim() : "";
-  if (!name) throw new HttpError(400, "bad_request", "name \u304C\u5FC5\u8981\u3067\u3059");
-  if (name.length > 200) throw new HttpError(400, "bad_request", "\u66F2\u540D\u304C\u9577\u3059\u304E\u307E\u3059");
-  await ctx.env.DB.prepare("UPDATE projects SET name = ? WHERE id = ?").bind(name, id).run();
-  return json({ id, name });
-});
-route("DELETE", "/projects/:id/members/me", async (ctx, { id }) => {
-  const project = await requireMember(ctx, id);
-  if (project.created_by === ctx.user.id) {
-    throw new HttpError(400, "owner_cannot_leave", "\u4F5C\u3063\u305F\u4EBA\u306F\u53C2\u52A0\u3092\u3084\u3081\u3089\u308C\u307E\u305B\u3093\uFF08\u66F2\u3092\u524A\u9664\u3057\u3066\u304F\u3060\u3055\u3044\uFF09");
-  }
-  await ctx.env.DB.batch([
-    ctx.env.DB.prepare("DELETE FROM locks WHERE project_id = ? AND user_id = ?").bind(id, ctx.user.id),
-    ctx.env.DB.prepare("DELETE FROM project_members WHERE project_id = ? AND user_id = ?").bind(id, ctx.user.id)
-  ]);
-  return json({ ok: true });
-});
-route("POST", "/projects/:id/members", async (ctx, { id }) => {
-  await requireMember(ctx, id);
-  const body = await readJson(ctx.request);
-  const user = await ctx.env.DB.prepare("SELECT id FROM users WHERE id = ?").bind(body.userId ?? "").first();
-  if (!user) throw new HttpError(404, "user_not_found", "\u30E6\u30FC\u30B6\u30FC\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093");
-  await ctx.env.DB.prepare("INSERT OR IGNORE INTO project_members (project_id, user_id) VALUES (?, ?)").bind(id, body.userId).run();
-  return json({ ok: true });
-});
+async function loadValidProject(env, projectId, hash2) {
+  if (!(await registeredHashes(env, [hash2])).has(hash2))
+    throw new HttpError(400, "missing_blobs", "\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8 JSON \u304C\u30A2\u30C3\u30D7\u30ED\u30FC\u30C9\u3055\u308C\u3066\u3044\u307E\u305B\u3093", { hashes: [hash2] });
+  const next = await loadProjectJson(env, hash2);
+  const schemaError = validateProject(next);
+  if (schemaError) throw new HttpError(400, "invalid_project", `\u30B9\u30AD\u30FC\u30DE\u306B\u9069\u5408\u3057\u307E\u305B\u3093: ${schemaError}`);
+  if (next.projectId !== projectId) throw new HttpError(400, "invalid_project", "projectId \u304C\u4E00\u81F4\u3057\u307E\u305B\u3093");
+  const refs = referencedBlobs(next);
+  const present = await registeredHashes(env, refs);
+  const missing = refs.filter((h) => !present.has(h));
+  if (missing.length > 0) throw new HttpError(400, "missing_blobs", "\u30A2\u30C3\u30D7\u30ED\u30FC\u30C9\u3055\u308C\u3066\u3044\u306A\u3044\u30AA\u30FC\u30C7\u30A3\u30AA\u304C\u3042\u308A\u307E\u3059", { hashes: missing });
+  return next;
+}
+__name(loadValidProject, "loadValidProject");
+async function loadHead(ctx, projectId, head) {
+  if (head <= 0) return null;
+  const row = await ctx.env.DB.prepare("SELECT project_json_hash FROM revisions WHERE project_id = ? AND number = ?").bind(projectId, head).first();
+  if (!row) throw new HttpError(500, "head_missing", "\u30D8\u30C3\u30C9\u306E\u30EA\u30D3\u30B8\u30E7\u30F3\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093");
+  return loadProjectJson(ctx.env, row.project_json_hash);
+}
+__name(loadHead, "loadHead");
 route("GET", "/projects/:id/revisions", async (ctx, { id }) => {
   await requireMember(ctx, id);
   const rows = await ctx.env.DB.prepare(
@@ -2886,7 +3021,7 @@ route("GET", "/projects/:id/revisions", async (ctx, { id }) => {
 });
 route("GET", "/projects/:id/revisions/:n", async (ctx, { id, n }) => {
   await requireMember(ctx, id);
-  const row = await ctx.env.DB.prepare("SELECT number, project_json_hash FROM revisions WHERE project_id = ? AND number = ?").bind(id, Number(n)).first();
+  const row = await ctx.env.DB.prepare("SELECT number, project_json_hash FROM revisions WHERE project_id = ? AND number = ?").bind(id, requirePositiveInt(n, "\u30EA\u30D3\u30B8\u30E7\u30F3\u756A\u53F7")).first();
   if (!row) throw new HttpError(404, "revision_not_found", "\u30EA\u30D3\u30B8\u30E7\u30F3\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093");
   const download = await transferUrl(ctx.env, ctx.url.origin, row.project_json_hash, "GET");
   return json({ number: row.number, projectJsonHash: row.project_json_hash, download });
@@ -2897,32 +3032,16 @@ route("POST", "/projects/:id/revisions", async (ctx, { id }) => {
   if (body.parentNumber !== project.head_revision) {
     throw new HttpError(409, "not_head", "\u30B5\u30FC\u30D0\u30FC\u306B\u65B0\u3057\u3044\u30EA\u30D3\u30B8\u30E7\u30F3\u304C\u3042\u308A\u307E\u3059\u3002\u5148\u306B\u53D6\u308A\u8FBC\u3093\u3067\u304F\u3060\u3055\u3044", { head: project.head_revision });
   }
-  if (!isSha256(body.projectJsonHash)) throw new HttpError(400, "bad_request", "projectJsonHash \u304C\u5FC5\u8981\u3067\u3059");
-  const registered = await registeredHashes(ctx.env, [body.projectJsonHash]);
-  if (!registered.has(body.projectJsonHash)) {
-    throw new HttpError(400, "missing_blobs", "\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8 JSON \u304C\u30A2\u30C3\u30D7\u30ED\u30FC\u30C9\u3055\u308C\u3066\u3044\u307E\u305B\u3093", { hashes: [body.projectJsonHash] });
-  }
-  const next = await loadProjectJson(ctx.env, body.projectJsonHash);
-  const schemaError = validateProject(next);
-  if (schemaError) throw new HttpError(400, "invalid_project", `\u30B9\u30AD\u30FC\u30DE\u306B\u9069\u5408\u3057\u307E\u305B\u3093: ${schemaError}`);
-  if (next.projectId !== id) throw new HttpError(400, "invalid_project", "projectId \u304C\u4E00\u81F4\u3057\u307E\u305B\u3093");
-  const refs = referencedBlobs(next);
-  const present = await registeredHashes(ctx.env, refs);
-  const missing = refs.filter((h) => !present.has(h));
-  if (missing.length > 0) throw new HttpError(400, "missing_blobs", "\u30A2\u30C3\u30D7\u30ED\u30FC\u30C9\u3055\u308C\u3066\u3044\u306A\u3044\u30AA\u30FC\u30C7\u30A3\u30AA\u304C\u3042\u308A\u307E\u3059", { hashes: missing });
-  let parent = null;
-  if (project.head_revision > 0) {
-    const head = await ctx.env.DB.prepare("SELECT project_json_hash FROM revisions WHERE project_id = ? AND number = ?").bind(id, project.head_revision).first();
-    if (head) parent = await loadProjectJson(ctx.env, head.project_json_hash);
-  }
-  const changes = changedScopes(parent, next);
+  const hash2 = requireSha256(body.projectJsonHash, "projectJsonHash");
+  const message = optionalString(body.message, "message", limits.message);
+  const next = await loadValidProject(ctx.env, id, hash2);
+  const changes = changedScopes(await loadHead(ctx, id, project.head_revision), next);
   const number = project.head_revision + 1;
-  const now = nowIso();
   const [insert] = await ctx.env.DB.batch([
     ctx.env.DB.prepare(
       `INSERT INTO revisions (project_id, number, parent_number, author_id, message, project_json_hash, created_at)
        SELECT ?, ?, ?, ?, ?, ?, ? WHERE (SELECT head_revision FROM projects WHERE id = ?) = ?`
-    ).bind(id, number, project.head_revision, ctx.user.id, body.message ?? "", body.projectJsonHash, now, id, project.head_revision),
+    ).bind(id, number, project.head_revision, ctx.user.id, message, hash2, nowIso(), id, project.head_revision),
     ctx.env.DB.prepare("UPDATE projects SET head_revision = ? WHERE id = ? AND head_revision = ?").bind(number, id, project.head_revision)
   ]);
   if (insert.meta.changes !== 1) {
@@ -2930,6 +3049,8 @@ route("POST", "/projects/:id/revisions", async (ctx, { id }) => {
   }
   return json({ number, head: number, changedTrackIds: changes.map((c) => c.id) }, 201);
 });
+
+// src/routes/locks.ts
 route("GET", "/projects/:id/locks", async (ctx, { id }) => {
   await requireMember(ctx, id);
   const rows = await ctx.env.DB.prepare(
@@ -2940,21 +3061,21 @@ route("GET", "/projects/:id/locks", async (ctx, { id }) => {
 route("POST", "/projects/:id/locks", async (ctx, { id }) => {
   await requireMember(ctx, id);
   const body = await readJson(ctx.request);
-  if (typeof body.trackId !== "string" || !body.trackId) throw new HttpError(400, "bad_request", "trackId \u304C\u5FC5\u8981\u3067\u3059");
+  const trackId = requireString(body.trackId, "trackId", limits.trackId);
   const now = nowIso();
-  const inserted = await ctx.env.DB.prepare("INSERT OR IGNORE INTO locks (project_id, track_id, user_id, acquired_at) VALUES (?, ?, ?, ?)").bind(id, body.trackId, ctx.user.id, now).run();
+  const inserted = await ctx.env.DB.prepare("INSERT OR IGNORE INTO locks (project_id, track_id, user_id, acquired_at) VALUES (?, ?, ?, ?)").bind(id, trackId, ctx.user.id, now).run();
   const lock = await ctx.env.DB.prepare(
     "SELECT l.user_id, u.display_name, l.acquired_at FROM locks l LEFT JOIN users u ON u.id = l.user_id WHERE l.project_id = ? AND l.track_id = ?"
-  ).bind(id, body.trackId).first();
+  ).bind(id, trackId).first();
   if (lock && lock.user_id !== ctx.user.id) {
     throw new HttpError(409, "locked", `${lock.display_name ?? "\u4ED6\u306E\u4EBA"} \u304C\u30ED\u30C3\u30AF\u3057\u3066\u3044\u307E\u3059`, {
       holder: { userId: lock.user_id, displayName: lock.display_name, acquiredAt: lock.acquired_at }
     });
   }
   if (inserted.meta.changes === 1) {
-    await ctx.env.DB.prepare("INSERT INTO lock_events (project_id, track_id, user_id, action, created_at) VALUES (?, ?, ?, 'acquire', ?)").bind(id, body.trackId, ctx.user.id, now).run();
+    await ctx.env.DB.prepare("INSERT INTO lock_events (project_id, track_id, user_id, action, created_at) VALUES (?, ?, ?, 'acquire', ?)").bind(id, trackId, ctx.user.id, now).run();
   }
-  return json({ trackId: body.trackId, userId: ctx.user.id, displayName: ctx.user.displayName, acquiredAt: lock?.acquired_at ?? now });
+  return json({ trackId, userId: ctx.user.id, displayName: ctx.user.displayName, acquiredAt: lock?.acquired_at ?? now });
 });
 route("DELETE", "/projects/:id/locks/:trackId", async (ctx, { id, trackId }) => {
   await requireMember(ctx, id);
@@ -2979,31 +3100,28 @@ route("GET", "/projects/:id/lock-events", async (ctx, { id }) => {
   ).bind(id).all();
   return json(rows.results.map((e) => ({ id: e.id, trackId: e.track_id, userId: e.user_id, displayName: e.display_name, action: e.action, createdAt: e.created_at })));
 });
+
+// src/routes/blobs.ts
 route("POST", "/blobs/check", async (ctx) => {
   const body = await readJson(ctx.request);
+  if (body.hashes !== void 0 && !Array.isArray(body.hashes)) throw new HttpError(400, "bad_request", "hashes \u306F\u914D\u5217\u3067\u3059");
   const hashes = [...new Set((body.hashes ?? []).filter(isSha256))];
+  if (hashes.length > limits.hashesPerCheck)
+    throw new HttpError(400, "bad_request", `\u4E00\u5EA6\u306B\u78BA\u8A8D\u3067\u304D\u308B\u306E\u306F ${limits.hashesPerCheck} \u500B\u307E\u3067\u3067\u3059`);
   const present = await registeredHashes(ctx.env, hashes);
   const missing = hashes.filter((h) => !present.has(h));
   return json({ missing: await Promise.all(missing.map((h) => transferUrl(ctx.env, ctx.url.origin, h, "PUT"))) });
 });
-route("POST", "/blobs/:hash/complete", async (ctx, { hash: hash2 }) => {
-  if (!isSha256(hash2)) throw new HttpError(400, "bad_request", "\u30CF\u30C3\u30B7\u30E5\u306E\u5F62\u5F0F\u304C\u6B63\u3057\u304F\u3042\u308A\u307E\u305B\u3093");
-  return json(await verifyAndRegister(ctx.env, hash2));
-});
+route("POST", "/blobs/:hash/complete", async (ctx, { hash: hash2 }) => json(await verifyAndRegister(ctx.env, requireSha256(hash2))));
 route("GET", "/blobs/:hash", async (ctx, { hash: hash2 }) => {
-  if (!isSha256(hash2)) throw new HttpError(400, "bad_request", "\u30CF\u30C3\u30B7\u30E5\u306E\u5F62\u5F0F\u304C\u6B63\u3057\u304F\u3042\u308A\u307E\u305B\u3093");
-  const present = await registeredHashes(ctx.env, [hash2]);
-  if (!present.has(hash2)) throw new HttpError(404, "not_found", "\u898B\u3064\u304B\u308A\u307E\u305B\u3093");
+  requireSha256(hash2);
+  if (!(await registeredHashes(ctx.env, [hash2])).has(hash2)) throw new HttpError(404, "not_found", "\u898B\u3064\u304B\u308A\u307E\u305B\u3093");
   return json(await transferUrl(ctx.env, ctx.url.origin, hash2, "GET"));
 });
-route("PUT", "/blobs/:hash/data", async (ctx, { hash: hash2 }) => {
-  if (!isSha256(hash2)) throw new HttpError(400, "bad_request", "\u30CF\u30C3\u30B7\u30E5\u306E\u5F62\u5F0F\u304C\u6B63\u3057\u304F\u3042\u308A\u307E\u305B\u3093");
-  return json(await directUpload(ctx.env, hash2, ctx.request));
-});
-route("GET", "/blobs/:hash/data", async (ctx, { hash: hash2 }) => {
-  if (!isSha256(hash2)) throw new HttpError(400, "bad_request", "\u30CF\u30C3\u30B7\u30E5\u306E\u5F62\u5F0F\u304C\u6B63\u3057\u304F\u3042\u308A\u307E\u305B\u3093");
-  return directDownload(ctx.env, hash2);
-});
+route("PUT", "/blobs/:hash/data", async (ctx, { hash: hash2 }) => json(await directUpload(ctx.env, requireSha256(hash2), ctx.request)));
+route("GET", "/blobs/:hash/data", async (ctx, { hash: hash2 }) => directDownload(ctx.env, requireSha256(hash2)));
+
+// src/routes/app.ts
 route("GET", "/app/latest", async (ctx) => {
   const platform = ctx.url.searchParams.get("platform");
   if (!isReleasePlatform(platform)) throw new HttpError(400, "bad_request", "platform \u306F windows / mac / linux \u306E\u3044\u305A\u308C\u304B\u3067\u3059");
@@ -3017,10 +3135,20 @@ route("POST", "/app/releases", async (ctx) => {
   if (!ctx.user.isRelease) throw new HttpError(403, "forbidden", "\u30EA\u30EA\u30FC\u30B9\u7528\u306E\u30AD\u30FC\u304C\u5FC5\u8981\u3067\u3059");
   const body = await readJson(ctx.request);
   if (!isReleasePlatform(body.platform)) throw new HttpError(400, "bad_request", "platform \u304C\u6B63\u3057\u304F\u3042\u308A\u307E\u305B\u3093");
-  if (!Number.isInteger(body.build) || (body.build ?? 0) <= 0) throw new HttpError(400, "bad_request", "build\uFF08\u6B63\u306E\u6574\u6570\uFF09\u304C\u5FC5\u8981\u3067\u3059");
-  if (!isSha256(body.manifestHash)) throw new HttpError(400, "bad_request", "manifestHash \u304C\u5FC5\u8981\u3067\u3059");
-  const manifestObj = await ctx.env.BLOBS.get(blobKey(body.manifestHash));
-  if (!manifestObj) throw new HttpError(400, "missing_blobs", "\u30DE\u30CB\u30D5\u30A7\u30B9\u30C8\u304C\u30A2\u30C3\u30D7\u30ED\u30FC\u30C9\u3055\u308C\u3066\u3044\u307E\u305B\u3093", { hashes: [body.manifestHash] });
+  const platform = body.platform;
+  const build = body.build;
+  if (typeof build !== "number" || !Number.isSafeInteger(build) || build <= 0) throw new HttpError(400, "bad_request", "build\uFF08\u6B63\u306E\u6574\u6570\uFF09\u304C\u5FC5\u8981\u3067\u3059");
+  const manifestHash = requireSha256(body.manifestHash, "manifestHash");
+  const current = await ctx.env.BLOBS.get(releaseKey(platform));
+  if (current) {
+    const currentBuild = (await current.json()).build ?? 0;
+    if (build < currentBuild)
+      throw new HttpError(409, "older_build", `\u914D\u4FE1\u4E2D\u306E\u30D3\u30EB\u30C9\uFF08${currentBuild}\uFF09\u3088\u308A\u53E4\u3044\u30D3\u30EB\u30C9\u3067\u3059`, { current: currentBuild });
+  }
+  if (!(await registeredHashes(ctx.env, [manifestHash])).has(manifestHash))
+    throw new HttpError(400, "missing_blobs", "\u30DE\u30CB\u30D5\u30A7\u30B9\u30C8\u304C\u30A2\u30C3\u30D7\u30ED\u30FC\u30C9\u3055\u308C\u3066\u3044\u307E\u305B\u3093", { hashes: [manifestHash] });
+  const manifestObj = await ctx.env.BLOBS.get(blobKey(manifestHash));
+  if (!manifestObj) throw new HttpError(400, "missing_blobs", "\u30DE\u30CB\u30D5\u30A7\u30B9\u30C8\u304C\u30A2\u30C3\u30D7\u30ED\u30FC\u30C9\u3055\u308C\u3066\u3044\u307E\u305B\u3093", { hashes: [manifestHash] });
   let files;
   try {
     files = (await manifestObj.json()).files ?? [];
@@ -3033,75 +3161,28 @@ route("POST", "/app/releases", async (ctx) => {
   const missing = hashes.filter((h) => !present.has(h));
   if (missing.length) throw new HttpError(400, "missing_blobs", "\u30A2\u30C3\u30D7\u30ED\u30FC\u30C9\u3055\u308C\u3066\u3044\u306A\u3044\u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308A\u307E\u3059", { hashes: missing });
   const info = {
-    platform: body.platform,
-    build: body.build,
-    version: body.version ?? "",
-    manifestHash: body.manifestHash,
-    notes: body.notes ?? "",
+    platform,
+    build,
+    version: optionalString(body.version, "version", 100),
+    manifestHash,
+    notes: optionalString(body.notes, "notes", 4e3),
     createdAt: nowIso()
   };
-  await ctx.env.BLOBS.put(releaseKey(body.platform), JSON.stringify(info), { httpMetadata: { contentType: "application/json" } });
-  await ctx.env.BLOBS.put(`app-releases/${body.platform}/${info.build}.json`, JSON.stringify(info));
+  await ctx.env.BLOBS.put(releaseKey(platform), JSON.stringify(info), { httpMetadata: { contentType: "application/json" } });
+  await ctx.env.BLOBS.put(releaseBuildKey(platform, build), JSON.stringify(info));
   return json(info, 201);
 });
-async function healthCheck(env) {
-  const lines = [];
-  let ok = true;
-  const check = /* @__PURE__ */ __name(async (label, fn) => {
-    try {
-      const note = await fn();
-      lines.push(`OK  ${label}${note ? `\uFF08${note}\uFF09` : ""}`);
-    } catch (e) {
-      ok = false;
-      lines.push(`NG  ${label}: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  }, "check");
-  await check("D1 \u30D0\u30A4\u30F3\u30C7\u30A3\u30F3\u30B0 DB", async () => {
-    if (!env.DB) throw new Error("\u30D0\u30A4\u30F3\u30C7\u30A3\u30F3\u30B0 DB \u304C\u3042\u308A\u307E\u305B\u3093\uFF08Worker \u306E\u300C\u30D0\u30A4\u30F3\u30C7\u30A3\u30F3\u30B0\u300D\u3067 D1 \u3092\u5909\u6570\u540D DB \u3067\u8FFD\u52A0\uFF09");
-  });
-  await check("D1 \u306E\u30C6\u30FC\u30D6\u30EB", async () => {
-    if (!env.DB) throw new Error("DB \u304C\u306A\u3044\u305F\u3081\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093");
-    for (const table of ["users", "projects", "revisions", "locks", "blobs"])
-      await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first().catch(() => {
-        throw new Error(`\u30C6\u30FC\u30D6\u30EB ${table} \u304C\u3042\u308A\u307E\u305B\u3093\uFF08migrations/0001_init.sql \u3092 D1 \u306E\u30B3\u30F3\u30BD\u30FC\u30EB\u3067\u5B9F\u884C\uFF09`);
-      });
-  });
-  await check("R2 \u30D0\u30A4\u30F3\u30C7\u30A3\u30F3\u30B0 BLOBS", async () => {
-    if (!env.BLOBS) throw new Error("\u30D0\u30A4\u30F3\u30C7\u30A3\u30F3\u30B0 BLOBS \u304C\u3042\u308A\u307E\u305B\u3093\uFF08Worker \u306E\u300C\u30D0\u30A4\u30F3\u30C7\u30A3\u30F3\u30B0\u300D\u3067 R2 \u3092\u5909\u6570\u540D BLOBS \u3067\u8FFD\u52A0\uFF09");
-    await env.BLOBS.head("health-check");
-  });
-  lines.push(`--  \u7F72\u540D\u4ED8\u304D URL\uFF08R2 \u306E API \u30AD\u30FC\uFF09: ${presignEnabled(env) ? "\u8A2D\u5B9A\u3042\u308A" : "\u306A\u3057\uFF08Worker \u7D4C\u7531\u3067\u8EE2\u9001\u30021 \u30D5\u30A1\u30A4\u30EB 100MB \u307E\u3067\uFF09"}`);
-  lines.push(`--  ADMIN_PASSWORD: ${env.ADMIN_PASSWORD ? "\u8A2D\u5B9A\u3042\u308A" : "\u306A\u3057"}`);
-  lines.push(`--  RELEASE_KEY: ${env.RELEASE_KEY ? "\u8A2D\u5B9A\u3042\u308A" : "\u306A\u3057"}`);
-  const text = `ShareDAW sync server: ${ok ? "OK" : "\u8A2D\u5B9A\u306B\u554F\u984C\u304C\u3042\u308A\u307E\u3059"}
 
-${lines.join("\n")}
-`;
-  return new Response(text, { status: ok ? 200 : 500, headers: { "content-type": "text/plain; charset=utf-8" } });
-}
-__name(healthCheck, "healthCheck");
+// src/index.ts
 var index_default = {
   async fetch(request, env) {
     const url = new URL(request.url);
     try {
       if (url.pathname === "/" && request.method === "GET") return await healthCheck(env);
       if (url.pathname === "/admin") return await handleAdmin(request, env);
-      for (const r of routes) {
-        if (r.method !== request.method) continue;
-        const m = r.pattern.exec(url.pathname);
-        if (!m) continue;
-        const params = {};
-        r.keys.forEach((k, i) => params[k] = decodeURIComponent(m[i + 1]));
-        const user = await authenticate(env, request);
-        if (user.isRelease && !url.pathname.startsWith("/blobs") && !url.pathname.startsWith("/app/"))
-          throw new HttpError(403, "forbidden", "\u30EA\u30EA\u30FC\u30B9\u7528\u306E\u30AD\u30FC\u3067\u4F7F\u3048\u308B\u306E\u306F\u66F4\u65B0\u306E\u914D\u4FE1\u3060\u3051\u3067\u3059");
-        return await r.handler({ env, request, url, user }, params);
-      }
-      return json({ error: "not_found", message: "\u898B\u3064\u304B\u308A\u307E\u305B\u3093" }, 404);
+      return await dispatch(request, env, url) ?? json({ error: "not_found", message: "\u898B\u3064\u304B\u308A\u307E\u305B\u3093" }, 404);
     } catch (e) {
-      if (e instanceof HttpError) return errorResponse(e);
-      console.error(e);
-      return json({ error: "internal", message: "\u30B5\u30FC\u30D0\u30FC\u30A8\u30E9\u30FC" }, 500);
+      return handleError(e);
     }
   }
 };

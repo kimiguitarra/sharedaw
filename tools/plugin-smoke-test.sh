@@ -21,7 +21,8 @@ done
 # moduleinfo.json があると .so を読み込まずに一覧に載るので、クラッシュ用は消しておく
 rm -rf "$HOME/.vst3/CollabCrashPlugin.vst3/Contents/Resources"
 
-run() { xvfb-run -a "$app" "$@" 2>&1 | tee -a "$work/log.txt"; }
+# 固まったら 5 分で打ち切る（ジョブの上限の 6 時間まで待たない）
+run() { timeout 300 xvfb-run -a "$app" "$@" 2>&1 | tee -a "$work/log.txt"; }
 
 echo "== scan"
 out="$(run --scan-plugins)"

@@ -9,11 +9,35 @@ import pathlib, re, sys
 literal = re.compile(r'(?<![A-Za-z0-9_])"((?:[^"\\\n]|\\.)*)"(_ju)?')
 problems = []
 
+
+def strip_comment (line):
+    """行コメント（// 以降）を外す。文字列の中の // （URL など）はコメントとみなさない。"""
+    in_string = False
+    i = 0
+    while i < len (line):
+        c = line[i]
+        if in_string:
+            if c == "\\":
+                i += 1
+            elif c == '"':
+                in_string = False
+        elif c == '"':
+            in_string = True
+        elif c == "'":
+            # 文字リテラル（'"' など）は飛ばす
+            end = line.find ("'", i + 2 if line.startswith ("\\", i + 1) else i + 1)
+            i = end if end > i else i
+        elif line.startswith ("//", i):
+            return line[:i]
+        i += 1
+    return line
+
+
 for path in sorted(pathlib.Path(__file__).resolve().parent.parent.joinpath("app/src").rglob("*")):
     if path.suffix not in (".cpp", ".h"):
         continue
     for no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        code = line.split("//")[0] if not line.lstrip().startswith("#include") else ""
+        code = strip_comment (line) if not line.lstrip().startswith("#include") else ""
         if "utf8-std" in line or line.lstrip().startswith(("*", "/*")):
             continue
         for m in literal.finditer(code):

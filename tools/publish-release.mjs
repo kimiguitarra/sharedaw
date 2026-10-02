@@ -23,7 +23,8 @@ if (!platform || !rootDir || !buildText) {
 }
 
 if (!server || !key) {
-  console.log("SHAREDAW_SERVER_URL / SHAREDAW_RELEASE_KEY が未設定のため、配信をスキップします");
+  // CI では「配信する」を選んだのに配られていないことが分かるように、警告として出す
+  console.log("::warning::SHAREDAW_SERVER_URL / SHAREDAW_RELEASE_KEY が未設定のため、配信をスキップします");
   process.exit(0);
 }
 

@@ -46,6 +46,8 @@ async function passwordMatches(env: Env, given: string): Promise<boolean> {
   return diff === 0;
 }
 
+const wrongPasswordDelayMs = 1500;
+
 function newToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -60,12 +62,21 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
 
   if (request.method !== "POST") return page("<p>対応していない操作です。</p>", 405);
 
-  const data = await request.formData();
+  let data: FormData;
+  try {
+    data = await request.formData();
+  } catch {
+    return page(form(`<p class="error">送信された内容を読み込めません。</p>`), 400);
+  }
+
   const password = String(data.get("password") ?? "");
   const name = String(data.get("name") ?? "").trim().normalize("NFC");
 
-  if (!(await passwordMatches(env, password)))
+  // 間違えたときは少し待たせる（総当たりで試しにくくする）
+  if (!(await passwordMatches(env, password))) {
+    await new Promise((resolve) => setTimeout(resolve, wrongPasswordDelayMs));
     return page(form(`<p class="error">管理パスワードが違います。</p>`), 403);
+  }
 
   if (!name || name.length > 40) return page(form(`<p class="error">表示名を 40 文字以内で入力してください。</p>`), 400);
 

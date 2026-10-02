@@ -32,9 +32,10 @@ on:
         type: boolean
         default: true
 
+# 手動実行（アプリのビルド・配信）は push で止めない。push・PR どうしだけ、新しいものが来たら古いものを止める
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
   # ロジック部分の単体テスト（JUCE 不要なので速い）
@@ -196,7 +197,14 @@ jobs:
 
       - name: Check universal binary (macOS)
         if: runner.os == 'macOS'
-        run: lipo -info build/app/ShareDAW_artefacts/Release/ShareDAW.app/Contents/MacOS/ShareDAW
+        run: |
+          bin=build/app/ShareDAW_artefacts/Release/ShareDAW.app/Contents/MacOS/ShareDAW
+          archs="$(lipo -archs "$bin")"
+          echo "architectures: $archs"
+          echo "$archs" | grep -q arm64 || { echo "::error::arm64 is missing"; exit 1; }
+          if [ "${{ matrix.name }}" = "macos-universal" ]; then
+            echo "$archs" | grep -q x86_64 || { echo "::error::x86_64 is missing from the universal build"; exit 1; }
+          fi
 
       # Apple Developer に登録しないので、アドホック署名（証明書なし）にする。Apple Silicon は署名のないアプリを起動できない。
       # Hardened Runtime とマイク・他社プラグイン読み込みの entitlements も付ける（仕様書 §8.3, §11）
@@ -266,7 +274,8 @@ jobs:
   # リポジトリのシークレット SHAREDAW_SERVER_URL / SHAREDAW_RELEASE_KEY がなければスキップする
   publish:
     needs: [ plan, app ]
-    if: ${{ !cancelled() && inputs.publish && needs.plan.outputs.matrix != '{"include":[]}' }}
+    # 配信は main のビルドだけ（ほかのブランチを配ると、実行番号が新しいため全員のアプリに入ってしまう）
+    if: ${{ !cancelled() && inputs.publish && github.ref == 'refs/heads/main' && needs.plan.outputs.matrix != '{"include":[]}' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4

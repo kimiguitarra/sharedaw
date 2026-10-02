@@ -4,7 +4,7 @@
 // 開発・テスト: R2_ACCESS_KEY_ID が未設定なら、Worker の /blobs/:hash/data を経由する URL を返す。
 
 import { AwsClient } from "aws4fetch";
-import { Env, HttpError, blobKey, hex, nowIso, sha256Hex } from "./util";
+import { Env, HttpError, blobKey, hex, nowIso, queryInChunks } from "./util";
 
 export interface TransferUrl {
   hash: string;
@@ -50,19 +50,20 @@ export async function transferUrl(env: Env, origin: string, hash: string, method
 }
 
 export async function registeredHashes(env: Env, hashes: string[]): Promise<Set<string>> {
-  const found = new Set<string>();
+  const rows = await queryInChunks<{ hash: string }>(env.DB, "SELECT hash FROM blobs WHERE hash IN ({in})", hashes);
+  return new Set(rows.map((r) => r.hash));
+}
 
-  // SQLite の変数上限を避けるため分割する
-  for (let i = 0; i < hashes.length; i += 50) {
-    const chunk = hashes.slice(i, i + 50);
-    const placeholders = chunk.map(() => "?").join(",");
-    const rows = await env.DB.prepare(`SELECT hash FROM blobs WHERE hash IN (${placeholders})`)
-      .bind(...chunk)
-      .all<{ hash: string }>();
-    for (const r of rows.results) found.add(r.hash);
-  }
+/** 検証済みの実体を blobs に登録する（同じものがあれば何もしない）。 */
+async function registerBlob(env: Env, hash: string, size: number): Promise<{ hash: string; size: number }> {
+  await env.DB.prepare("INSERT OR IGNORE INTO blobs (hash, size, created_at) VALUES (?, ?, ?)").bind(hash, size, nowIso()).run();
+  return { hash, size };
+}
 
-  return found;
+/** 中身のハッシュが名前と違う実体を消して 400 にする。 */
+async function rejectMismatch(env: Env, hash: string, actual?: string): Promise<never> {
+  await env.BLOBS.delete(blobKey(hash));
+  throw new HttpError(400, "hash_mismatch", "アップロードされた内容のハッシュが一致しません", actual ? { actual } : {});
 }
 
 /** R2 にある実体のハッシュとサイズを検証して blobs に登録する（アップロード完了時）。 */
@@ -76,13 +77,8 @@ export async function verifyAndRegister(env: Env, hash: string): Promise<{ hash:
   // R2 がチェックサムを検証済みなら、それを使う（Worker の CPU 時間を使わない）
   const stored = head.checksums?.sha256;
   if (stored) {
-    if (hex(stored) !== hash) {
-      await env.BLOBS.delete(blobKey(hash));
-      throw new HttpError(400, "hash_mismatch", "アップロードされた内容のハッシュが一致しません", { actual: hex(stored) });
-    }
-
-    await env.DB.prepare("INSERT OR IGNORE INTO blobs (hash, size, created_at) VALUES (?, ?, ?)").bind(hash, head.size, nowIso()).run();
-    return { hash, size: head.size };
+    if (hex(stored) !== hash) return rejectMismatch(env, hash, hex(stored));
+    return registerBlob(env, hash, head.size);
   }
 
   const obj = await env.BLOBS.get(blobKey(hash));
@@ -92,16 +88,8 @@ export async function verifyAndRegister(env: Env, hash: string): Promise<{ hash:
   await obj.body.pipeTo(digestStream);
   const actual = hex(await digestStream.digest);
 
-  if (actual !== hash) {
-    await env.BLOBS.delete(blobKey(hash));
-    throw new HttpError(400, "hash_mismatch", "アップロードされた内容のハッシュが一致しません", { actual });
-  }
-
-  await env.DB.prepare("INSERT OR IGNORE INTO blobs (hash, size, created_at) VALUES (?, ?, ?)")
-    .bind(hash, obj.size, nowIso())
-    .run();
-
-  return { hash, size: obj.size };
+  if (actual !== hash) return rejectMismatch(env, hash, actual);
+  return registerBlob(env, hash, obj.size);
 }
 
 /** 開発用: Worker 経由のアップロード（その場で検証して登録）。 */
@@ -126,11 +114,7 @@ export async function directUpload(env: Env, hash: string, request: Request) {
     throw e;
   }
 
-  await env.DB.prepare("INSERT OR IGNORE INTO blobs (hash, size, created_at) VALUES (?, ?, ?)")
-    .bind(hash, size, nowIso())
-    .run();
-
-  return { hash, size };
+  return registerBlob(env, hash, size);
 }
 
 export async function directDownload(env: Env, hash: string): Promise<Response> {
