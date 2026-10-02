@@ -20,6 +20,12 @@ struct Key
     bool operator== (const Key&) const = default;
 };
 
+/**
+    調号（シャープの数は正、フラットの数は負）。音名の書き方（keyName・spellPitch）と同じ向きにする
+    （例: F# / Gb の長調は Gb の -6、Ebm は -6）。MIDI ファイルの調号にも使う。
+*/
+int keySignature (const Key&);
+
 /** キーの名前。例: "C", "F#", "Bb", "Am", "C#m"。 */
 std::string keyName (const Key&);
 

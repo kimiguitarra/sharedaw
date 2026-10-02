@@ -257,6 +257,30 @@ private:
     te::AudioTrack::Ptr chordTrack;
 
     juce::Result renderOneTrack (const std::string& trackId, const juce::File& output, double endSeconds, bool asStem, int bitDepth);
+    juce::BigInteger tracksMatching (const std::function<bool (te::Track*)>&) const;
+
+    /**
+        1 本のトラックだけを書き出すあいだの設定: 出力を直接にし（バスやミックス用のトラックを通さない）、センドを止め、ミュートを外す。
+        dry（バウンス）なら音量・パンも 0 にし、strip（EQ・Comp）を外す。抜けるときに必ず元に戻す。
+    */
+    class ScopedIsolatedTrack
+    {
+    public:
+        ScopedIsolatedTrack (te::AudioTrack&, std::vector<te::Plugin::Ptr>& sends, te::Plugin* stripToBypass, bool dry);
+        ~ScopedIsolatedTrack();
+
+    private:
+        te::AudioTrack& track;
+        std::vector<te::Plugin::Ptr>& sends;
+        te::Plugin* strip = nullptr;
+        te::VolumeAndPanPlugin* volume = nullptr;
+        te::AudioTrack* oldDest = nullptr;
+        float oldDb = 0.0f, oldPan = 0.0f;
+        bool oldMute = false, stripWasEnabled = false;
+        std::vector<bool> sendsWereEnabled;
+
+        JUCE_DECLARE_NON_COPYABLE (ScopedIsolatedTrack)
+    };
     bool renderTracksToWav (const juce::BigInteger& tracksToDo, const juce::File& output, double endSeconds, int bitDepth, double sampleRate);
     std::unique_ptr<Meter> chordMeter, metronomeMeter, masterMeter;
     float masterVolumeDb = 0.0f;

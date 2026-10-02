@@ -5,6 +5,8 @@
 #include <cmath>
 #include <map>
 #include <sstream>
+#include <string_view>
+#include <unordered_map>
 
 #include "collab/ChordPlayback.h"
 #include "collab/TempoMap.h"
@@ -167,7 +169,10 @@ namespace
             return;
         }
 
+        const auto changesBefore = diff.changes.size();
+
         // トラックのプロパティ
+        if (a->type != b->type)   add (Change::Category::track, "トラックの種類を変更");
         if (a->name != b->name)   add (Change::Category::track, "名前を変更（" + a->name + " → " + b->name + "）");
         if (a->color != b->color) add (Change::Category::track, "色を変更");
         if (std::abs (a->volumeDb - b->volumeDb) > 1e-9)
@@ -219,6 +224,15 @@ namespace
         if (a->strip.comp != b->strip.comp)
             add (Change::Category::track, a->strip.comp.enabled != b->strip.comp.enabled ? (b->strip.comp.enabled ? "コンプをオン" : "コンプをオフ") : "コンプを変更");
 
+        if (a->strip.compFirst != b->strip.compFirst)
+            add (Change::Category::track, b->strip.compFirst ? "Comp → EQ の順に変更" : "EQ → Comp の順に変更");
+
+        if (a->inputChannels != b->inputChannels || a->outputChannels != b->outputChannels)
+            add (Change::Category::track, "入出力（モノ / ステレオ）を変更");
+
+        if (std::abs (a->crossfadeMs - b->crossfadeMs) > 1e-9 || a->crossfadeShape != b->crossfadeShape)
+            add (Change::Category::track, "テイクのつなぎを変更");
+
         if (a->render != b->render)
             add (Change::Category::render, b->render ? "バウンスを更新" : "バウンスを削除");
 
@@ -249,9 +263,18 @@ namespace
                 add (Change::Category::clips, what, r);
             }
 
+            // ノートは多いので、ID の索引を作って比べる（1 つずつ探すと数千ノートで遅くなる）
+            std::unordered_map<std::string_view, const Note*> before, after;
+            before.reserve (ca->notes.size());
+            after.reserve (cb.notes.size());
+
+            for (auto& n : ca->notes) before.emplace (n.id, &n);
+            for (auto& n : cb.notes)  after.emplace (n.id, &n);
+
             for (auto& nb : cb.notes)
             {
-                auto* na = findById (ca->notes, nb.id);
+                const auto found = before.find (nb.id);
+                const Note* na = found != before.end() ? found->second : nullptr;
 
                 if (na == nullptr)          { ++notesAdded;   noteRange.add (cb.startTick + nb.tick, cb.startTick + nb.endTick()); }
                 else if (! (*na == nb))
@@ -263,7 +286,7 @@ namespace
             }
 
             for (auto& na : ca->notes)
-                if (findById (cb.notes, na.id) == nullptr)
+                if (after.count (na.id) == 0)
                 {
                     ++notesRemoved;
                     noteRange.add (ca->startTick + na.tick, ca->startTick + na.endTick());
@@ -328,6 +351,10 @@ namespace
                 r.add (ca.startTick, ca.startTick + 1);
                 add (Change::Category::audioClips, barRange (mapA, ca.startTick, ca.startTick + 1) + " オーディオ「" + ca.displayName + "」を削除", r);
             }
+
+        // ここで挙げていない項目だけが変わったとき（新しく足した設定など）も、変わったことは必ず見せる
+        if (diff.changes.size() == changesBefore && ! (*a == *b))
+            add (Change::Category::track, "その他の設定を変更");
     }
 
     std::string chordText (const ChordEvent& e)

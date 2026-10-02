@@ -9,4 +9,13 @@ namespace AppPaths
 
     /** アプリの設定・自動保存・セッション情報を置くフォルダ（ユーザーごと）。 */
     juce::File getAppDataDir();
+
+    /**
+        フォルダの中を指す相対パスか（絶対パス・ドライブ名・".."・空の要素を含まない）。
+        曲や更新の一覧など、外から来たパスでフォルダの外に書かないために使う。
+    */
+    bool isSafeRelativePath (const juce::String& path);
+
+    /** 一時ファイルに書いてから置き換える（途中で落ちても壊れたファイルを残さない）。 */
+    juce::Result writeFileAtomically (const juce::File& target, const void* data, size_t size);
 }

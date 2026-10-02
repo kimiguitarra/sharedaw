@@ -34,14 +34,8 @@ namespace
     /** 調号がフラット系なら -1、シャープ系なら +1、C / Am は 0。 */
     int signatureDirection (const Key& k)
     {
-        const int major = k.minor ? mod12 (k.tonic + 3) : k.tonic;   // 平行調のメジャーで判断する
-
-        switch (major)
-        {
-            case 5: case 10: case 3: case 8: case 1: case 6:  return -1;   // F Bb Eb Ab Db Gb
-            case 7: case 2: case 9: case 4: case 11:          return 1;    // G D A E B
-            default:                                          return 0;
-        }
+        const int n = keySignature (k);
+        return n > 0 ? 1 : (n < 0 ? -1 : 0);
     }
 
     /** ルートから見た音程（0..11）をディグリーの表記に（音階の音はそのまま、外れた音は ♭ / ♯）。 */
@@ -180,6 +174,13 @@ namespace
 }
 
 //==============================================================================
+int keySignature (const Key& k)
+{
+    // 平行調の長調の主音（ピッチクラス）ごとの調号。F# と Gb は Gb（フラット 6 つ）にする
+    static const int table[12] = { 0, -5, 2, -3, 4, -1, -6, 1, -4, 3, -2, 5 };
+    return table[mod12 (k.minor ? k.tonic + 3 : k.tonic)];
+}
+
 std::string keyName (const Key& k)
 {
     return spellPitch (k.tonic, k) + (k.minor ? "m" : "");

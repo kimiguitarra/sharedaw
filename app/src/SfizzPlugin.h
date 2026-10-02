@@ -67,6 +67,10 @@ private:
     std::atomic<float> gainLeft { 1.0f }, gainRight { 1.0f };
     juce::AudioBuffer<float> scratch;
 
+    struct Event { int sample; juce::MidiMessage msg; };
+    static constexpr size_t maxEventsPerBlock = 2048;
+    std::vector<Event> events;   // 音の処理のスレッドだけが使う（initialise で確保しておく）
+
     static constexpr int previewCapacity = 128;
     juce::AbstractFifo previewFifo { previewCapacity };
     std::array<juce::MidiMessage, previewCapacity> previewQueue;

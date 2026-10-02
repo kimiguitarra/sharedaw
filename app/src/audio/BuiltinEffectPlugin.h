@@ -39,6 +39,8 @@ public:
 private:
     juce::SpinLock lock;
     std::unique_ptr<collab::fx::Processor> processor, pendingProcessor;
+    std::unique_ptr<collab::fx::Processor> retired;   // 外した古い処理（メッセージスレッドが setEffect で解放する）
+    std::atomic<float> gainReductionDb { 0.0f };
     std::optional<collab::fx::Type> type;
     nlohmann::json current, pending;
     std::atomic<bool> hasPending { false }, needsReset { false };

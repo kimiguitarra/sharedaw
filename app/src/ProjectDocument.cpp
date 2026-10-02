@@ -154,16 +154,7 @@ void ProjectDocument::createFolderStructure (const juce::File& dir)
 
 juce::Result ProjectDocument::writeTextAtomically (const juce::File& target, const std::string& text)
 {
-    target.getParentDirectory().createDirectory();
-    juce::TemporaryFile temp (target);
-
-    if (! temp.getFile().replaceWithData (text.data(), text.size()))
-        return juce::Result::fail ("書き込みに失敗しました: "_ju + temp.getFile().getFullPathName());
-
-    if (! temp.overwriteTargetFileWithTemporary())
-        return juce::Result::fail ("ファイルを置き換えられませんでした: "_ju + target.getFullPathName());
-
-    return juce::Result::ok();
+    return AppPaths::writeFileAtomically (target, text.data(), text.size());
 }
 
 juce::Result ProjectDocument::save()

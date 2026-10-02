@@ -57,6 +57,9 @@ const std::vector<Preset>& factoryPresets (Type);
 /** 入力が止まってから音が消えるまでの秒数（リバーブの余韻。バウンス・書き出しをこの分だけ長くする）。 */
 double tailSeconds (Type, const nlohmann::json& params);
 
+/** リバーブ（ルーム・ホール・プレート）か。 */
+bool isReverb (Type);
+
 /** 既定値だけの params（トラックに挿したとき）。isBus ならリバーブの MIX を 100%（センドで使う想定）にする。 */
 nlohmann::json defaultParams (Type, bool isBus);
 
@@ -72,9 +75,6 @@ public:
 
     /** channels[ch][i] をその場で処理する（1 または 2 チャンネル）。 */
     virtual void process (float* const* channels, int numChannels, int numSamples) = 0;
-
-    /** 入力が止まっても音が続く長さ（秒）。バウンス・書き出しの余韻に使う。 */
-    virtual double tailSeconds() const          { return 0.0; }
 
     /** コンプのゲインリダクション（dB、0 以上）。 */
     float getGainReductionDb() const noexcept   { return gainReductionDb.load (std::memory_order_relaxed); }

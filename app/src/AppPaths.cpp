@@ -33,4 +33,30 @@ juce::File getAppDataDir()
     return dir;
 }
 
+bool isSafeRelativePath (const juce::String& p)
+{
+    if (p.isEmpty() || p.startsWithChar ('/') || p.startsWithChar ('\\') || p.containsChar (':'))
+        return false;
+
+    for (auto& part : juce::StringArray::fromTokens (p, "/\\", {}))
+        if (part == ".." || part.isEmpty())
+            return false;
+
+    return true;
+}
+
+juce::Result writeFileAtomically (const juce::File& target, const void* data, size_t size)
+{
+    target.getParentDirectory().createDirectory();
+    juce::TemporaryFile temp (target);
+
+    if (! temp.getFile().replaceWithData (data, size))
+        return juce::Result::fail ("書き込みに失敗しました: "_ju + temp.getFile().getFullPathName());
+
+    if (! temp.overwriteTargetFileWithTemporary())
+        return juce::Result::fail ("ファイルを置き換えられませんでした: "_ju + target.getFullPathName());
+
+    return juce::Result::ok();
+}
+
 }

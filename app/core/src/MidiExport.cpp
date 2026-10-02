@@ -4,7 +4,9 @@
 #include <cmath>
 #include <string>
 
+#include "collab/BuiltinInstruments.h"
 #include "collab/ChordPlayback.h"
+#include "collab/chord/Degree.h"
 
 namespace collab
 {
@@ -84,13 +86,6 @@ namespace
         return chunk;
     }
 
-    /** 長調の主音（ピッチクラス）→ 調号のシャープ（+）・フラット（-）の数。F# は 6、C# ではなく Db（-5）など、よく使う書き方にする。 */
-    int sharpsForMajor (int tonic)
-    {
-        static const int table[12] = { 0, -5, 2, -3, 4, -1, 6, 1, -4, 3, -2, 5 };
-        return table[((tonic % 12) + 12) % 12];
-    }
-
     /** 内蔵音源の GM プログラム番号（0 始まり）。分からなければ -1。 */
     int gmProgramFor (const Track& t)
     {
@@ -99,10 +94,10 @@ namespace
 
         const auto& id = t.instrument->id;
 
-        if (id == "builtin.piano")   return 0;    // Acoustic Grand Piano
-        if (id == "builtin.epiano")  return 4;    // Electric Piano 1
+        if (id == builtin::piano)   return 0;    // Acoustic Grand Piano
+        if (id == builtin::epiano)  return 4;    // Electric Piano 1
 
-        if (id == "builtin.bass")
+        if (id == builtin::bass)
         {
             const auto& p = t.instrument->params;
             const auto preset = p.is_object() && p.contains ("preset") && p["preset"].is_string() ? p["preset"].get<std::string>() : std::string();
@@ -114,7 +109,7 @@ namespace
 
     bool isDrums (const Track& t)
     {
-        return t.instrument && t.instrument->kind == Instrument::Kind::builtin && t.instrument->id == "builtin.drums";
+        return t.instrument && t.instrument->kind == Instrument::Kind::builtin && t.instrument->id == builtin::drums;
     }
 }
 
@@ -130,7 +125,7 @@ std::vector<std::uint8_t> writeMidiFile (const Project& project, const TempoMap&
             events.push_back (textMeta (0, 0x03, project.name));
 
         auto tempos = project.tempoTrack.events;
-        std::sort (tempos.begin(), tempos.end(), [] (auto& a, auto& b) { return a.tick < b.tick; });
+        std::stable_sort (tempos.begin(), tempos.end(), [] (auto& a, auto& b) { return a.tick < b.tick; });
 
         if (tempos.empty() || tempos.front().tick > 0)
             tempos.insert (tempos.begin(), TempoEvent { {}, 0, map.bpmAtTick (0) });
@@ -143,7 +138,7 @@ std::vector<std::uint8_t> writeMidiFile (const Project& project, const TempoMap&
         }
 
         auto meters = project.meterTrack.events;
-        std::sort (meters.begin(), meters.end(), [] (auto& a, auto& b) { return a.bar < b.bar; });
+        std::stable_sort (meters.begin(), meters.end(), [] (auto& a, auto& b) { return a.bar < b.bar; });
 
         if (meters.empty() || meters.front().bar > 1)
             meters.insert (meters.begin(), MeterEvent { {}, 1, 4, 4 });
@@ -161,7 +156,7 @@ std::vector<std::uint8_t> writeMidiFile (const Project& project, const TempoMap&
 
         for (auto& k : project.keyTrack.events)
         {
-            const int sf = sharpsForMajor (k.minor ? k.tonic + 3 : k.tonic);
+            const int sf = chord::keySignature ({ k.tonic, k.minor });   // 画面のキーの書き方（Gb など）と同じ向き
             events.push_back (meta (map.barToTick (std::max (1, k.bar)), 0x59, { (std::uint8_t) (std::int8_t) sf, (std::uint8_t) (k.minor ? 1 : 0) }));
         }
 

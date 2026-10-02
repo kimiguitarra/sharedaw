@@ -196,10 +196,11 @@ void ProjectPicker::refresh()
     {
         loadingServer = true;
 
-        juce::Thread::launch ([this, flag = alive]
+        // バックグラウンドでは this に触らない（その間に画面が閉じられることがある）。SyncManager はアプリと同じだけ生きている
+        juce::Thread::launch ([this, &s = sync, flag = alive]
         {
             nlohmann::json result;
-            auto r = sync.fetchProjects (result);
+            auto r = s.fetchProjects (result);
 
             juce::MessageManager::callAsync ([this, flag, r, result]
             {
@@ -375,9 +376,9 @@ void ProjectPicker::renameSelected()
         if (! *flag || name.isEmpty() || name == e.name)
             return;
 
-        juce::Thread::launch ([this, flag, e, name]
+        juce::Thread::launch ([this, &s = sync, flag, e, name]
         {
-            auto r = sync.runRenameProject (e.projectId, name);
+            auto r = s.runRenameProject (e.projectId, name);
 
             juce::MessageManager::callAsync ([this, flag, r]
             {
@@ -424,20 +425,22 @@ void ProjectPicker::deleteSelected()
         if (! *flag || result != 1)
             return;
 
-        juce::Thread::launch ([this, flag, e]
+        juce::Thread::launch ([this, &s = sync, flag, e]
         {
             const auto folder = e.local ? e.local->folder : juce::File();
-            auto r = sync.runDeleteProject (e.projectId, folder);
+            auto r = s.runDeleteProject (e.projectId, folder);
 
             juce::MessageManager::callAsync ([this, flag, r, folder]
             {
+                // サーバーから消せたら、この PC のコピーは画面が閉じられていてもゴミ箱へ（残すと「この PC だけ」の曲になってしまう）
+                if (r.wasOk() && folder != juce::File())
+                    folder.moveToTrash();
+
                 if (! *flag)
                     return;
 
                 if (r.failed())
                     juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "削除できませんでした"_ju, r.getErrorMessage(), {}, this);
-                else if (folder != juce::File())
-                    folder.moveToTrash();
 
                 refresh();
             });

@@ -1,5 +1,7 @@
 #include "PluginHost.h"
 
+#include "AppPaths.h"
+
 #include "collab/Sha256.h"
 #include "ui/Theme.h"
 
@@ -62,7 +64,13 @@ std::string stateRefFor (const std::string& id)
 
 juce::File stateFile (const juce::File& projectDir, const std::string& stateRef)
 {
-    return projectDir.getChildFile (toJuce (stateRef));
+    // 曲の JSON（他の人がアップしたもの）から来るので、曲のフォルダの plugins-state/ の外は指させない
+    const auto ref = toJuce (stateRef);
+
+    if (! ref.startsWith ("plugins-state/") || ! AppPaths::isSafeRelativePath (ref))
+        return {};
+
+    return projectDir.getChildFile (ref);
 }
 
 std::string stateHash (const juce::File& projectDir, const std::string& stateRef)

@@ -1,5 +1,7 @@
 #include <doctest/doctest.h>
 
+#include <functional>
+
 #include "collab/ProjectDiff.h"
 #include "collab/ProjectJson.h"
 #include "collab/Uuid.h"
@@ -59,6 +61,26 @@ TEST_CASE ("note changes are aggregated with a bar range")
     CHECK (d.changes[0].summary == "1〜4小節目 ノート変更 3件（追加2・変更1）");
     CHECK (d.changes[0].fromTick == 0);
     CHECK (d.changedScopeIds == std::vector<std::string> { drums });
+}
+
+TEST_CASE ("every track setting change is described, not just flagged")
+{
+    // 変わったトラックは必ず説明が付く（同期の画面で「変わった」のに中身が空にならない）
+    auto check = [] (std::function<void (Track&)> edit, const std::string& expected)
+    {
+        auto a = full();
+        auto b = a;
+        edit (*b.findTrack (drums));
+        auto d = diffProjects (a, b);
+        CAPTURE (all (d));
+        CHECK (d.changedScopeIds.size() == 1);
+        CHECK (hasSummary (d, expected));
+    };
+
+    check ([] (Track& t) { t.strip.compFirst = ! t.strip.compFirst; }, "の順に変更");
+    check ([] (Track& t) { t.outputChannels = 1; }, "入出力");
+    check ([] (Track& t) { t.crossfadeShape = "linear"; }, "テイクのつなぎ");
+    check ([] (Track& t) { t.crossfadeMs = 50.0; }, "テイクのつなぎ");
 }
 
 TEST_CASE ("drum sample swap is described in Japanese")

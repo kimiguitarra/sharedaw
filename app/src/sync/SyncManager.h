@@ -178,7 +178,7 @@ private:
     std::optional<collab::Project> base;
 
     std::atomic<bool> refreshing { false };
-    std::shared_ptr<bool> alive = std::make_shared<bool> (true);
+    std::shared_ptr<std::atomic<bool>> alive = std::make_shared<std::atomic<bool>> (true);   // バックグラウンドの処理から見る
 
     ServerStatus serverStatus;
     juce::CriticalSection statusLock;
@@ -189,10 +189,19 @@ private:
     void timerCallback() override      { refreshInBackground(); }
 
     /** ヘッドのプロジェクトをダウンロードして、ベースからの差分を作る。 */
+    /** サーバーのリビジョンのプロジェクト JSON を取ってきて読む（ハッシュが合わなければ失敗）。 */
+    static juce::Result downloadRevision (const SyncClient&, const std::string& projectId, int revision, collab::Project& result);
     static juce::Result buildPreview (const SyncClient&, const std::string& projectId, int head,
                                       const std::optional<collab::Project>& base, PullPreview&);
 
-    void saveMeta (const juce::File& projectDir) const;
+    void saveMeta (const juce::File& projectDir) const   { writeMeta (projectDir, meta); }
+
+    /** projectDir/.collab/meta.json を読む（なければ・読めなければ nullopt）。 */
+    static std::optional<Meta> readMeta (const juce::File& projectDir);
+
+    /** 変わった所（トラック・テンポなど）の表示名。markRemoved なら、ベースにだけあるトラックに「（削除）」を付ける。 */
+    static juce::String scopeDisplayName (const collab::Project&, const collab::Project* base, const std::string& scopeId, bool markRemoved);
+    static void writeMeta (const juce::File& projectDir, const Meta&);
     static void saveBase (const juce::File& projectDir, const collab::Project&);
 
     juce::Result uploadMissingBlobs (const SyncClient&, const std::vector<std::string>& hashes, const juce::File& projectDir,

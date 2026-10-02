@@ -76,6 +76,7 @@ void SfizzPlugin::initialise (const te::PluginInitialisationInfo& info)
     sampleRate = info.sampleRate;
     maxBlockSize = info.blockSizeSamples;
     scratch.setSize (2, kSynthBlockSize);
+    events.reserve (maxEventsPerBlock);
 
     if (rateChanged && loadedText.isNotEmpty())
     {
@@ -149,32 +150,33 @@ void SfizzPlugin::applyToBuffer (const te::PluginRenderContext& fc)
             synth->disableFreeWheeling();
     }
 
-    // MIDI をサンプル位置に変換（タイムスタンプはブロック先頭からの秒）
-    struct Event { int sample; juce::MidiMessage msg; };
-    juce::Array<Event, juce::DummyCriticalSection, 64> events;   // 通常はヒープ確保なし
+    // 鳴らすイベント（サンプル位置つき）。器は initialise で確保済みなので、ここではメモリを確保しない（溢れた分は捨てる）
+    events.clear();
+    auto add = [this] (int sample, const juce::MidiMessage& m)
+    {
+        if (events.size() < events.capacity())
+            events.push_back ({ sample, m });
+    };
 
+    // 試し弾き（ブロックの頭で、入れた順に鳴らす）
+    {
+        const auto scope = previewFifo.read (previewFifo.getNumReady());
+
+        for (int i = 0; i < scope.blockSize1; ++i)
+            add (0, previewQueue[(size_t) (scope.startIndex1 + i)]);
+
+        for (int i = 0; i < scope.blockSize2; ++i)
+            add (0, previewQueue[(size_t) (scope.startIndex2 + i)]);
+    }
+
+    // MIDI をサンプル位置に変換（タイムスタンプはブロック先頭からの秒。届く順は時刻順）
     if (auto* midi = fc.bufferForMidiMessages)
     {
         if (midi->isAllNotesOff)
             synth->allSoundOff();
 
         for (auto& m : *midi)
-        {
-            const int pos = juce::jlimit (0, juce::jmax (0, numSamples - 1),
-                                          juce::roundToInt ((m.getTimeStamp() + fc.midiBufferOffset) * sampleRate));
-            events.add ({ pos, m });
-        }
-    }
-
-    // 試し弾き（ブロックの頭で鳴らす）
-    {
-        const auto scope = previewFifo.read (previewFifo.getNumReady());
-
-        for (int i = 0; i < scope.blockSize1; ++i)
-            events.insert (0, { 0, previewQueue[(size_t) (scope.startIndex1 + i)] });
-
-        for (int i = 0; i < scope.blockSize2; ++i)
-            events.insert (0, { 0, previewQueue[(size_t) (scope.startIndex2 + i)] });
+            add (juce::jlimit (0, juce::jmax (0, numSamples - 1), juce::roundToInt ((m.getTimeStamp() + fc.midiBufferOffset) * sampleRate)), m);
     }
 
     int eventIndex = 0;
@@ -183,9 +185,9 @@ void SfizzPlugin::applyToBuffer (const te::PluginRenderContext& fc)
     {
         const int n = juce::jmin (kSynthBlockSize, numSamples - done);
 
-        for (; eventIndex < events.size() && events.getReference (eventIndex).sample < done + n; ++eventIndex)
+        for (; eventIndex < (int) events.size() && events[(size_t) eventIndex].sample < done + n; ++eventIndex)
         {
-            auto& e = events.getReference (eventIndex);
+            auto& e = events[(size_t) eventIndex];
             const int delay = juce::jmax (0, e.sample - done);
             auto& m = e.msg;
 

@@ -238,9 +238,15 @@ const std::vector<Preset>& factoryPresets (Type t)
     return busComp;
 }
 
+bool isReverb (Type t)
+{
+    return t == Type::roomReverb || t == Type::hallReverb || t == Type::plateReverb;
+}
+
+// 入力が止まっても音が続く長さ（秒）。再生（プラグインが報告する余韻）とバウンス・書き出しの両方でこれを使う
 double tailSeconds (Type t, const nlohmann::json& params)
 {
-    if (t == Type::roomReverb || t == Type::hallReverb || t == Type::plateReverb)
+    if (isReverb (t))
         return paramValue (t, params, "decay") * 1.5 + paramValue (t, params, "predelay") / 1000.0;
 
     if (t == Type::busComp)
@@ -256,7 +262,7 @@ nlohmann::json defaultParams (Type t, bool isBus)
     for (auto& s : paramSpecs (t))
         j[s.key] = s.def;
 
-    if (isBus && (t == Type::roomReverb || t == Type::hallReverb || t == Type::plateReverb))
+    if (isBus && isReverb (t))
         j["mix"] = 100.0;
 
     return j;
@@ -529,7 +535,6 @@ namespace
             update();
         }
 
-        double tailSeconds() const override     { return decay * 1.5 + predelayMs / 1000.0; }
 
         void process (float* const* ch, int numChannels, int n) override
         {

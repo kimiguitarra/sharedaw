@@ -17,10 +17,14 @@ void BuiltinEffectPlugin::initialise (const te::PluginInitialisationInfo& info)
     const juce::SpinLock::ScopedLockType sl (lock);
     sampleRate = info.sampleRate;
 
-    if (processor != nullptr)
+    // まだ渡していない処理（初めて挿したとき）もこのレートで用意し直す（作ったときは 48 kHz を仮に使っている）
+    for (auto* p : { processor.get(), pendingProcessor.get() })
     {
-        processor->prepare (sampleRate);
-        processor->setParams (current);
+        if (p != nullptr)
+        {
+            p->prepare (sampleRate);
+            p->setParams (current);
+        }
     }
 }
 
@@ -46,22 +50,26 @@ void BuiltinEffectPlugin::setEffect (collab::fx::Type t, const nlohmann::json& p
         fresh = collab::fx::createProcessor (t);
         fresh->prepare (sampleRate);
         fresh->setParams (params);
-        tail = fresh->tailSeconds();
     }
 
-    const juce::SpinLock::ScopedLockType sl (lock);
+    tail = collab::fx::tailSeconds (t, params);
 
-    if (fresh != nullptr)
-        pendingProcessor = std::move (fresh);
+    std::unique_ptr<collab::fx::Processor> toFree;
+    {
+        const juce::SpinLock::ScopedLockType sl (lock);
 
-    pending = params;
-    hasPending = true;
+        if (fresh != nullptr)
+            pendingProcessor = std::move (fresh);
+
+        pending = params;
+        hasPending = true;
+        toFree = std::move (retired);   // 音の処理のスレッドが外した古い処理は、ここ（メッセージスレッド）で解放する
+    }
 }
 
 float BuiltinEffectPlugin::getGainReductionDb() const noexcept
 {
-    auto* p = processor.get();
-    return p != nullptr ? p->getGainReductionDb() : 0.0f;
+    return gainReductionDb.load (std::memory_order_relaxed);
 }
 
 void BuiltinEffectPlugin::applyToBuffer (const te::PluginRenderContext& fc)
@@ -69,25 +77,21 @@ void BuiltinEffectPlugin::applyToBuffer (const te::PluginRenderContext& fc)
     if (fc.destBuffer == nullptr)
         return;
 
-    std::unique_ptr<collab::fx::Processor> old;
-
     if (hasPending.load())
     {
         const juce::SpinLock::ScopedTryLockType sl (lock);
 
-        if (sl.isLocked())
+        // 古い処理を置く場所が空いていなければ、入れ替えは次のブロックに回す（ここでは解放もメモリの確保もしない）
+        if (sl.isLocked() && (pendingProcessor == nullptr || retired == nullptr))
         {
             if (pendingProcessor != nullptr)
             {
-                old = std::move (processor);
+                retired = std::move (processor);
                 processor = std::move (pendingProcessor);
             }
 
             if (processor != nullptr)
-            {
                 processor->setParams (pending);
-                tail = processor->tailSeconds();
-            }
 
             hasPending = false;
         }
@@ -111,8 +115,5 @@ void BuiltinEffectPlugin::applyToBuffer (const te::PluginRenderContext& fc)
         channels[ch] = buffer.getWritePointer (ch, fc.bufferStartSample);
 
     processor->process (channels, numChannels, fc.bufferNumSamples);
-
-    // 古い処理はメッセージスレッドで捨てる（ここで解放しない）
-    if (old != nullptr)
-        juce::MessageManager::callAsync ([p = std::shared_ptr<collab::fx::Processor> (std::move (old))] {});
+    gainReductionDb.store (processor->getGainReductionDb(), std::memory_order_relaxed);
 }

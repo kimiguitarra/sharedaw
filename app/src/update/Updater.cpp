@@ -1,5 +1,7 @@
 #include "Updater.h"
 
+#include "AppPaths.h"
+
 #include "collab/Sha256.h"
 
 #ifndef SHAREDAW_BUILD_NUMBER
@@ -52,18 +54,6 @@ namespace
     }
 
     /** マニフェストのパスが installRoot の外を指していないこと。 */
-    bool isSafeRelativePath (const juce::String& p)
-    {
-        if (p.isEmpty() || p.startsWithChar ('/') || p.startsWithChar ('\\') || p.containsChar (':'))
-            return false;
-
-        for (auto& part : juce::StringArray::fromTokens (p, "/\\", {}))
-            if (part == ".." || part.isEmpty())
-                return false;
-
-        return true;
-    }
-
     struct FileEntry
     {
         juce::String path, hash;
@@ -133,6 +123,88 @@ juce::Result fetchLatest (const SyncClient& client, std::optional<Info>& out)
     return juce::Result::ok();
 }
 
+
+namespace
+{
+    /**
+        staging のファイル（名前はハッシュ）を root の中の本来の場所に置く。今あるファイルは「名前 + oldSuffix」にずらしてから置くので、
+        実行中の exe も置き換えられる（Windows は使用中のファイルを上書きできないが、名前は変えられる）。
+        途中で失敗したら、それまでに置いた分を消して元のファイルを戻す（古いのと新しいのが混ざった状態にしない）。
+        ずらした古いファイルは、Windows では次の起動時に消す（cleanup.txt）。ほかの OS ではすぐ消す。
+    */
+    juce::Result applyStagedFiles (const juce::File& root, const juce::File& staging, const std::vector<FileEntry>& changed)
+    {
+        struct Done { juce::File dest, old; };
+        std::vector<Done> done;
+
+        auto rollback = [&]
+        {
+            for (auto it = done.rbegin(); it != done.rend(); ++it)
+            {
+                it->dest.deleteFile();
+
+                if (it->old != juce::File())
+                    it->old.moveFileTo (it->dest);
+            }
+        };
+
+        for (auto& e : changed)
+        {
+            const auto source = staging.getChildFile (e.hash);
+            const auto dest = root.getChildFile (e.path);
+            dest.getParentDirectory().createDirectory();
+
+            juce::File old;
+
+            if (dest.existsAsFile())
+            {
+                old = dest.getSiblingFile (dest.getFileName() + oldSuffix);
+                old.deleteFile();
+
+                if (! dest.moveFileTo (old))
+                {
+                    rollback();
+                    return juce::Result::fail ("置き換えられません（使用中）: "_ju + dest.getFullPathName());
+                }
+            }
+
+            done.push_back ({ dest, old });
+
+            if (! source.copyFileTo (dest))
+            {
+                rollback();
+                return juce::Result::fail ("置き換えられません: "_ju + dest.getFullPathName());
+            }
+
+           #if ! JUCE_WINDOWS
+            if (e.executable)
+                dest.setExecutePermission (true);
+           #endif
+        }
+
+        juce::StringArray leftovers;
+
+        for (auto& d : done)
+            if (d.old != juce::File())
+            {
+               #if JUCE_WINDOWS
+                leftovers.add (d.old.getFullPathName());
+               #else
+                d.old.deleteFile();   // 実行中のプロセスは消したファイルの中身を使い続けられる
+               #endif
+            }
+
+        // 残ったファイルは次の起動時に消す
+        staging.getChildFile ("cleanup.txt").replaceWithText (leftovers.joinIntoString ("\n"));
+
+        for (auto& f : staging.findChildFiles (juce::File::findFiles, false))
+            if (f.getFileName() != "cleanup.txt")
+                f.deleteFile();
+
+        return juce::Result::ok();
+    }
+}
+
 juce::Result downloadAndInstall (const SyncClient& client, const Info& info, std::function<bool (double, const juce::String&)> progress)
 {
     const auto root = installRoot();
@@ -159,7 +231,7 @@ juce::Result downloadAndInstall (const SyncClient& client, const Info& info, std
             FileEntry e { toJuce (f.at ("path").get<std::string>()), toJuce (f.at ("hash").get<std::string>()),
                           f.value ("size", (juce::int64) 0), f.value ("executable", false) };
 
-            if (! isSafeRelativePath (e.path))
+            if (! AppPaths::isSafeRelativePath (e.path))
                 return juce::Result::fail ("更新の一覧に不正なパスがあります: "_ju + e.path);
 
             files.push_back (e);
@@ -233,52 +305,11 @@ juce::Result downloadAndInstall (const SyncClient& client, const Info& info, std
         doneBytes += e.size;
     }
 
-    // 4. 置き換える
+    // 4. 置き換える（途中で失敗したら、置き換えた分を元に戻す）
     report (0.97, "ファイルを置き換えています…"_ju);
-    juce::StringArray leftovers;
 
-    for (auto& e : changed)
-    {
-        const auto source = staging.getChildFile (e.hash);
-        const auto dest = root.getChildFile (e.path);
-        dest.getParentDirectory().createDirectory();
-
-       #if JUCE_WINDOWS
-        // 実行中の exe や読み込み中のファイルは上書きできないので、先に名前をずらす
-        if (dest.existsAsFile())
-        {
-            const auto old = dest.getSiblingFile (dest.getFileName() + oldSuffix);
-            old.deleteFile();
-
-            if (! dest.moveFileTo (old))
-                return juce::Result::fail ("置き換えられません（使用中）: "_ju + dest.getFullPathName());
-
-            leftovers.add (old.getFullPathName());
-        }
-
-        if (! source.copyFileTo (dest))
-            return juce::Result::fail ("置き換えられません: "_ju + dest.getFullPathName());
-       #else
-        // 同じボリュームなら rename で入れ替わる（実行中のプロセスは古い中身を使い続ける）
-        const auto temp = dest.getSiblingFile (dest.getFileName() + ".sharedaw-new");
-
-        if (! source.copyFileTo (temp) || ! temp.moveFileTo (dest))
-        {
-            temp.deleteFile();
-            return juce::Result::fail ("置き換えられません: "_ju + dest.getFullPathName());
-        }
-
-        if (e.executable)
-            dest.setExecutePermission (true);
-       #endif
-    }
-
-    // 残ったファイルは次の起動時に消す
-    staging.getChildFile ("cleanup.txt").replaceWithText (leftovers.joinIntoString ("\n"));
-
-    for (auto& f : staging.findChildFiles (juce::File::findFiles, false))
-        if (f.getFileName() != "cleanup.txt")
-            f.deleteFile();
+    if (auto r = applyStagedFiles (root, staging, changed); r.failed())
+        return r;
 
     report (1.0, "完了しました"_ju);
     return juce::Result::ok();

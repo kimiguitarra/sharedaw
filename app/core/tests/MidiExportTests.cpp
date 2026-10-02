@@ -2,6 +2,7 @@
 
 #include "collab/MidiExport.h"
 #include "collab/ChordPlayback.h"
+#include "collab/chord/Degree.h"
 
 using namespace collab;
 
@@ -161,4 +162,22 @@ TEST_CASE ("MIDI export adds the chord track as its own track")
            == (long) expected.size());
 
     CHECK (parse (writeMidiFile (p, map, false)).tracks == 1);
+}
+
+TEST_CASE ("MIDI key signatures are spelled the way the app names the key")
+{
+    CHECK (chord::keyName ({ 6, false }) == "Gb");
+    CHECK (chord::keySignature ({ 6, false }) == -6);   // F# / Gb 長調 → フラット 6 つ（画面の Gb と同じ）
+    CHECK (chord::keySignature ({ 3, true }) == -6);    // Ebm
+    CHECK (chord::keySignature ({ 11, false }) == 5);   // B
+    CHECK (chord::keySignature ({ 9, true }) == 0);     // Am
+
+    auto p = Project::createEmpty ("Song");
+    p.keyTrack.events = { { "k", 1, 6, false } };
+    const TempoMap map (p);
+    const auto f = parse (writeMidiFile (p, map, false));
+    CHECK (std::any_of (f.events[0].begin(), f.events[0].end(), [] (auto& e)
+    {
+        return e.bytes == std::vector<std::uint8_t> { 0xff, 0x59, (std::uint8_t) (std::int8_t) -6, 0 };
+    }));
 }

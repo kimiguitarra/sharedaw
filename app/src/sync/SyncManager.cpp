@@ -1,5 +1,7 @@
 #include "SyncManager.h"
 
+#include "AppPaths.h"
+
 #include "CredentialStore.h"
 #include "collab/ProjectJson.h"
 #include "collab/Sha256.h"
@@ -37,16 +39,6 @@ namespace
         return juce::String ((double) bytes / (1024.0 * 1024.0), 1) + " MB";
     }
 
-    juce::Result writeAtomically (const juce::File& target, const void* data, size_t size)
-    {
-        target.getParentDirectory().createDirectory();
-        juce::TemporaryFile temp (target);
-
-        if (! temp.getFile().replaceWithData (data, size) || ! temp.overwriteTargetFileWithTemporary())
-            return juce::Result::fail ("書き込めません: "_ju + target.getFullPathName());
-
-        return juce::Result::ok();
-    }
 }
 
 SyncManager::SyncManager (ProjectDocument& doc, juce::PropertiesFile& props)
@@ -249,15 +241,14 @@ SyncManager::LocalInfo SyncManager::inspectFolder (const juce::File& folder)
         info.savedAt = projectFile.getLastModificationTime();
 
         const auto dir = collabDir (folder);
-        auto metaFile = dir.getChildFile ("meta.json");
+        const auto m = readMeta (folder);
 
-        if (! metaFile.existsAsFile())
+        if (! m)
             return info;
 
-        auto j = nlohmann::json::parse (metaFile.loadFileAsString().toStdString());
-        info.serverUrl = toJuce (j.value ("serverUrl", std::string()));
-        info.baseRevision = j.value ("baseRevision", 0);
-        info.linked = j.value ("projectId", std::string()) == project.projectId && info.serverUrl.isNotEmpty();
+        info.serverUrl = m->serverUrl;
+        info.baseRevision = m->baseRevision;
+        info.linked = m->projectId == project.projectId && info.serverUrl.isNotEmpty();
 
         if (auto baseFile = dir.getChildFile ("base.json"); info.linked && baseFile.existsAsFile())
         {
@@ -270,17 +261,7 @@ SyncManager::LocalInfo SyncManager::inspectFolder (const juce::File& folder)
                 if (info.changedNames.size() >= 5)
                     break;
 
-                juce::String n;
-
-                if (id == project.tempoTrack.id)        n = "テンポ"_ju;
-                else if (id == project.meterTrack.id)   n = "拍子"_ju;
-                else if (id == project.chordTrack.id)   n = "コード"_ju;
-                else if (id == project.markerTrack.id)  n = "マーカー"_ju;
-                else if (id == project.keyTrack.id)     n = "キー"_ju;
-                else if (id == project.master.id)       n = "マスター"_ju;
-                else if (auto* t = project.findTrack (id)) n = toJuce (t->name);
-                else if (auto* bt = baseProject.findTrack (id)) n = toJuce (bt->name) + "（削除）"_ju;
-
+                const auto n = scopeDisplayName (project, &baseProject, id, true);
                 info.changedNames.add (n);
             }
         }
@@ -302,24 +283,11 @@ void SyncManager::reloadForDocument()
     if (document.hasLocation())
     {
         const auto dir = collabDir (document.getProjectDir());
-        auto metaFile = dir.getChildFile ("meta.json");
 
-        if (metaFile.existsAsFile())
+        if (auto m = readMeta (document.getProjectDir()))
         {
-            try
-            {
-                auto j = nlohmann::json::parse (metaFile.loadFileAsString().toStdString());
-                meta.serverUrl = toJuce (j.value ("serverUrl", std::string()));
-                meta.projectId = j.value ("projectId", std::string());
-                meta.baseRevision = j.value ("baseRevision", 0);
-                meta.userId = j.value ("userId", std::string());
-                meta.userName = toJuce (j.value ("userName", std::string()));
-                linked = meta.projectId == document.getProject().projectId && meta.serverUrl.isNotEmpty();
-            }
-            catch (const std::exception&)
-            {
-                linked = false;
-            }
+            meta = *m;
+            linked = meta.projectId == document.getProject().projectId && meta.serverUrl.isNotEmpty();
         }
 
         if (linked)
@@ -347,22 +315,46 @@ void SyncManager::reloadForDocument()
     refreshInBackground();
 }
 
-void SyncManager::saveMeta (const juce::File& projectDir) const
+std::optional<SyncManager::Meta> SyncManager::readMeta (const juce::File& projectDir)
+{
+    const auto metaFile = collabDir (projectDir).getChildFile ("meta.json");
+
+    if (! metaFile.existsAsFile())
+        return std::nullopt;
+
+    try
+    {
+        auto j = nlohmann::json::parse (metaFile.loadFileAsString().toStdString());
+        Meta m;
+        m.serverUrl = toJuce (j.value ("serverUrl", std::string()));
+        m.projectId = j.value ("projectId", std::string());
+        m.baseRevision = j.value ("baseRevision", 0);
+        m.userId = j.value ("userId", std::string());
+        m.userName = toJuce (j.value ("userName", std::string()));
+        return m;
+    }
+    catch (const std::exception&)
+    {
+        return std::nullopt;
+    }
+}
+
+void SyncManager::writeMeta (const juce::File& projectDir, const Meta& m)
 {
     nlohmann::ordered_json j;
-    j["serverUrl"] = toStd (meta.serverUrl);
-    j["projectId"] = meta.projectId;
-    j["baseRevision"] = meta.baseRevision;
-    j["userId"] = meta.userId;
-    j["userName"] = toStd (meta.userName);
+    j["serverUrl"] = toStd (m.serverUrl);
+    j["projectId"] = m.projectId;
+    j["baseRevision"] = m.baseRevision;
+    j["userId"] = m.userId;
+    j["userName"] = toStd (m.userName);
     const auto text = j.dump (2) + "\n";
-    writeAtomically (collabDir (projectDir).getChildFile ("meta.json"), text.data(), text.size());
+    AppPaths::writeFileAtomically (collabDir (projectDir).getChildFile ("meta.json"), text.data(), text.size());
 }
 
 void SyncManager::saveBase (const juce::File& projectDir, const collab::Project& p)
 {
     const auto text = collab::serialiseProject (p);
-    writeAtomically (collabDir (projectDir).getChildFile ("base.json"), text.data(), text.size());
+    AppPaths::writeFileAtomically (collabDir (projectDir).getChildFile ("base.json"), text.data(), text.size());
 }
 
 bool SyncManager::hasLocalChanges (const std::string& scopeId) const
@@ -375,8 +367,12 @@ bool SyncManager::hasLocalChanges (const std::string& scopeId) const
 
 juce::String SyncManager::scopeName (const std::string& scopeId) const
 {
-    const auto& p = document.getProject();
+    return scopeDisplayName (document.getProject(), base ? &*base : nullptr, scopeId, false);
+}
 
+juce::String SyncManager::scopeDisplayName (const collab::Project& p, const collab::Project* baseProject, const std::string& scopeId,
+                                            bool markRemoved)
+{
     if (scopeId == p.tempoTrack.id)  return "テンポ"_ju;
     if (scopeId == p.meterTrack.id)  return "拍子"_ju;
     if (scopeId == p.chordTrack.id)  return "コード"_ju;
@@ -387,9 +383,10 @@ juce::String SyncManager::scopeName (const std::string& scopeId) const
     if (auto* t = p.findTrack (scopeId))
         return toJuce (t->name);
 
-    if (base)
-        if (auto* t = base->findTrack (scopeId))
-            return toJuce (t->name);
+    // この PC では消したトラック（ベースにはある）
+    if (baseProject != nullptr)
+        if (auto* t = baseProject->findTrack (scopeId))
+            return toJuce (t->name) + (markRemoved ? "（削除）"_ju : juce::String());
 
     return toJuce (scopeId);
 }
@@ -533,11 +530,9 @@ void SyncManager::applyRegistered (const collab::Project& snapshot, int revision
 }
 
 //==============================================================================
-juce::Result SyncManager::buildPreview (const SyncClient& client, const std::string& projectId, int head,
-                                        const std::optional<collab::Project>& baseProject, PullPreview& preview)
+juce::Result SyncManager::downloadRevision (const SyncClient& client, const std::string& projectId, int revision, collab::Project& result)
 {
-    preview.head = head;
-    auto rev = client.get ("/projects/" + toJuce (projectId) + "/revisions/" + juce::String (head));
+    auto rev = client.get ("/projects/" + toJuce (projectId) + "/revisions/" + juce::String (revision));
 
     if (! rev.ok())
         return juce::Result::fail (rev.message());
@@ -549,17 +544,29 @@ juce::Result SyncManager::buildPreview (const SyncClient& client, const std::str
 
     const auto text = data.toString().toStdString();
 
+    // 途中で壊れた・別のものを受け取ったときは使わない
     if (collab::Sha256::hashHex (text) != rev.body.value ("projectJsonHash", std::string()))
         return juce::Result::fail ("ダウンロードしたプロジェクトのハッシュが一致しません"_ju);
 
     try
     {
-        preview.headProject = collab::parseProject (text);
+        result = collab::parseProject (text);
     }
     catch (const std::exception& e)
     {
         return juce::Result::fail (juce::String::fromUTF8 (e.what()));
     }
+
+    return juce::Result::ok();
+}
+
+juce::Result SyncManager::buildPreview (const SyncClient& client, const std::string& projectId, int head,
+                                        const std::optional<collab::Project>& baseProject, PullPreview& preview)
+{
+    preview.head = head;
+
+    if (auto r = downloadRevision (client, projectId, head, preview.headProject); r.failed())
+        return r;
 
     preview.diff = collab::diffProjects (baseProject ? *baseProject : preview.headProject, preview.headProject);
     return juce::Result::ok();
@@ -633,7 +640,7 @@ juce::Result SyncManager::runDownloadAudio (const collab::Project& p, const juce
             return juce::Result::fail ("ダウンロードしたオーディオのハッシュが一致しません"_ju);
 
         // 一時ファイルに書いてから置き換える（§9: 途中で失敗してもローカルを壊さない）
-        if (auto r = writeAtomically (target, data.getData(), data.getSize()); r.failed())
+        if (auto r = AppPaths::writeFileAtomically (target, data.getData(), data.getSize()); r.failed())
             return r;
     }
 
@@ -650,7 +657,7 @@ void SyncManager::applyDownload (const PullPreview& preview, const std::map<std:
         const auto backup = collabDir (document.getProjectDir()).getChildFile ("before-download")
                               .getChildFile (juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S") + ".project.json");
         const auto text = collab::serialiseProject (local);
-        writeAtomically (backup, text.data(), text.size());
+        AppPaths::writeFileAtomically (backup, text.data(), text.size());
     }
 
     auto merged = collab::resolvePull (baseProject, local, preview.headProject, choices);
@@ -855,22 +862,12 @@ juce::Result SyncManager::runDeleteProject (const std::string& projectId, const 
     auto unlink = [&] (const juce::File& folder)
     {
         const auto dir = collabDir (folder);
-        const auto metaFile = dir.getChildFile ("meta.json");
+        const auto m = readMeta (folder);
 
-        if (! metaFile.existsAsFile())
+        if (! m || m->projectId != projectId)
             return;
 
-        try
-        {
-            if (nlohmann::json::parse (metaFile.loadFileAsString().toStdString()).value ("projectId", std::string()) != projectId)
-                return;
-        }
-        catch (const std::exception&)
-        {
-            return;
-        }
-
-        metaFile.deleteFile();
+        dir.getChildFile ("meta.json").deleteFile();
         dir.getChildFile ("base.json").deleteFile();
     };
 
@@ -905,26 +902,10 @@ juce::Result SyncManager::runOpenFromServer (const std::string& projectId, const
     if (head == 0)
         return juce::Result::fail ("このプロジェクトにはまだリビジョンがありません"_ju);
 
-    auto rev = client.get ("/projects/" + toJuce (projectId) + "/revisions/" + juce::String (head));
-
-    if (! rev.ok())
-        return juce::Result::fail (rev.message());
-
-    juce::MemoryBlock data;
-
-    if (auto r = client.download (TransferUrl::fromJson (rev.body["download"]), data); r.failed())
-        return r;
-
     collab::Project project;
 
-    try
-    {
-        project = collab::parseProject (data.toString().toStdString());
-    }
-    catch (const std::exception& e)
-    {
-        return juce::Result::fail (juce::String::fromUTF8 (e.what()));
-    }
+    if (auto r = downloadRevision (client, projectId, head, project); r.failed())
+        return r;
 
     auto folder = parentDir.getChildFile (juce::File::createLegalFileName (toJuce (project.name)));
 
@@ -942,7 +923,7 @@ juce::Result SyncManager::runOpenFromServer (const std::string& projectId, const
 
     const auto text = collab::serialiseProject (project);
 
-    if (auto r = writeAtomically (folder.getChildFile ("project.json"), text.data(), text.size()); r.failed())
+    if (auto r = AppPaths::writeFileAtomically (folder.getChildFile ("project.json"), text.data(), text.size()); r.failed())
         return r;
 
     saveBase (folder, project);
@@ -953,9 +934,7 @@ juce::Result SyncManager::runOpenFromServer (const std::string& projectId, const
     m.baseRevision = head;
     m.userId = me.body.value ("id", std::string());
     m.userName = toJuce (me.body.value ("displayName", std::string()));
-    std::swap (meta, m);
-    saveMeta (folder);
-    std::swap (meta, m);
+    writeMeta (folder, m);   // 開いている曲の meta（メンバー）は触らない（このスレッドはバックグラウンド）
 
     createdFolder = folder;
     return juce::Result::ok();

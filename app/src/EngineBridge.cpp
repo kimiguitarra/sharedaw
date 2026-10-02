@@ -955,6 +955,9 @@ bool EngineBridge::flushPluginStates()
         auto file = PluginHost::stateFile (document.getProjectDir(), stateRef);
         juce::MemoryBlock existing;
 
+        if (file == juce::File())
+            return;   // 曲のフォルダの外を指す（書かない）
+
         if (file.loadFileAsData (existing) && existing == state)
             return;
 
@@ -1061,25 +1064,83 @@ juce::Result EngineBridge::renderStem (const std::string& trackId, const juce::F
     if (chordTrack == nullptr)
         return juce::Result::fail ("コードトラックがありません"_ju);
 
-    auto allTracks = te::getAllTracks (*edit);
-    juce::BigInteger tracksToDo;
-
-    for (int i = 0; i < allTracks.size(); ++i)
-        if (allTracks[i] == chordTrack.get())
-            tracksToDo.setBit (i);
-
     // ふだんはミックス用のトラックを通って鳴る。単独で書き出すときは直接出す（通さないと何も聞こえない）
-    auto* oldDest = chordTrack->getOutput().getDestinationTrack();
-
-    if (oldDest != nullptr)
-        chordTrack->getOutput().setOutputToDefaultDevice (false);
-
-    const bool ok = renderTracksToWav (tracksToDo, output, endSeconds, bitDepth, (double) collab::kSampleRate);
-
-    if (oldDest != nullptr)
-        chordTrack->getOutput().setOutputToTrack (oldDest);
+    std::vector<te::Plugin::Ptr> noSends;
+    const ScopedIsolatedTrack isolated (*chordTrack, noSends, nullptr, false);
+    const auto* chord = chordTrack.get();
+    const bool ok = renderTracksToWav (tracksMatching ([chord] (te::Track* t) { return t == chord; }),
+                                       output, endSeconds, bitDepth, (double) collab::kSampleRate);
 
     return ok ? juce::Result::ok() : juce::Result::fail ("書き出しに失敗しました"_ju);
+}
+
+juce::BigInteger EngineBridge::tracksMatching (const std::function<bool (te::Track*)>& pred) const
+{
+    juce::BigInteger mask;
+    auto all = te::getAllTracks (*edit);
+
+    for (int i = 0; i < all.size(); ++i)
+        if (pred (all[i]))
+            mask.setBit (i);
+
+    return mask;
+}
+
+EngineBridge::ScopedIsolatedTrack::ScopedIsolatedTrack (te::AudioTrack& t, std::vector<te::Plugin::Ptr>& s, te::Plugin* stripToBypass, bool dry)
+    : track (t), sends (s), strip (stripToBypass)
+{
+    // バウンス（dry）はトラックの音量・パン・ミュートの前の音（受け取った側でも同じ設定がかかるため）
+    if (dry)
+        volume = track.getVolumePlugin();
+
+    if (volume != nullptr)
+    {
+        oldDb = volume->getVolumeDb();
+        oldPan = volume->getPan();
+        volume->setVolumeDb (0.0f);
+        volume->setPan (0.0f);
+    }
+
+    oldMute = track.isMuted (false);
+    track.setMute (false);
+
+    // バスへの出力・センドは通さない（トラックそのものの音を書き出す）
+    oldDest = track.getOutput().getDestinationTrack();
+
+    if (oldDest != nullptr)
+        track.getOutput().setOutputToDefaultDevice (false);
+
+    for (auto& send : sends)
+    {
+        sendsWereEnabled.push_back (send->isEnabled());
+        send->setEnabled (false);
+    }
+
+    if (strip != nullptr)
+    {
+        stripWasEnabled = strip->isEnabled();
+        strip->setEnabled (false);
+    }
+}
+
+EngineBridge::ScopedIsolatedTrack::~ScopedIsolatedTrack()
+{
+    if (volume != nullptr)
+    {
+        volume->setVolumeDb (oldDb);
+        volume->setPan (oldPan);
+    }
+
+    track.setMute (oldMute);
+
+    if (strip != nullptr)
+        strip->setEnabled (stripWasEnabled);
+
+    if (oldDest != nullptr)
+        track.getOutput().setOutputToTrack (oldDest);
+
+    for (size_t i = 0; i < sends.size() && i < sendsWereEnabled.size(); ++i)
+        sends[i]->setEnabled (sendsWereEnabled[i]);
 }
 
 bool EngineBridge::renderTracksToWav (const juce::BigInteger& tracksToDo, const juce::File& output, double endSeconds, int bitDepth, double sampleRate)
@@ -1118,61 +1179,9 @@ juce::Result EngineBridge::renderOneTrack (const std::string& trackId, const juc
         return juce::Result::fail ("この環境ではプラグインを鳴らせないため、バウンスできません"_ju);
 
     auto& track = *it->second.track;
-    auto allTracks = te::getAllTracks (*edit);
-    juce::BigInteger tracksToDo;
-
-    for (int i = 0; i < allTracks.size(); ++i)
-        if (allTracks[i] == &track)
-            tracksToDo.setBit (i);
-
-    // バウンスはトラックの音量・パン・ミュートの前の音（受け取った側でも同じ設定がかかるため）。パラデータはミックスで聞こえるとおり
-    auto* vol = asStem ? nullptr : track.getVolumePlugin();
-    const float oldDb = vol != nullptr ? vol->getVolumeDb() : 0.0f;
-    const float oldPan = vol != nullptr ? vol->getPan() : 0.0f;
-    const bool oldMute = track.isMuted (false);
-
-    if (vol != nullptr)
-    {
-        vol->setVolumeDb (0.0f);
-        vol->setPan (0.0f);
-    }
-
-    track.setMute (false);
-
-    // バスへの出力・センドもバウンスには含めない（トラックそのものの音を書き出す）
-    auto* oldDest = track.getOutput().getDestinationTrack();
-
-    if (oldDest != nullptr)
-        track.getOutput().setOutputToDefaultDevice (false);
-
-    for (auto& s : it->second.sends)
-        s->setEnabled (false);
-
-    // EQ・コンプもバウンスに含めない（同上）。パラデータには含める
-    auto* strip = asStem ? nullptr : it->second.strip;
-    const bool stripWasEnabled = strip != nullptr && strip->isEnabled();
-
-    if (strip != nullptr)
-        strip->setEnabled (false);
-
-    const bool ok = renderTracksToWav (tracksToDo, output, endSeconds, bitDepth, (double) collab::kSampleRate);
-
-    if (vol != nullptr)
-    {
-        vol->setVolumeDb (oldDb);
-        vol->setPan (oldPan);
-    }
-
-    track.setMute (oldMute);
-
-    if (strip != nullptr)
-        strip->setEnabled (stripWasEnabled);
-
-    if (oldDest != nullptr)
-        track.getOutput().setOutputToTrack (oldDest);
-
-    for (auto& s : it->second.sends)
-        s->setEnabled (true);
+    const ScopedIsolatedTrack isolated (track, it->second.sends, asStem ? nullptr : it->second.strip, ! asStem);
+    const bool ok = renderTracksToWav (tracksMatching ([&track] (te::Track* t) { return t == &track; }),
+                                       output, endSeconds, bitDepth, (double) collab::kSampleRate);
 
     return ok ? juce::Result::ok() : juce::Result::fail ("書き出しに失敗しました"_ju);
 }
@@ -1490,13 +1499,11 @@ bool EngineBridge::renderToFile (const juce::File& output, collab::Tick endTick,
     sync();
     stop();
 
-    juce::BigInteger tracksToDo;
-    auto allTracks = te::getAllTracks (*edit);
-
-    for (int i = 0; i < allTracks.size(); ++i)
-        if (dynamic_cast<te::AudioTrack*> (allTracks[i]) != nullptr && allTracks[i] != metronomeTrack.get()
-             && (allTracks[i] != chordTrack.get() || document.getProject().chordTrack.playback.enabled))
-            tracksToDo.setBit (i);
+    const bool withChords = document.getProject().chordTrack.playback.enabled;
+    const auto tracksToDo = tracksMatching ([this, withChords] (te::Track* t)
+    {
+        return dynamic_cast<te::AudioTrack*> (t) != nullptr && t != metronomeTrack.get() && (t != chordTrack.get() || withChords);
+    });
 
     const double end = document.getTempoMap().tickToSeconds ((double) endTick) + tailSeconds;
     return renderTracksToWav (tracksToDo, output, end, bitDepth, sampleRate);
