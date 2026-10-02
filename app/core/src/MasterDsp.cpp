@@ -179,6 +179,38 @@ void VintageLimiterDsp::process (float* const* channels, int numChannels, int nu
     gainReductionDb.store ((float) maxGr, std::memory_order_relaxed);
 }
 
+void VintageLimiterDsp::processBypassed (float* const* channels, int numChannels, int numSamples)
+{
+    numChannels = std::min (numChannels, maxChannels);
+
+    if (numChannels <= 0 || required.empty())
+        return;
+
+    const int L = lookahead;
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        // 先読みの窓は「かけない」で埋めておく（オンに戻したときに古い値が残らないように）
+        required[(size_t) writePos] = 1.0;
+        holdSum += 1.0 - hold[(size_t) writePos];
+        hold[(size_t) writePos] = 1.0;
+
+        const int readPos = (writePos + 1) % L;
+
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            auto& d = delay[ch];
+            d[(size_t) writePos] = channels[ch][i];
+            channels[ch][i] = d[(size_t) readPos];
+        }
+
+        writePos = (writePos + 1) % L;
+    }
+
+    envDb = 0.0;
+    gainReductionDb.store (0.0f, std::memory_order_relaxed);
+}
+
 //==============================================================================
 void LoudnessBlocks::prepare (double sr)
 {

@@ -31,6 +31,12 @@ public:
 
     void process (float* const* channels, int numChannels, int numSamples);
 
+    /**
+        リミッターを切っているとき: かけずに、先読みと同じだけ遅らせて通す。
+        遅れ（getLatencySamples）はオンでもオフでも同じにしておく（違うと、オフのときにミックス全体がその分早く出る）。
+    */
+    void processBypassed (float* const* channels, int numChannels, int numSamples);
+
     /** 直近のゲインリダクション（dB、0 以上）。 */
     float getGainReductionDb() const noexcept      { return gainReductionDb.load (std::memory_order_relaxed); }
 

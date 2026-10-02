@@ -21,6 +21,7 @@
 #include "collab/Render.h"
 #include "collab/Uuid.h"
 #include "audio/AudioFiles.h"
+#include "audio/Export.h"
 #include "audio/Takes.h"
 #include "plugins/PluginHost.h"
 #include "ui/Dialogs.h"
@@ -179,6 +180,14 @@ public:
         if (auto args = getCommandLineParameterArray(); args.size() >= 3 && args[0] == "--render")
         {
             setApplicationReturnValue (renderProject (juce::File (args[1]), juce::File (args[2])));
+            quit();
+            return;
+        }
+
+        // --export <wav|mp3|stems|midi> <プロジェクトフォルダ> <出力>（動作確認・CI 用: ファイル → 書き出し と同じ処理）
+        if (auto args = getCommandLineParameterArray(); args.size() >= 4 && args[0] == "--export")
+        {
+            setApplicationReturnValue (exportCommand (args[1], juce::File (args[2]), juce::File (args[3])));
             quit();
             return;
         }
@@ -559,6 +568,74 @@ private:
         }
 
         return 0;
+    }
+
+    int exportCommand (const juce::String& kind, const juce::File& folder, const juce::File& output)
+    {
+        try
+        {
+            document->load (folder);
+        }
+        catch (const std::exception& e)
+        {
+            std::cerr << "load failed: " << e.what() << std::endl;
+            return 2;
+        }
+
+        juce::Result r = juce::Result::fail ("unknown export kind: " + kind);
+        juce::Array<juce::File> files { output };
+
+        if (kind == "wav")    r = Export::mixdownWav (*bridge, *document, output);
+        if (kind == "mp3")    r = Export::mixdownMp3 (*bridge, *document, output);
+        if (kind == "midi")   r = Export::midi (*document, output);
+
+        if (kind == "stems")
+        {
+            files.clear();
+            r = Export::stems (*bridge, *document, output, files);
+        }
+
+        if (r.failed())
+        {
+            std::cerr << "export failed: " << r.getErrorMessage() << std::endl;
+            return 3;
+        }
+
+        // 確かめ: 音のファイルは読み直して長さ・レート・ピークを出す。MIDI は読み直してパートを出す
+        if (kind == "midi")
+        {
+            auto m = MidiImport::read (output);
+
+            for (auto& p : m.parts)
+                std::cout << "midi part '" << p.name << "' ch" << p.channel << " notes " << p.notes.size() << std::endl;
+
+            return m.ok() && ! m.parts.empty() ? 0 : 4;
+        }
+
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        int status = 0;
+
+        for (auto& f : files)
+        {
+            std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (f));
+
+            if (reader == nullptr)
+            {
+                std::cerr << "cannot read " << f.getFullPathName() << std::endl;
+                status = 4;
+                continue;
+            }
+
+            juce::Range<float> range[2];
+            reader->readMaxLevels (0, reader->lengthInSamples, range, 2);
+            const float peak = juce::jmax (std::abs (range[0].getStart()), std::abs (range[0].getEnd()),
+                                           std::abs (range[1].getStart()), std::abs (range[1].getEnd()));
+            std::cout << "exported " << f.getFileName() << ": " << reader->lengthInSamples << " samples @ " << reader->sampleRate
+                      << " Hz, " << reader->numChannels << " ch, " << reader->bitsPerSample << " bit, peak " << peak << std::endl;
+        }
+
+        return status;
     }
 
     int renderProject (const juce::File& folder, const juce::File& output)

@@ -16,6 +16,7 @@
 #include "collab/ClipEditing.h"
 #include "collab/MasterDsp.h"
 #include "collab/Uuid.h"
+#include "audio/Export.h"
 #include "audio/Takes.h"
 #include "sync/SyncManager.h"
 
@@ -29,7 +30,7 @@ namespace
         cmdAudioSettings, cmdCredits, cmdAbout, cmdCheckUpdate,
         cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
         cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory,
-        cmdAddAudioTrack, cmdImportAudio, cmdImportMidi, cmdExportMixdown, cmdSplit, cmdMuteTrack, cmdSoloTrack, cmdPlugins, cmdArmTrack, cmdTrackHeight,
+        cmdAddAudioTrack, cmdImportAudio, cmdImportMidi, cmdExportMixdown, cmdExportMp3, cmdExportStems, cmdExportMidi, cmdSplit, cmdMuteTrack, cmdSoloTrack, cmdPlugins, cmdArmTrack, cmdTrackHeight,
         cmdRecord, cmdCountIn0, cmdCountIn1, cmdCountIn2,
         cmdToolSelect, cmdToolPencil, cmdModeCubase, cmdModeStudioOne, cmdMixer, cmdMaster, cmdLoopToSelection,
         cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
@@ -675,68 +676,73 @@ void MainComponent::importMidi()
     });
 }
 
-void MainComponent::exportMixdown()
+void MainComponent::exportMixdown (ExportKind kind)
 {
-    // 既定の保存先: プロジェクトのフォルダの横に「プロジェクト名.wav」
+    // 既定の保存先: プロジェクトのフォルダの横に「曲名.wav / .mp3 / .mid」（パラデータは「曲名_stems」フォルダ）
     const auto name = toJuce (document.getProject().name).trim();
+    const auto base = juce::File::createLegalFileName (name.isEmpty() ? juce::String ("mixdown") : name);
     const auto dir = document.hasLocation() ? document.getProjectDir().getParentDirectory()
                                             : juce::File::getSpecialLocation (juce::File::userMusicDirectory);
-    chooser = std::make_unique<juce::FileChooser> ("ミックスダウンを書き出す"_ju,
-                                                   dir.getChildFile (juce::File::createLegalFileName (name.isEmpty() ? juce::String ("mixdown") : name) + ".wav"),
-                                                   "*.wav");
+
+    struct Choice { juce::String title, extension, pattern; };
+    const Choice choice = kind == ExportKind::mp3   ? Choice { "ミックスダウンを書き出す（MP3）"_ju, ".mp3", "*.mp3" }
+                        : kind == ExportKind::midi  ? Choice { "MIDI ファイルを書き出す"_ju, ".mid", "*.mid" }
+                        : kind == ExportKind::stems ? Choice { "パラデータを書き出す（フォルダを作る場所と名前）"_ju, "_stems", "" }
+                                                    : Choice { "ミックスダウンを書き出す（WAV）"_ju, ".wav", "*.wav" };
+
+    chooser = std::make_unique<juce::FileChooser> (choice.title, dir.getChildFile (base + choice.extension), choice.pattern);
     chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
-                            | juce::FileBrowserComponent::warnAboutOverwriting,
-                          [this] (const juce::FileChooser& fc)
+                            | (kind == ExportKind::stems ? 0 : juce::FileBrowserComponent::warnAboutOverwriting),
+                          [this, kind] (const juce::FileChooser& fc)
     {
         auto file = fc.getResult();
 
         if (file == juce::File())
             return;
 
-        file = file.withFileExtension ("wav");
-
-        // 曲の最後まで（リバーブなどの余韻に 2 秒）。マスターのリミッターは含み、この PC のマスター音量・メトロノームは含まない
-        const auto end = collab::chordTrackEndTick (document.getProject(), document.getTempoMap());
+        juce::Result result = juce::Result::ok();
+        juce::String done;
         juce::MouseCursor::showWaitCursor();
-        const bool ok = bridge.renderToFile (file, end, bridge.tailSecondsFor ({}), 24);   // リバーブの余韻まで
-        juce::MouseCursor::hideWaitCursor();
 
-        if (! ok)
-            return Dialogs::showError ("書き出し"_ju, "ミックスダウンを書き出せませんでした。"_ju);
-
-        // 書き出した音のラウドネスとピークを測って知らせる
-        juce::AudioFormatManager formats;
-        formats.registerBasicFormats();
-        std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
-        juce::String summary;
-
-        if (reader != nullptr)
+        switch (kind)
         {
-            collab::LoudnessBlocks blocks;
-            blocks.prepare (reader->sampleRate);
-            collab::LoudnessStats stats;
-            std::vector<double> out;
-            juce::AudioBuffer<float> buffer (2, 48000);
-            float peak = 0.0f;
+            case ExportKind::wav:
+                file = file.withFileExtension ("wav");
+                result = Export::mixdownWav (bridge, document, file);
+                done = file.getFullPathName() + "\nに書き出しました（48 kHz / 24 bit WAV）。\n\n"_ju + Export::loudnessSummary (file);
+                break;
 
-            for (juce::int64 pos = 0; pos < reader->lengthInSamples; pos += buffer.getNumSamples())
+            case ExportKind::mp3:
+                file = file.withFileExtension ("mp3");
+                result = Export::mixdownMp3 (bridge, document, file);
+                done = file.getFullPathName() + "\nに書き出しました（44.1 kHz / 320 kbps MP3）。\n\n"_ju + Export::loudnessSummary (file);
+                break;
+
+            case ExportKind::midi:
+                file = file.withFileExtension ("mid");
+                result = Export::midi (document, file);
+                done = file.getFullPathName() + "\nに書き出しました（MIDI トラックとコード、テンポ・拍子・キー・マーカー）。"_ju;
+                break;
+
+            case ExportKind::stems:
             {
-                const int n = (int) juce::jmin ((juce::int64) buffer.getNumSamples(), reader->lengthInSamples - pos);
-                reader->read (&buffer, 0, n, pos, true, true);
-                peak = juce::jmax (peak, buffer.getMagnitude (0, n));
-                out.clear();
-                const float* ch[2] = { buffer.getReadPointer (0), buffer.getReadPointer (reader->numChannels > 1 ? 1 : 0) };
-                blocks.process (ch, 2, n, out);
-
-                for (double b : out)
-                    stats.addBlock (b);
+                // 選んだ名前のフォルダを作って、その中にトラックごとの WAV を置く（同じ名前があれば番号を付ける）
+                auto folder = file.getParentDirectory().getNonexistentChildFile (file.getFileNameWithoutExtension(), {}, false);
+                juce::Array<juce::File> written;
+                result = Export::stems (bridge, document, folder, written);
+                done = folder.getFullPathName() + "\nに "_ju + juce::String (written.size())
+                       + " 本書き出しました（48 kHz / 24 bit WAV、全部同じ長さ）。\n\n"_ju
+                       + "インサート・EQ・Comp・音量・パンを含み、センド・バス・マスターのリミッターは含みません。ミュート中のトラックは書き出しません。"_ju;
+                break;
             }
-
-            summary = "\n\nラウドネス: "_ju + juce::String (stats.integratedLufs(), 1) + " LUFS（目標 -14）\nピーク: "_ju
-                      + juce::String (juce::Decibels::gainToDecibels (peak, -100.0f), 1) + " dBFS"_ju;
         }
 
-        Dialogs::showInfo ("書き出し"_ju, file.getFullPathName() + "\nに書き出しました（48 kHz / 24 bit WAV）。"_ju + summary);
+        juce::MouseCursor::hideWaitCursor();
+
+        if (result.failed())
+            return Dialogs::showError ("書き出し"_ju, result.getErrorMessage());
+
+        Dialogs::showInfo ("書き出し"_ju, done.trimEnd());
     });
 }
 
@@ -1491,7 +1497,7 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
                          cmdRecord, cmdCountIn0, cmdCountIn1, cmdCountIn2,
                          cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
                          cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory,
-                         cmdAddAudioTrack, cmdImportAudio, cmdImportMidi, cmdExportMixdown, cmdSplit, cmdMuteTrack, cmdSoloTrack, cmdPlugins, cmdArmTrack, cmdTrackHeight,
+                         cmdAddAudioTrack, cmdImportAudio, cmdImportMidi, cmdExportMixdown, cmdExportMp3, cmdExportStems, cmdExportMidi, cmdSplit, cmdMuteTrack, cmdSoloTrack, cmdPlugins, cmdArmTrack, cmdTrackHeight,
                          cmdToolSelect, cmdToolPencil, cmdModeCubase, cmdModeStudioOne, cmdMixer, cmdMaster, cmdLoopToSelection,
                          cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
                          cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9,
@@ -1695,7 +1701,16 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdImportAudio:   info.setInfo ("オーディオを読み込む…"_ju, {}, "File", 0); info.addDefaultKeypress ('i', cmd); break;
         case cmdImportMidi:    info.setInfo ("MIDI ファイルを読み込む…"_ju, {}, "File", 0); break;
         case cmdExportMixdown:
-            info.setInfo ("ミックスダウンを書き出す（WAV）…"_ju, {}, "File", 0);
+            info.setInfo ("ミックスダウンを書き出す（WAV 48 kHz / 24 bit）…"_ju, {}, "File", 0);
+            break;
+        case cmdExportMp3:
+            info.setInfo ("ミックスダウンを書き出す（MP3 44.1 kHz / 320 kbps）…"_ju, {}, "File", 0);
+            break;
+        case cmdExportStems:
+            info.setInfo ("パラデータを書き出す（トラックごとの WAV）…"_ju, {}, "File", 0);
+            break;
+        case cmdExportMidi:
+            info.setInfo ("MIDI ファイルを書き出す…"_ju, {}, "File", 0);
             break;
         case cmdSplit:         info.setInfo ("再生位置で分割"_ju, {}, "Edit", 0); info.addDefaultKeypress ('x', juce::ModifierKeys::altModifier); break;
         case cmdMuteTrack:
@@ -1922,7 +1937,10 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdPlugins:       showPluginManager(); break;
         case cmdImportAudio:   importAudio(); break;
         case cmdImportMidi:    importMidi(); break;
-        case cmdExportMixdown: exportMixdown(); break;
+        case cmdExportMixdown: exportMixdown (ExportKind::wav); break;
+        case cmdExportMp3:     exportMixdown (ExportKind::mp3); break;
+        case cmdExportStems:   exportMixdown (ExportKind::stems); break;
+        case cmdExportMidi:    exportMixdown (ExportKind::midi); break;
         case cmdSplit:         ctx.splitAtPlayhead(); break;
         case cmdMuteTrack:
         case cmdSoloTrack:
@@ -2008,6 +2026,9 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addCommandItem (cm, cmdImportAudio);
             m.addCommandItem (cm, cmdImportMidi);
             m.addCommandItem (cm, cmdExportMixdown);
+            m.addCommandItem (cm, cmdExportMp3);
+            m.addCommandItem (cm, cmdExportStems);
+            m.addCommandItem (cm, cmdExportMidi);
            #if ! JUCE_MAC
             m.addSeparator();
             m.addCommandItem (cm, juce::StandardApplicationCommandIDs::quit);

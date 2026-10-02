@@ -15,6 +15,9 @@ set(CMAKE_CXX_STANDARD 17)
 add_subdirectory(external/sfizz EXCLUDE_FROM_ALL)
 set(CMAKE_CXX_STANDARD 20)
 
+# --- LAME（MP3 の書き出し）--------------------------------------------------
+include(${PROJECT_SOURCE_DIR}/cmake/Lame.cmake)
+
 # --- JUCE / Tracktion Engine ------------------------------------------------
 # JUCE は構成のときに juceaide を Debug（/Zi = 共有 PDB）でビルドする。sccache は /Zi を扱えず失敗するので、
 # MSVC では juceaide にだけコンパイルキャッシュを渡さない（このアプリ本体のターゲットには後で戻す）
@@ -58,6 +61,8 @@ target_sources(ShareDAW PRIVATE
     src/Main.cpp
     src/AppPaths.cpp
     src/audio/AudioFiles.cpp
+    src/audio/Export.cpp
+    src/audio/Mp3Export.cpp
     src/update/Updater.cpp
     src/audio/ChannelStripPlugin.cpp
     src/audio/BuiltinEffectPlugin.cpp
@@ -118,6 +123,7 @@ target_compile_definitions(ShareDAW PRIVATE
     JUCE_PLUGINHOST_LADSPA=0
     JUCE_WASAPI=1
     JUCE_DIRECTSOUND=0
+    JUCE_USE_MP3AUDIOFORMAT=1
     TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH=1)
 
 # アプリの更新（§ アップデート）: CI が実行番号を渡す。手元のビルドは 0。再コンパイルを最小にするため Updater.cpp だけに渡す
@@ -131,6 +137,7 @@ endif()
 
 target_link_libraries(ShareDAW PRIVATE
     collab::core
+    mp3lame
     sfizz::sfizz
     tracktion::tracktion_core
     tracktion::tracktion_engine

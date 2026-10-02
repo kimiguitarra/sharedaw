@@ -2,6 +2,7 @@
 # 起動の確認（CI 用）: ビルドしたアプリを実際に起動して一通り操作し、落ちずに終わるかを見る。
 #   tools/app-smoke-test.sh <アプリの実行ファイル> <assets フォルダ>
 # - デモ曲の音源を assets の最新の版にして、書き出し（--render）が音の入ったファイルを作るか
+# - 書き出し（ファイル → 書き出し と同じ処理）: WAV・MP3・パラデータ・MIDI を書いて、読み直せるか（--export）
 # - --smoke-test: メニューの作成、曲を開く、ピアノロールの画面・ミキサーの開閉、再生・停止、外観の切り替え
 # 設定は空の HOME で行う（初めて起動した人と同じ状態）。Linux では xvfb-run の中で呼ぶ。
 # SMOKE_WRAPPER（例: "arch -x86_64"）を付けると、その上で起動する（Mac の Intel 版を Rosetta で確かめる）。
@@ -55,6 +56,18 @@ grep -v "Assertion failure" "$work/render.log" || true
 size=$(wc -c < "$work/demo.wav")
 echo "rendered $size bytes"
 [ "$size" -gt 100000 ] || { echo "render is too small"; exit 1; }
+
+echo "== export"
+for kind in wav mp3 midi stems; do
+    case "$kind" in wav) out="$work/mix.wav" ;; mp3) out="$work/mix.mp3" ;; midi) out="$work/song.mid" ;; stems) out="$work/stems" ;; esac
+    status=0
+    HOME="$work/home" run_with_timeout 300 ${SMOKE_WRAPPER:-} "$exe" --export "$kind" "$work/demo" "$out" > "$work/export.log" 2>&1 || status=$?
+    grep -E "^(exported|midi part|export failed|load failed|cannot read)" "$work/export.log" || true
+    [ "$status" -eq 0 ] || { echo "export $kind failed (exit status $status)"; exit 1; }
+done
+stems=$(ls "$work/stems" | wc -l | tr -d ' ')
+echo "stems: $stems files"
+[ "$stems" -ge 3 ] || { echo "too few stems"; exit 1; }
 
 echo "== smoke test"
 HOME="$work/home" run_with_timeout "${SMOKE_TIMEOUT:-300}" ${SMOKE_WRAPPER:-} "$exe" --smoke-test "$work/demo" > "$work/smoke.log" 2>&1 || status=$?

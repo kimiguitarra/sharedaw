@@ -50,11 +50,18 @@ public:
     /** トラックの音源が読み込めていない場合の理由（問題なければ空）。 */
     juce::String getInstrumentProblem (const std::string& trackId) const;
 
-    /** 先頭から endTick + tailSeconds までをオフラインで WAV に書き出す（メトロノームは含めない）。 */
-    bool renderToFile (const juce::File& output, collab::Tick endTick, double tailSeconds = 2.0, int bitDepth = 32);
+    /** 先頭から endTick + tailSeconds までをオフラインで WAV に書き出す（メトロノームは含めない）。sampleRate は書き出すレート。 */
+    bool renderToFile (const juce::File& output, collab::Tick endTick, double tailSeconds = 2.0, int bitDepth = 32,
+                       double sampleRate = (double) collab::kSampleRate);
 
     /** トラック1本をバウンスする（§3.7: 48kHz / 32bit float、先頭から末尾 + 余白）。 */
     juce::Result renderTrack (const std::string& trackId, const juce::File& output, double tailSeconds = 2.0);
+
+    /**
+        パラデータ（トラックごとの書き出し）の 1 本。ミックスで聞こえるとおり（インサート・EQ・Comp・音量・パンを含む）で、
+        センド・バス・マスターは通さない。trackId が空ならコードトラック。先頭から endSeconds まで（全部のファイルの長さをそろえる）。
+    */
+    juce::Result renderStem (const std::string& trackId, const juce::File& output, double endSeconds, int bitDepth = 24);
 
     /** バウンスして audio/<hash>.wav に保存し、Project に書き込む render 情報を返す（プロジェクトの保存先が必要）。
         先に flushPluginStates() を呼んでおくこと（フィンガープリントに状態ファイルのハッシュが入る）。 */
@@ -248,6 +255,9 @@ private:
     std::string tempoKey;
 
     te::AudioTrack::Ptr chordTrack;
+
+    juce::Result renderOneTrack (const std::string& trackId, const juce::File& output, double endSeconds, bool asStem, int bitDepth);
+    bool renderTracksToWav (const juce::BigInteger& tracksToDo, const juce::File& output, double endSeconds, int bitDepth, double sampleRate);
     std::unique_ptr<Meter> chordMeter, metronomeMeter, masterMeter;
     float masterVolumeDb = 0.0f;
     SfizzPlugin* chordSynth = nullptr;

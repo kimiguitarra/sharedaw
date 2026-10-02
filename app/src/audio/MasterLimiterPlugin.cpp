@@ -96,6 +96,8 @@ void MasterLimiterPlugin::applyToBuffer (const te::PluginRenderContext& fc)
 
     if (limiterEnabled.load (std::memory_order_relaxed))
         dsp.process (channels, numChannels, n);
+    else
+        dsp.processBypassed (channels, numChannels, n);   // 遅れはオンのときと同じ（報告している遅れと合わせる）
 
     raise (outputPeak, peakOf());
 

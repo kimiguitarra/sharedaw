@@ -109,6 +109,42 @@ TEST_CASE ("Vintage limiter leaves quiet material alone")
     CHECK (std::abs (peakAfterLimiter (p, 0.25) - 20.0 * std::log10 (0.25)) < 0.2);
 }
 
+TEST_CASE ("Vintage limiter has the same delay when bypassed as when active")
+{
+    // 遅れを報告しているので、切っているときも同じだけ遅らせないとミックス全体が早く出る
+    VintageLimiterDsp dsp;
+    dsp.prepare (sr);
+    const int latency = dsp.getLatencySamples();
+    REQUIRE (latency > 0);
+
+    std::vector<float> l (2048, 0.0f), r (2048, 0.0f);
+    l[100] = 0.25f;
+    r[100] = -0.25f;
+    float* ch[2] = { l.data(), r.data() };
+
+    // ブロックをまたいでも同じ
+    dsp.processBypassed (ch, 2, 1000);
+    float* rest[2] = { l.data() + 1000, r.data() + 1000 };
+    dsp.processBypassed (rest, 2, 1048);
+
+    for (size_t i = 0; i < l.size(); ++i)
+    {
+        CAPTURE (i);
+        CHECK (l[i] == (i == (size_t) (100 + latency) ? 0.25f : 0.0f));
+        CHECK (r[i] == (i == (size_t) (100 + latency) ? -0.25f : 0.0f));
+    }
+
+    // 同じ設定でかけたとき（小さい音なのでほぼそのまま）も同じ位置に出る
+    VintageLimiterDsp active;
+    active.prepare (sr);
+    std::vector<float> a (2048, 0.0f), b (2048, 0.0f);
+    a[100] = 0.25f;
+    float* ch2[2] = { a.data(), b.data() };
+    active.process (ch2, 2, 2048);
+    const auto peakAt = std::max_element (a.begin(), a.end(), [] (float x, float y) { return std::abs (x) < std::abs (y); }) - a.begin();
+    CHECK (peakAt == 100 + latency);
+}
+
 TEST_CASE ("Master limiter settings round-trip through JSON and diff as their own scope")
 {
     auto p = parseProject (fixture ("full.project.json"));

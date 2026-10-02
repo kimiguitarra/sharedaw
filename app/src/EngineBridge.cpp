@@ -1044,6 +1044,68 @@ bool EngineBridge::isPlayingRender (const std::string& trackId) const
 
 juce::Result EngineBridge::renderTrack (const std::string& trackId, const juce::File& output, double tailSeconds)
 {
+    const auto& project = document.getProject();
+    const double end = document.getTempoMap().tickToSeconds ((double) collab::chordTrackEndTick (project, document.getTempoMap())) + tailSeconds;
+    return renderOneTrack (trackId, output, end, false, 32);
+}
+
+juce::Result EngineBridge::renderStem (const std::string& trackId, const juce::File& output, double endSeconds, int bitDepth)
+{
+    if (! trackId.empty())
+        return renderOneTrack (trackId, output, endSeconds, true, bitDepth);
+
+    // コードトラック
+    sync();
+    stop();
+
+    if (chordTrack == nullptr)
+        return juce::Result::fail ("コードトラックがありません"_ju);
+
+    auto allTracks = te::getAllTracks (*edit);
+    juce::BigInteger tracksToDo;
+
+    for (int i = 0; i < allTracks.size(); ++i)
+        if (allTracks[i] == chordTrack.get())
+            tracksToDo.setBit (i);
+
+    // ふだんはミックス用のトラックを通って鳴る。単独で書き出すときは直接出す（通さないと何も聞こえない）
+    auto* oldDest = chordTrack->getOutput().getDestinationTrack();
+
+    if (oldDest != nullptr)
+        chordTrack->getOutput().setOutputToDefaultDevice (false);
+
+    const bool ok = renderTracksToWav (tracksToDo, output, endSeconds, bitDepth, (double) collab::kSampleRate);
+
+    if (oldDest != nullptr)
+        chordTrack->getOutput().setOutputToTrack (oldDest);
+
+    return ok ? juce::Result::ok() : juce::Result::fail ("書き出しに失敗しました"_ju);
+}
+
+bool EngineBridge::renderTracksToWav (const juce::BigInteger& tracksToDo, const juce::File& output, double endSeconds, int bitDepth, double sampleRate)
+{
+    juce::WavAudioFormat wav;
+    te::Renderer::Parameters params (*edit);
+    params.destFile = output;
+    params.audioFormat = &wav;
+    params.bitDepth = bitDepth;
+    params.sampleRateForAudio = sampleRate;
+    params.blockSizeForAudio = 512;
+    params.time = te::TimeRange (secondsToTime (0), secondsToTime (endSeconds));
+    params.tracksToDo = tracksToDo;
+    params.canRenderInMono = false;
+    params.usePlugins = true;
+    params.useMasterPlugins = false;
+    params.checkNodesForAudio = false;
+
+    // レンダリング中はオーディオデバイスから切り離す（終了後に再接続される）
+    const te::Edit::ScopedRenderStatus renderStatus (*edit, true);
+    output.deleteFile();
+    return te::Renderer::renderToFile ("ShareDAW render", params).existsAsFile();
+}
+
+juce::Result EngineBridge::renderOneTrack (const std::string& trackId, const juce::File& output, double endSeconds, bool asStem, int bitDepth)
+{
     sync();
     stop();
 
@@ -1063,8 +1125,8 @@ juce::Result EngineBridge::renderTrack (const std::string& trackId, const juce::
         if (allTracks[i] == &track)
             tracksToDo.setBit (i);
 
-    // バウンスはトラックの音量・パン・ミュートの前の音（受け取った側でも同じ設定がかかるため）
-    auto* vol = track.getVolumePlugin();
+    // バウンスはトラックの音量・パン・ミュートの前の音（受け取った側でも同じ設定がかかるため）。パラデータはミックスで聞こえるとおり
+    auto* vol = asStem ? nullptr : track.getVolumePlugin();
     const float oldDb = vol != nullptr ? vol->getVolumeDb() : 0.0f;
     const float oldPan = vol != nullptr ? vol->getPan() : 0.0f;
     const bool oldMute = track.isMuted (false);
@@ -1086,34 +1148,14 @@ juce::Result EngineBridge::renderTrack (const std::string& trackId, const juce::
     for (auto& s : it->second.sends)
         s->setEnabled (false);
 
-    // EQ・コンプもバウンスに含めない（同上）
-    auto* strip = it->second.strip;
+    // EQ・コンプもバウンスに含めない（同上）。パラデータには含める
+    auto* strip = asStem ? nullptr : it->second.strip;
     const bool stripWasEnabled = strip != nullptr && strip->isEnabled();
 
     if (strip != nullptr)
         strip->setEnabled (false);
 
-    const auto& project = document.getProject();
-    const double end = document.getTempoMap().tickToSeconds ((double) collab::chordTrackEndTick (project, document.getTempoMap())) + tailSeconds;
-
-    juce::WavAudioFormat wav;
-    te::Renderer::Parameters params (*edit);
-    params.destFile = output;
-    params.audioFormat = &wav;
-    params.bitDepth = 32;
-    params.sampleRateForAudio = (double) collab::kSampleRate;
-    params.time = te::TimeRange (secondsToTime (0), secondsToTime (end));
-    params.tracksToDo = tracksToDo;
-    params.canRenderInMono = false;
-    params.usePlugins = true;
-    params.checkNodesForAudio = false;
-
-    bool ok = false;
-    {
-        const te::Edit::ScopedRenderStatus renderStatus (*edit, true);
-        output.deleteFile();
-        ok = te::Renderer::renderToFile ("ShareDAW bounce", params).existsAsFile();
-    }
+    const bool ok = renderTracksToWav (tracksToDo, output, endSeconds, bitDepth, (double) collab::kSampleRate);
 
     if (vol != nullptr)
     {
@@ -1443,7 +1485,7 @@ bool EngineBridge::isLooping() const
 }
 
 //==============================================================================
-bool EngineBridge::renderToFile (const juce::File& output, collab::Tick endTick, double tailSeconds, int bitDepth)
+bool EngineBridge::renderToFile (const juce::File& output, collab::Tick endTick, double tailSeconds, int bitDepth, double sampleRate)
 {
     sync();
     stop();
@@ -1457,25 +1499,7 @@ bool EngineBridge::renderToFile (const juce::File& output, collab::Tick endTick,
             tracksToDo.setBit (i);
 
     const double end = document.getTempoMap().tickToSeconds ((double) endTick) + tailSeconds;
-    output.deleteFile();
-
-    // プロジェクトのフォーマット（48kHz / 32bit float WAV、§7.1）で書き出す
-    juce::WavAudioFormat wav;
-    te::Renderer::Parameters params (*edit);
-    params.destFile = output;
-    params.audioFormat = &wav;
-    params.bitDepth = bitDepth;
-    params.sampleRateForAudio = (double) collab::kSampleRate;
-    params.blockSizeForAudio = 512;
-    params.time = te::TimeRange (secondsToTime (0), secondsToTime (end));
-    params.tracksToDo = tracksToDo;
-    params.canRenderInMono = false;
-    params.usePlugins = true;
-    params.useMasterPlugins = false;
-
-    // レンダリング中はオーディオデバイスから切り離す（終了後に再接続される）
-    const te::Edit::ScopedRenderStatus renderStatus (*edit, true);
-    return te::Renderer::renderToFile ("ShareDAW render", params).existsAsFile();
+    return renderTracksToWav (tracksToDo, output, end, bitDepth, sampleRate);
 }
 
 //==============================================================================

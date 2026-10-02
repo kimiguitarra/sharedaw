@@ -18,6 +18,7 @@ add_library(collab_core STATIC
     src/ChordPlayback.cpp
     src/ClipEditing.cpp
     src/GmDrumMap.cpp
+    src/MidiExport.cpp
     src/Grid.cpp
     src/Project.cpp
     src/ProjectDiff.cpp

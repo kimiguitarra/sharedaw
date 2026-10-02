@@ -124,7 +124,8 @@ private:
     const collab::Track* midiRecordTarget() const;
     std::unique_ptr<juce::DocumentWindow> eqWindow, compWindow;
     void openMaster();
-    void exportMixdown();
+    enum class ExportKind { wav, mp3, stems, midi };
+    void exportMixdown (ExportKind);
     std::unique_ptr<juce::DocumentWindow> masterWindow;
 
     // 録音（§3.5）
