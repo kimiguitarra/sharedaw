@@ -19,10 +19,14 @@ public:
     /** 左の音部記号と調号を描く幅（ピアノロールの鍵盤の幅と同じにする）。 */
     void setLeftWidth (int w)    { leftWidth = w; }
 
+    /** ヘ音記号の段を出すか（出さないときはト音記号の 1 段で、低い音は加線で書く）。 */
+    void setUseBassClef (bool b) { useBassClef = b; repaint(); }
+
     void paint (juce::Graphics&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
 private:
     PianoRollView& owner;
     int leftWidth = 70;
+    bool useBassClef = true;
 };

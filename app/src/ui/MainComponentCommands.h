@@ -18,7 +18,7 @@ namespace MainCommands
         cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
         cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9,
         cmdToolSplit, cmdCopy, cmdCut, cmdPaste, cmdNudgeLeft, cmdNudgeRight,
-        cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate, cmdToLoopStart, cmdToLoopEnd, cmdInspector, cmdCursorLeft, cmdCursorRight, cmdBarLeft, cmdBarRight, cmdTrackUp, cmdTrackDown, cmdPianoFull, cmdWaveBigger, cmdWaveSmaller
+        cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate, cmdToLoopStart, cmdToLoopEnd, cmdInspector, cmdCursorLeft, cmdCursorRight, cmdBarLeft, cmdBarRight, cmdTrackUp, cmdTrackDown, cmdPianoFull, cmdWaveBigger, cmdWaveSmaller, cmdAutoArm
     };
 
     inline constexpr float fontScales[] = { 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };

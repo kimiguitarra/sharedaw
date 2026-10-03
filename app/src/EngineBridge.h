@@ -165,6 +165,8 @@ public:
 
     /** 手動のレイテンシ補正（サンプル）。ドライバが報告するレイテンシの補正に加えてずらす。 */
     void setManualLatencySamples (int samples);
+    /** MIDI の録音位置の補正（ミリ秒。正の値で録音を前＝早くずらす。オーディオの補正と同じ向き）。 */
+    void setMidiRecordOffsetMs (double msEarlier);
 
     struct RecordedTake
     {
@@ -354,6 +356,7 @@ private:
     CountInPlugin* countIn = nullptr;
     std::vector<RecordedTake> pendingTakes;
     int manualLatencySamples = 0;
+    double midiRecordOffsetMs = 0.0;
     double punchInSeconds = 0;
     std::shared_ptr<bool> aliveFlag = std::make_shared<bool> (true);
 

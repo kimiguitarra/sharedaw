@@ -59,7 +59,7 @@ private:
     const collab::Note* hitNote (juce::Point<float>, bool& nearRightEdge) const;
 };
 
-/** ベロシティの表示・編集（ドラッグで描くように変更）。 */
+/** ベロシティの表示・編集（選んだノートを上下にドラッグ）。 */
 class VelocityLane  : public juce::Component,
                       public juce::SettableTooltipClient
 {
@@ -73,16 +73,12 @@ public:
 
 private:
     PianoRollView& owner;
-    float lastX = 0;
     juce::String mergeId;
-    void applyAt (float x1, float x2, float y);
 
-    // 選んだ複数のノートの棒をつかんだときは、全部を同じだけ上下させる（それぞれの差は保つ）
-    bool relative = false;
+    // 選んだノートを、ドラッグした分だけ上下させる（それぞれの差は保つ）
     float downY = 0;
     std::map<std::string, int> originalVelocities;
-    bool hitsSelectedNote (float x) const;
-    int velocityAtY (float y) const;
+    const collab::Note* noteAt (float x) const;
 };
 
 /** オーディオクリップを選んだときに下部パネルに出す拡大波形（グリッド線つき）。 */
@@ -129,6 +125,7 @@ public:
     void quantiseSelection();
     /** 五線譜で表示する（♪ ボタンと同じ）。 */
     void setStaffMode (bool on)            { staffButton.setToggleState (on, juce::sendNotificationSync); }
+    void setStaffBassClef (bool on)        { bassClefButton.setToggleState (on, juce::sendNotificationSync); }
 
     /** 選択中のノートを nudgeTicks だけ左（-1）・右（+1）にずらす（グルーヴ用。グリッドには合わせない）。 */
     void nudgeSelection (int direction);
@@ -225,6 +222,7 @@ private:
     juce::ComboBox nudgeBox;
     juce::TextButton staffButton { juce::String::fromUTF8 ("\xe2\x99\xaa") };   // ♪: 五線譜とピアノロールの切り替え
     StaffView staff { *this };
+    juce::TextButton bassClefButton { juce::String::fromUTF8 ("\xf0\x9d\x84\xa2") };   // 𝄢: ヘ音記号の段を出す・出さない
     bool staffMode = false;
     bool showingStaff() const              { return staffMode && ! shownAsDrums && ! shownAsAudio; }
 

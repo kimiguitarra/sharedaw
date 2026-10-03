@@ -463,6 +463,21 @@ void MainComponent::showAudioSettings()
             };
             addAndMakeVisible (offset);
 
+            midiTitle.setText ("MIDI の録音位置の補正（ms）"_ju, juce::dontSendNotification);
+            midiTitle.setFont (juce::FontOptions (14.5f));
+            addAndMakeVisible (midiTitle);
+
+            midiOffset.setRange (-200, 200, 1);
+            midiOffset.setTextBoxStyle (juce::Slider::TextBoxRight, false, 70, 22);
+            midiOffset.setDoubleClickReturnValue (true, 0);
+            midiOffset.setValue (owner.settings.getDoubleValue ("midiRecordOffsetMs", 0.0), juce::dontSendNotification);
+            midiOffset.onValueChange = [this]
+            {
+                owner.settings.setValue ("midiRecordOffsetMs", midiOffset.getValue());
+                owner.applyLatencyOffset();
+            };
+            addAndMakeVisible (midiOffset);
+
             info.setFont (juce::FontOptions (15.0f));
             info.setColour (juce::Label::textColourId, Theme::textDim);
             addAndMakeVisible (info);
@@ -486,10 +501,14 @@ void MainComponent::showAudioSettings()
             offset.setEnabled (device != nullptr);
 
             if (device != nullptr)
-                info.setText ("ドライバが報告するレイテンシ（自動で補正）: 入力 "_ju + juce::String (device->getInputLatencyInSamples())
-                                + " / 出力 "_ju + juce::String (device->getOutputLatencyInSamples())
-                                + " サンプル。録音がずれるときは、正の値で録音を前（早く）にずらします。"_ju,
+            {
+                const double rate = juce::jmax (1.0, device->getCurrentSampleRate());
+                const int in = device->getInputLatencyInSamples(), out = device->getOutputLatencyInSamples();
+                info.setText ("オーディオはドライバが報告する遅れ（入力 "_ju + juce::String (in) + " + 出力 "_ju + juce::String (out)
+                                + " サンプル = "_ju + juce::String ((in + out) * 1000.0 / rate, 1) + " ms）の分だけ、録音を自動で前にずらしています。"_ju
+                                + "録音が前のめり（早い）なら負の値、遅れるなら正の値にしてください（どちらも、正の値で録音を前＝早くずらします）。"_ju,
                               juce::dontSendNotification);
+            }
         }
 
         void resized() override
@@ -498,18 +517,22 @@ void MainComponent::showAudioSettings()
             auto row = area.removeFromTop (26);
             title.setBounds (row.removeFromLeft (260));
             offset.setBounds (row);
+            auto midiRow = area.removeFromTop (26);
+            midiTitle.setBounds (midiRow.removeFromLeft (260));
+            midiOffset.setBounds (midiRow);
             info.setBounds (area);
         }
 
         MainComponent& owner;
-        juce::Label title, info;
+        juce::Label title, info, midiTitle;
         juce::Slider offset { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
+        juce::Slider midiOffset { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
     };
 
     auto latency = std::make_unique<Latency> (*this);
     auto masterOut = std::make_unique<MasterOut> (engine.getDeviceManager());
     masterOut->setBounds (0, 552, 560, 32);
-    latency->setBounds (0, 590, 560, 64);
+    latency->setBounds (0, 590, 560, 110);
 
     struct Holder : juce::Component
     {
@@ -528,9 +551,9 @@ void MainComponent::showAudioSettings()
 
     const int midiHeight = 60 + juce::jmax (1, (int) bridge.getMidiInputs().size()) * 26 + 26;
     holder->d = std::make_unique<MidiInputPanel> (bridge);
-    holder->d->setBounds (0, 660, 560, midiHeight);
+    holder->d->setBounds (0, 706, 560, midiHeight);
     holder->addAndMakeVisible (*holder->d);
-    holder->setSize (560, 660 + midiHeight);
+    holder->setSize (560, 706 + midiHeight);
 
     juce::DialogWindow::LaunchOptions o;
     o.content.setOwned (holder.release());

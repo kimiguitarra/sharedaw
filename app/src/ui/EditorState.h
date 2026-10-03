@@ -139,6 +139,8 @@ struct EditorState  : public juce::ChangeBroadcaster
     }
 
     bool autoScroll = true;                     // 再生中に再生位置を追ってスクロールする（F）
+    bool autoArmSelected = true;                // 選んだトラックを自動で録音待機にする（* で録音できる）
+    bool pianoRollAutoFitted = false;           // ピアノロールがクリップに合わせて拡大率を変えた（タイムラインには連動させない）
     float waveformZoom = 1.0f;                  // 波形を表示の上だけ大きくする倍率（音量は変わらない。Shift+H / Shift+G）
 
     std::string selectedTrackId;

@@ -70,6 +70,12 @@ PianoRollView::PianoRollView (AppContext& c)
     addAndMakeVisible (staffButton);
     addChildComponent (staff);
 
+    bassClefButton.setClickingTogglesState (true);
+    bassClefButton.setToggleState (true, juce::dontSendNotification);
+    bassClefButton.setTooltip ("ヘ音記号の段を使う（オフでト音記号だけ）"_ju);
+    bassClefButton.onClick = [this] { staff.setUseBassClef (bassClefButton.getToggleState()); };
+    addChildComponent (bassClefButton);
+
 
     addAndMakeVisible (ruler);
     addAndMakeVisible (keyboard);
@@ -248,6 +254,7 @@ void PianoRollView::resized()
     // 五線譜（ドラム・オーディオでは使わない）: 鍵盤とノートの欄の代わりに出す
     staffButton.setVisible (! shownAsDrums && ! shownAsAudio);
     staff.setVisible (showingStaff());
+    bassClefButton.setVisible (showingStaff());
 
     if (showingStaff())
     {
@@ -262,6 +269,8 @@ void PianoRollView::resized()
     auto area = getLocalBounds().withTrimmedTop (3);
     auto toolbar = area.removeFromTop (toolbarHeight).reduced (6, 3);
     staffButton.setBounds (toolbar.removeFromRight (34));
+    toolbar.removeFromRight (4);
+    bassClefButton.setBounds (toolbar.removeFromRight (34));
     titleLabel.setBounds (toolbar.removeFromLeft (220));
     gridBox.setBounds (toolbar.removeFromLeft (110));
     toolbar.removeFromLeft (6);
@@ -416,6 +425,7 @@ void PianoRollView::clipChanged()
             const double len = juce::jmax ((double) collab::kPpq, (double) collab::audioClipEndTick (*audio, ctx.document.getTempoMap()) - start);
             axis().pixelsPerQuarter = juce::jlimit (10.0, 2000.0, audioGrid.getWidth() * 0.9 / (len / collab::kPpq));
             axis().scrollTick = juce::jmax (0.0, start - len * 0.03);
+            ctx.state.pianoRollAutoFitted = true;
         }
 
         updateTitle();
@@ -439,6 +449,7 @@ void PianoRollView::clipChanged()
         const double len = (double) juce::jmax<collab::Tick> (collab::kPpq * 4, clip->lengthTick);
         axis().pixelsPerQuarter = juce::jlimit (10.0, 400.0, grid.getWidth() * 0.9 / (len / collab::kPpq));
         axis().scrollTick = juce::jmax (0.0, (double) clip->startTick - len * 0.03);
+        ctx.state.pianoRollAutoFitted = true;
     }
 
     int centre = isDrumTrack() ? 44 : 60;

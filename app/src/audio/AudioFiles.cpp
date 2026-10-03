@@ -190,6 +190,33 @@ void AudioFiles::drawWaveform (juce::Graphics& g, juce::AudioThumbnail& thumb, j
     }
 }
 
+void AudioFiles::drawTransients (juce::Graphics& g, const std::vector<double>* transients, juce::Rectangle<float> area,
+                                 double startSeconds, double endSeconds)
+{
+    if (transients == nullptr || endSeconds <= startSeconds || area.getWidth() < 2.0f)
+        return;
+
+    const double pixelsPerSecond = area.getWidth() / (endSeconds - startSeconds);
+    const auto clip = g.getClipBounds().toFloat();
+    g.setColour (juce::Colour (0xffff7a1a).withAlpha (0.85f));   // 暖色（波形の色と区別できるように）
+    float lastX = -1000.0f;
+
+    for (double t : *transients)
+    {
+        if (t < startSeconds || t >= endSeconds)
+            continue;
+
+        const float x = area.getX() + (float) ((t - startSeconds) * pixelsPerSecond);
+
+        // 詰まりすぎるとき（縮小表示）は間引く
+        if (x - lastX < 4.0f || x < clip.getX() - 1.0f || x > clip.getRight() + 1.0f)
+            continue;
+
+        g.fillRect (x - 0.5f, area.getY(), 1.0f, area.getHeight());
+        lastX = x;
+    }
+}
+
 juce::AudioThumbnail* AudioFileCache::getThumbnail (const juce::File& projectDir, const std::string& hash)
 {
     if (auto it = thumbnails.find (hash); it != thumbnails.end())
@@ -204,6 +231,51 @@ juce::AudioThumbnail* AudioFileCache::getThumbnail (const juce::File& projectDir
     thumb->setSource (new juce::FileInputSource (file));
     thumb->addChangeListener (this);
     return (thumbnails[hash] = std::move (thumb)).get();
+}
+
+const std::vector<double>* AudioFileCache::getTransients (const juce::File& projectDir, const std::string& hash)
+{
+    if (auto it = transients.find (hash); it != transients.end())
+        return &it->second;
+
+    auto* thumb = getThumbnail (projectDir, hash);
+
+    if (thumb == nullptr || ! thumb->isFullyLoaded() || thumb->getTotalLength() <= 0.0)
+        return nullptr;
+
+    // 3 ms ごとの大きさ（ピーク）。直前 30 ms のいちばん大きい所より 2 倍（+6 dB）以上に跳ね上がった所を立ち上がりとする。
+    // 小さすぎる音（全体のピークの -24 dB 未満）と、前の立ち上がりから 70 ms 以内は数えない
+    const double step = 0.003;
+    const int count = (int) (thumb->getTotalLength() / step);
+    std::vector<float> env ((size_t) juce::jmax (0, count));
+
+    for (int i = 0; i < count; ++i)
+        for (int ch = 0; ch < thumb->getNumChannels(); ++ch)
+        {
+            float mn = 0.0f, mx = 0.0f;
+            thumb->getApproximateMinMax (i * step, (i + 1) * step, ch, mn, mx);
+            env[(size_t) i] = juce::jmax (env[(size_t) i], std::abs (mn), std::abs (mx));
+        }
+
+    const float peak = env.empty() ? 0.0f : *std::max_element (env.begin(), env.end());
+    auto& result = transients[hash];
+    int last = -1000;
+
+    for (int i = 1; i < count && peak > 0.0f; ++i)
+    {
+        float before = 0.0f;
+
+        for (int k = juce::jmax (0, i - 10); k < i; ++k)
+            before = juce::jmax (before, env[(size_t) k]);
+
+        if (env[(size_t) i] >= peak * 0.063f && env[(size_t) i] > before * 2.0f && i - last >= 23)
+        {
+            result.push_back (i * step);
+            last = i;
+        }
+    }
+
+    return &result;
 }
 
 juce::int64 AudioFileCache::getLengthSamples (const juce::File& projectDir, const std::string& hash)

@@ -50,7 +50,7 @@ juce::Result import (const std::vector<EngineBridge::RecordedTake>& input, const
                      const collab::TempoMap& map, std::vector<Clip>& result)
 {
     juce::StringArray errors;
-    const auto name = "テイク "_ju + juce::Time::getCurrentTime().formatted ("%H:%M:%S");
+    const auto name = "テイク"_ju;   // 番号はトラックに加えるときに付ける（addToProject）
 
     // ステレオのトラックは左右の 2 つのテイクを 1 つにまとめる
     std::vector<EngineBridge::RecordedTake> takes;
@@ -127,8 +127,27 @@ void addToProject (ProjectDocument& document, const std::vector<Clip>& clips)
     document.perform ("録音"_ju, [clips] (collab::Project& p)
     {
         for (auto& c : clips)
-            if (auto* t = p.findTrack (c.trackId); t != nullptr && t->type == collab::TrackType::audio)
-                t->audioClips.push_back (c.clip);
+        {
+            auto* t = p.findTrack (c.trackId);
+
+            if (t == nullptr || t->type != collab::TrackType::audio)
+                continue;
+
+            // 名前は「テイク 1」「テイク 2」…（そのトラックのいちばん大きい番号の次）
+            int number = 0;
+
+            for (auto& existing : t->audioClips)
+            {
+                const auto existingName = toJuce (existing.displayName);
+
+                if (existingName.startsWith ("テイク "_ju) && existingName.fromFirstOccurrenceOf (" ", false, false).containsOnly ("0123456789"))
+                    number = std::max (number, existingName.fromFirstOccurrenceOf (" ", false, false).getIntValue());
+            }
+
+            auto clip = c.clip;
+            clip.displayName = toStd ("テイク "_ju + juce::String (number + 1));
+            t->audioClips.push_back (clip);
+        }
     });
 }
 

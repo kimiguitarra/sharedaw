@@ -912,16 +912,39 @@ void AppContext::toggleRecordArm (const std::string& trackId)
     if (t == nullptr)
         return;
 
+    const bool armed = t->type == collab::TrackType::midi ? state.midiArmedTrackId == trackId : engine.getTrackInput (trackId).armed;
+    setRecordArm (trackId, ! armed, true);
+}
+
+bool AppContext::isRecordArmed (const std::string& trackId) const
+{
+    auto* t = document.getProject().findTrack (trackId);
+
+    if (t == nullptr)
+        return false;
+
+    return t->type == collab::TrackType::midi ? state.midiArmedTrackId == trackId : engine.getTrackInput (trackId).armed;
+}
+
+void AppContext::setRecordArm (const std::string& trackId, bool arm, bool tellProblems)
+{
+    auto* t = document.getProject().findTrack (trackId);
+
+    if (t == nullptr)
+        return;
+
     // MIDI トラック: MIDI キーボードで弾いたものを録音する（録音待機にできる MIDI トラックは 1 つ）
     if (t->type == collab::TrackType::midi)
     {
-        const bool arm = state.midiArmedTrackId != trackId;
+        if (arm == (state.midiArmedTrackId == trackId))
+            return;
+
         state.midiArmedTrackId = arm ? trackId : std::string();
         state.changed();
 
         const auto inputs = engine.getMidiInputs();
 
-        if (arm && std::none_of (inputs.begin(), inputs.end(), [] (auto& m) { return m.enabled; }))
+        if (tellProblems && arm && std::none_of (inputs.begin(), inputs.end(), [] (auto& m) { return m.enabled; }))
             Dialogs::showInfo ("録音待機"_ju, "MIDI キーボードが見つかりません。つないでから、設定 → オーディオ・MIDI の設定で有効にしてください。"_ju);
 
         return;
@@ -931,22 +954,30 @@ void AppContext::toggleRecordArm (const std::string& trackId)
         return;
 
     auto in = engine.getTrackInput (trackId);
+
+    if (in.armed == arm)
+        return;
+
     const bool stereo = t->inputChannels == 2;
 
     // 入力がない・トラックのモノ / ステレオと合わないときは、最初の選択肢を割り当てる
-    if (in.device.isEmpty() || stereo != in.deviceRight.isNotEmpty())
+    if (arm && (in.device.isEmpty() || stereo != in.deviceRight.isNotEmpty()))
     {
         const auto choices = inputChoices (trackId);
 
         if (choices.empty())
-            return Dialogs::showInfo ("録音待機"_ju, stereo ? "ステレオで録音できる入力（2 つ）がありません。設定 → オーディオ・MIDI の設定で入力を有効にするか、インスペクターで入力をモノにしてください。"_ju
-                                                             : "録音できる入力がありません。設定 → オーディオ・MIDI の設定で入力を有効にしてください。"_ju);
+        {
+            if (tellProblems)
+                Dialogs::showInfo ("録音待機"_ju, stereo ? "ステレオで録音できる入力（2 つ）がありません。設定 → オーディオ・MIDI の設定で入力を有効にするか、インスペクターで入力をモノにしてください。"_ju
+                                                         : "録音できる入力がありません。設定 → オーディオ・MIDI の設定で入力を有効にしてください。"_ju);
+            return;
+        }
 
         in.device = choices.front().left;
         in.deviceRight = choices.front().right;
     }
 
-    in.armed = ! in.armed;
+    in.armed = arm;
     engine.setTrackInput (trackId, in);
     state.changed();   // 他のトラックの表示も更新（入力は 1 つのトラックにだけ割り当てる）
 }

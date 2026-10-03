@@ -167,6 +167,14 @@ void EngineBridge::configureInputs()
 }
 
 //==============================================================================
+void EngineBridge::setMidiRecordOffsetMs (double msEarlier)
+{
+    midiRecordOffsetMs = msEarlier;
+
+    for (auto& in : midiInputs)
+        in->device->setManualAdjustmentMs (-msEarlier);
+}
+
 void EngineBridge::refreshMidiInputs()
 {
     // 実際の機器だけ（Tracktion の仮想デバイス「All MIDI Ins」などは除く）
@@ -191,6 +199,7 @@ void EngineBridge::refreshMidiInputs()
         if (d == nullptr)
             continue;
 
+        d->setManualAdjustmentMs (-midiRecordOffsetMs);   // Tracktion は正の値で後ろへずらす
         auto in = std::make_unique<MidiIn>();
         in->device = d;
         in->client = std::make_unique<te::LevelMeasurer::Client>();

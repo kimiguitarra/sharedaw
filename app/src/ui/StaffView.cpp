@@ -33,7 +33,9 @@ void StaffView::paint (juce::Graphics& g)
     const float space = juce::jlimit (7.0f, 14.0f, (float) getHeight() / 30.0f);
     const float half = space * 0.5f;
     const float centreY = (float) getHeight() * 0.5f;
-    auto yOf = [&] (int step) { return centreY - (float) (step - middleC) * half; };
+    const int centreStep = useBassClef ? middleC : 34;   // ト音記号だけなら、真ん中の線（B4）を中央に
+    auto yOf = [&] (int step) { return centreY - (float) (step - centreStep) * half; };
+    const int lowestLine = useBassClef ? 18 : 30;
     auto xOf = [&] (double tick) { return (float) leftWidth + (float) axis.tickToX (tick); };
 
     const auto lineColour = Theme::textDim.withAlpha (0.8f);
@@ -44,8 +46,9 @@ void StaffView::paint (juce::Graphics& g)
     for (int step : trebleLines)
         g.fillRect (0.0f, yOf (step) - 0.5f, (float) getWidth(), 1.0f);
 
-    for (int step : bassLines)
-        g.fillRect (0.0f, yOf (step) - 0.5f, (float) getWidth(), 1.0f);
+    if (useBassClef)
+        for (int step : bassLines)
+            g.fillRect (0.0f, yOf (step) - 0.5f, (float) getWidth(), 1.0f);
 
     // 小節線（見えている範囲）
     {
@@ -58,7 +61,7 @@ void StaffView::paint (juce::Graphics& g)
         {
             const float x = xOf ((double) map.barToTick (bar));
             g.setColour (lineColour);
-            g.fillRect (x - 0.5f, yOf (38), 1.0f, yOf (18) - yOf (38));
+            g.fillRect (x - 0.5f, yOf (38), 1.0f, yOf (lowestLine) - yOf (38));
             g.setColour (Theme::textDim);
             g.setFont (juce::FontOptions (11.0f));
             g.drawText (juce::String (bar), juce::Rectangle<float> (x + 3.0f, yOf (38) - 2.2f * space, 40.0f, 14.0f), juce::Justification::centredLeft, false);
@@ -76,15 +79,18 @@ void StaffView::paint (juce::Graphics& g)
     for (int step : trebleLines)
         g.fillRect (0.0f, yOf (step) - 0.5f, (float) leftWidth, 1.0f);
 
-    for (int step : bassLines)
-        g.fillRect (0.0f, yOf (step) - 0.5f, (float) leftWidth, 1.0f);
+    if (useBassClef)
+        for (int step : bassLines)
+            g.fillRect (0.0f, yOf (step) - 0.5f, (float) leftWidth, 1.0f);
 
     // 音部記号（文字の基準線で位置を合わせる。ト音記号の渦は G4 の線、ヘ音記号の点は F3 の線）
     g.setColour (Theme::text);
     g.setFont (juce::FontOptions (space * 6.0f));
     g.drawSingleLineText (juce::String::fromUTF8 ("\xf0\x9d\x84\x9e"), (int) (space * 0.3f), (int) yOf (30) + (int) (space * 0.9f));
     g.setFont (juce::FontOptions (space * 3.6f));
-    g.drawSingleLineText (juce::String::fromUTF8 ("\xf0\x9d\x84\xa2"), (int) (space * 0.6f), (int) yOf (18) - (int) (space * 0.1f));
+
+    if (useBassClef)
+        g.drawSingleLineText (juce::String::fromUTF8 ("\xf0\x9d\x84\xa2"), (int) (space * 0.6f), (int) yOf (18) - (int) (space * 0.1f));
 
     {
         static const int sharpSteps[] = { 38, 35, 39, 36, 33, 37, 34 };   // F5 C5 G5 D5 A4 E5 B4
@@ -98,7 +104,8 @@ void StaffView::paint (juce::Graphics& g)
             const float x = space * 3.6f + (float) i * space * 0.9f;
 
             for (int staffOffset : { 0, -14 })   // ヘ音記号の段は 2 オクターブ下
-                g.drawText (accidentalText (count > 0 ? 1 : -1),
+                if (staffOffset == 0 || useBassClef)
+                    g.drawText (accidentalText (count > 0 ? 1 : -1),
                             juce::Rectangle<float> (x, yOf (step + staffOffset) - space * 1.2f, space * 1.2f, space * 2.0f),
                             juce::Justification::centred, false);
         }
@@ -160,13 +167,13 @@ void StaffView::paint (juce::Graphics& g)
 
         auto ledger = [&] (int s) { g.fillRect (x - space * 0.4f, yOf (s) - 0.5f, space * 1.9f, 1.0f); };
 
-        if (step == middleC)
+        if (useBassClef && step == middleC)
             ledger (middleC);
 
         for (int s = 40; s <= step; s += 2)
             ledger (s);
 
-        for (int s = 16; s >= step; s -= 2)
+        for (int s = useBassClef ? 16 : 28; s >= step; s -= 2)
             ledger (s);
 
         // 臨時記号（調号・小節の中で前に付けたものと違うときだけ）
@@ -195,7 +202,7 @@ void StaffView::paint (juce::Graphics& g)
         if (beats < 4.0 - 1.0e-6)
         {
             // 符尾: 段の真ん中の線より下の音は上向き、上の音は下向き
-            const bool treble = step >= middleC;
+            const bool treble = step >= middleC || ! useBassClef;
             const bool up = step < (treble ? 34 : 22);
             const float stemX = up ? head.getRight() - 0.8f : head.getX() + 0.2f;
             const float stemEnd = up ? y - space * 3.4f : y + space * 3.4f;

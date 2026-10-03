@@ -63,6 +63,27 @@ void MainComponent::toggleRecord()
     commandManager.commandStatusChanged();
 }
 
+void MainComponent::followSelectionWithRecordArm()
+{
+    // 選んだトラックを録音待機にし（R を押したのと同じ）、前に自動で待機にしたトラックは戻す。
+    // 自分で R を押して待機にしたトラックはそのまま。録音中は変えない
+    if (! state.autoArmSelected || bridge.isRecording() || state.selectedTrackId == autoArmedFor)
+        return;
+
+    autoArmedFor = state.selectedTrackId;
+
+    if (! autoArmedTrackId.empty())
+        ctx.setRecordArm (std::exchange (autoArmedTrackId, std::string()), false, false);
+
+    if (auto* t = ctx.selectedTrack(); t != nullptr && ! ctx.isRecordArmed (t->id))
+    {
+        ctx.setRecordArm (t->id, true, false);
+
+        if (ctx.isRecordArmed (t->id))
+            autoArmedTrackId = t->id;
+    }
+}
+
 const collab::Track* MainComponent::midiRecordTarget() const
 {
     const auto& p = document.getProject();
@@ -150,4 +171,5 @@ void MainComponent::applyLatencyOffset()
 {
     const auto key = latencySettingKey();
     bridge.setManualLatencySamples (key.isEmpty() ? 0 : settings.getIntValue (key, 0));
+    bridge.setMidiRecordOffsetMs (settings.getDoubleValue ("midiRecordOffsetMs", 0.0));
 }

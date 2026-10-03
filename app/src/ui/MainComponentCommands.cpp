@@ -38,7 +38,7 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
                          cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
                          cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9,
                          cmdToolSplit, cmdCopy, cmdCut, cmdPaste, cmdNudgeLeft, cmdNudgeRight,
-                         cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate, cmdToLoopStart, cmdToLoopEnd, cmdInspector, cmdCursorLeft, cmdCursorRight, cmdBarLeft, cmdBarRight, cmdTrackUp, cmdTrackDown, cmdPianoFull, cmdWaveBigger, cmdWaveSmaller });
+                         cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate, cmdToLoopStart, cmdToLoopEnd, cmdInspector, cmdCursorLeft, cmdCursorRight, cmdBarLeft, cmdBarRight, cmdTrackUp, cmdTrackDown, cmdPianoFull, cmdWaveBigger, cmdWaveSmaller, cmdAutoArm });
 }
 
 void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommandInfo& info)
@@ -267,6 +267,10 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
             info.setInfo ("選択中のトラックのソロ"_ju, {}, "Track", 0);
             info.addDefaultKeypress ('s', 0);
             info.setActive (ctx.selectedTrack() != nullptr);
+            break;
+        case cmdAutoArm:
+            info.setInfo ("選んだトラックを自動で録音待機にする"_ju, {}, "Transport", 0);
+            info.setTicked (state.autoArmSelected);
             break;
         case cmdArmTrack:
             info.setInfo ("選択中のトラックの録音待機"_ju, {}, "Track", 0);
@@ -515,6 +519,18 @@ bool MainComponent::perform (const InvocationInfo& info)
             if (auto* t = ctx.selectedTrack())
                 ctx.toggleRecordArm (t->id);
             break;
+        case cmdAutoArm:
+            state.autoArmSelected = ! state.autoArmSelected;
+            settings.setValue ("autoArmSelected", state.autoArmSelected);
+
+            // 切ったときは、自動で待機にしていたトラックを戻す
+            if (! state.autoArmSelected && ! autoArmedTrackId.empty())
+                ctx.setRecordArm (std::exchange (autoArmedTrackId, std::string()), false, false);
+
+            autoArmedFor.clear();
+            followSelectionWithRecordArm();
+            commandManager.commandStatusChanged();
+            break;
         case cmdTrackHeight:
             if (auto* t = ctx.selectedTrack())
             {
@@ -614,6 +630,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addCommandItem (cm, cmdPlay);
             m.addCommandItem (cm, cmdStop);
             m.addCommandItem (cm, cmdRecord);
+            m.addCommandItem (cm, cmdAutoArm);
             m.addCommandItem (cm, cmdToStart);
             m.addCommandItem (cm, cmdToLoopStart);
             m.addCommandItem (cm, cmdToLoopEnd);

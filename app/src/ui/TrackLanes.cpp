@@ -381,6 +381,7 @@ void TrackLanes::paintAudioClip (juce::Graphics& g, const collab::AudioClip& c, 
         const double end = start + (double) c.lengthSamples / collab::kSampleRate;
         AudioFiles::drawWaveform (g, *thumb, wave, start, end, juce::Decibels::decibelsToGain ((float) c.gainDb) * ctx.state.waveformZoom,
                                   Theme::clipWave (colour));
+        AudioFiles::drawTransients (g, ctx.audioCache.getTransients (ctx.document.getProjectDir(), c.audioHash), wave, start, end);
     }
     else
     {

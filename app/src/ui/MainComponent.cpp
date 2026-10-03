@@ -62,6 +62,7 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
 
     addChildComponent (inspector);
     inspector.setVisible (settings.getBoolValue ("inspectorVisible", true));
+    state.autoArmSelected = settings.getBoolValue ("autoArmSelected", true);
 
     // インスペクター・トラックヘッダー・同期パネルの幅は境目をドラッグで変える（この PC の設定）。
     // 作業する場所（タイムライン）を広く取れるよう、最初は細めにしておく
@@ -292,14 +293,22 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
         m.pianoRoll.repaint();
         const auto dir = juce::SystemStats::getEnvironmentVariable ("SHAREDAW_SMOKE_SHOTS", {});
 
-        if (dir.isNotEmpty() && m.pianoRoll.getWidth() > 0)
+        auto shoot = [&] (const char* name)
         {
-            juce::FileOutputStream out (juce::File (dir).getChildFile ("staff.png"));
+            if (dir.isEmpty() || m.pianoRoll.getWidth() <= 0)
+                return;
+
+            juce::FileOutputStream out (juce::File (dir).getChildFile (name));
             out.setPosition (0);
             out.truncate();
             juce::PNGImageFormat().writeImageToStream (m.pianoRoll.createComponentSnapshot (m.pianoRoll.getLocalBounds()), out);
-        }
+        };
 
+        shoot ("staff.png");
+
+        m.pianoRoll.setStaffBassClef (false);
+        shoot ("staff-treble.png");
+        m.pianoRoll.setStaffBassClef (true);
         m.pianoRoll.setStaffMode (false);
     }, "staff view" });
     steps->push_back ({ 1500, [] (MainComponent& m) { m.togglePianoFullScreen(); m.toggleMixer(); }, "close piano roll window and mixer" });
@@ -354,6 +363,19 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
     }, "waveform display zoom back" });
     steps->push_back ({ 800, [] (MainComponent& m) { m.commandManager.invokeDirectly (cmdPlay, false); }, "play" });
     steps->push_back ({ 2000, [] (MainComponent& m) { m.commandManager.invokeDirectly (cmdPlay, false); m.bridge.stop(); }, "stop" });
+    steps->push_back ({ 300, [] (MainComponent& m)
+    {
+        // 確認用: タイムラインの画面（波形・立ち上がりの線）を保存する
+        const auto dir = juce::SystemStats::getEnvironmentVariable ("SHAREDAW_SMOKE_SHOTS", {});
+
+        if (dir.isNotEmpty() && m.timeline.getWidth() > 0)
+        {
+            juce::FileOutputStream out (juce::File (dir).getChildFile ("timeline.png"));
+            out.setPosition (0);
+            out.truncate();
+            juce::PNGImageFormat().writeImageToStream (m.timeline.createComponentSnapshot (m.timeline.getLocalBounds()), out);
+        }
+    }, "timeline snapshot" });
 
     // 手順を順に、間を空けて実行する（画面が作り直されて this が消えたら止める。そのときは done を呼ばない＝CI は時間切れで失敗する）
     struct Runner
@@ -458,6 +480,8 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
         bridge.setMetronome (state.metronomeEnabled, state.metronomeVolumeDb);
     }
 
+    followSelectionWithRecordArm();
+
     // MIDI キーボードは録音待機の MIDI トラック（なければ選択中の MIDI トラック）で鳴らす
     {
         auto* t = midiRecordTarget();
@@ -485,6 +509,11 @@ void MainComponent::timerCallback()
             axis.pixelsPerQuarter = newPpq;
             axis.scrollTick = juce::jmax (0.0, state.playheadTick - x * collab::kPpq / newPpq);
         };
+
+        // クリップを選んだときにピアノロール（下の編集欄）がクリップ全体に合わせたのは、タイムラインに伝えない
+        // （タイムラインで拡大して細かく作業している途中に、クリップを触っただけで縮小されないように）
+        if (std::exchange (state.pianoRollAutoFitted, false))
+            lastPianoZoom = pr;
 
         if (lastTimelineZoom > 0.0 && std::abs (tl - lastTimelineZoom) > 1.0e-9)
         {

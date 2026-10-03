@@ -77,7 +77,7 @@ void PianoKeyboard::mouseWheelMove (const juce::MouseEvent& e, const juce::Mouse
 //==============================================================================
 VelocityLane::VelocityLane (PianoRollView& o) : owner (o)
 {
-    setTooltip ({});
+    setTooltip ("ノートを選んでから、上下にドラッグでベロシティを変えます（選んだノートはまとめて）"_ju);
 }
 
 void VelocityLane::paint (juce::Graphics& g)
@@ -138,115 +138,84 @@ void VelocityLane::paint (juce::Graphics& g)
     }
 }
 
-int VelocityLane::velocityAtY (float y) const
-{
-    return juce::jlimit (1, 127, (int) std::round ((1.0f - (y - 4.0f) / ((float) getHeight() - 4.0f)) * 127.0f));
-}
-
-bool VelocityLane::hitsSelectedNote (float x) const
-{
-    auto* clip = owner.getClip();
-
-    if (clip == nullptr || owner.selectedNotes.size() < 2)
-        return false;
-
-    for (auto& n : clip->notes)
-        if (owner.selectedNotes.count (n.id) > 0 && std::abs ((float) owner.axis().tickToX ((double) (clip->startTick + n.tick)) - x) <= 7.0f)
-            return true;
-
-    return false;
-}
-
-void VelocityLane::applyAt (float x1, float x2, float y)
+const collab::Note* VelocityLane::noteAt (float x) const
 {
     auto* clip = owner.getClip();
 
     if (clip == nullptr)
-        return;
+        return nullptr;
 
-    if (x1 > x2)
-        std::swap (x1, x2);
-
-    // 棒の上をぴったり押さなくてよいように、左右 7 ピクセルまで拾う
-    x1 -= 7.0f;
-    x2 += 7.0f;
-
-    const int vel = velocityAtY (y);
-    const auto t1 = owner.axis().xToTick (x1) - (double) clip->startTick;
-    const auto t2 = owner.axis().xToTick (x2) - (double) clip->startTick;
-
-    // 選択中のノートがその場所にあるときだけ選択中のノートに絞る（選んでいなくても、棒を触ればそのまま変えられる）
-    auto sel = owner.selectedNotes;
-    bool touchesSelection = false;
+    // 棒の上をぴったり押さなくてよいように、左右 7 ピクセルまで拾う（いちばん近い棒）
+    const collab::Note* best = nullptr;
+    float bestDistance = 7.0f;
 
     for (auto& n : clip->notes)
-        if ((double) n.tick >= t1 && (double) n.tick <= t2 && sel.count (n.id) > 0)
-            touchesSelection = true;
-
-    if (! touchesSelection)
-        sel.clear();
-
-    owner.lastVelocity = vel;
-    owner.editNotes ("ベロシティの変更"_ju, [t1, t2, vel, sel] (collab::MidiClip& c)
     {
-        for (auto& n : c.notes)
-            if ((double) n.tick >= t1 && (double) n.tick <= t2 && (sel.empty() || sel.count (n.id) > 0))
-                n.velocity = vel;
-    }, mergeId);
+        const float d = std::abs ((float) owner.axis().tickToX ((double) (clip->startTick + n.tick)) - x);
+
+        if (d <= bestDistance)
+        {
+            best = &n;
+            bestDistance = d;
+        }
+    }
+
+    return best;
 }
 
-void VelocityLane::mouseMove (const juce::MouseEvent& e)
+void VelocityLane::mouseMove (const juce::MouseEvent&)
 {
-    const bool group = hitsSelectedNote (e.position.x);
-    setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
-    setTooltip (group ? "ドラッグで、選んだノートのベロシティをまとめて上下"_ju : juce::String());
+    setMouseCursor (owner.selectedNotes.empty() ? juce::MouseCursor::NormalCursor : juce::MouseCursor::UpDownResizeCursor);
 }
 
 void VelocityLane::mouseDown (const juce::MouseEvent& e)
 {
-    mergeId = juce::Uuid().toString();
-    lastX = e.position.x;
-    relative = hitsSelectedNote (e.position.x);
-
-    if (relative)
+    // 棒を押したら、そのノートを選ぶ（値は変えない。Shift で選択に足す）
+    if (auto* n = noteAt (e.position.x); n != nullptr && owner.selectedNotes.count (n->id) == 0)
     {
-        downY = e.position.y;
-        originalVelocities.clear();
+        if (! e.mods.isShiftDown())
+            owner.selectedNotes.clear();
 
-        if (auto* clip = owner.getClip())
-            for (auto& n : clip->notes)
-                if (owner.selectedNotes.count (n.id) > 0)
-                    originalVelocities[n.id] = n.velocity;
-
-        return;
+        owner.selectedNotes.insert (n->id);
+        owner.repaint();
     }
 
-    applyAt (lastX, lastX, e.position.y);
+    // 選んでいるノートを、ドラッグした分だけ上下させる（押した位置には合わせない）
+    mergeId = juce::Uuid().toString();
+    downY = e.position.y;
+    originalVelocities.clear();
+
+    if (auto* clip = owner.getClip())
+        for (auto& n : clip->notes)
+            if (owner.selectedNotes.count (n.id) > 0)
+                originalVelocities[n.id] = n.velocity;
 }
 
 void VelocityLane::mouseDrag (const juce::MouseEvent& e)
 {
-    if (relative)
-    {
-        const int delta = (int) std::round ((downY - e.position.y) / ((float) getHeight() - 4.0f) * 127.0f);
-        const auto orig = originalVelocities;
-
-        owner.editNotes ("ベロシティの変更"_ju, [orig, delta] (collab::MidiClip& c)
-        {
-            for (auto& n : c.notes)
-                if (auto it = orig.find (n.id); it != orig.end())
-                    n.velocity = juce::jlimit (1, 127, it->second + delta);
-        }, mergeId);
+    if (originalVelocities.empty())
         return;
-    }
 
-    applyAt (lastX, e.position.x, e.position.y);
-    lastX = e.position.x;
+    const int delta = (int) std::round ((downY - e.position.y) / ((float) getHeight() - 4.0f) * 127.0f);
+    const auto orig = originalVelocities;
+
+    owner.editNotes ("ベロシティの変更"_ju, [orig, delta] (collab::MidiClip& c)
+    {
+        for (auto& n : c.notes)
+            if (auto it = orig.find (n.id); it != orig.end())
+                n.velocity = juce::jlimit (1, 127, it->second + delta);
+    }, mergeId);
+
+    if (originalVelocities.size() == 1)
+        if (auto* clip = owner.getClip())
+            for (auto& n : clip->notes)
+                if (n.id == originalVelocities.begin()->first)
+                    owner.lastVelocity = n.velocity;
 }
 
 void VelocityLane::mouseUp (const juce::MouseEvent&)
 {
-    relative = false;
+    originalVelocities.clear();
     owner.ctx.document.endMerge();
 }
 
@@ -284,6 +253,8 @@ void AudioClipGrid::paint (juce::Graphics& g)
         const double end = start + (double) clip->lengthSamples / collab::kSampleRate;
         AudioFiles::drawWaveform (g, *thumb, r.reduced (0.0f, 6.0f), start, end,
                                   juce::Decibels::decibelsToGain ((float) clip->gainDb) * owner.ctx.state.waveformZoom, Theme::clipWave (colour));
+        AudioFiles::drawTransients (g, owner.ctx.audioCache.getTransients (owner.ctx.document.getProjectDir(), clip->audioHash),
+                                    r, start, end);
     }
     else
     {

@@ -134,6 +134,10 @@ struct AppContext
     */
     void toggleRecordArm (const std::string& trackId);
 
+    /** 録音待機にする・外す（tellProblems が false なら、入力がないなどの知らせは出さずに何もしない）。 */
+    void setRecordArm (const std::string& trackId, bool arm, bool tellProblems);
+    bool isRecordArmed (const std::string& trackId) const;
+
     /** オーディオトラックの入力の選択肢（モノ: 入力ごと、ステレオ: 隣り合う 2 つ）。表示名と (左, 右)。 */
     struct InputChoice { juce::String label, left, right; };
     std::vector<InputChoice> inputChoices (const std::string& trackId) const;

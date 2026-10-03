@@ -38,6 +38,10 @@ namespace AudioFiles
     */
     void drawWaveform (juce::Graphics&, juce::AudioThumbnail&, juce::Rectangle<float> area,
                        double startSeconds, double endSeconds, float gain, juce::Colour);
+
+    /** 音の立ち上がりの位置に縦線を引く（area の左端 = startSeconds、右端 = endSeconds。transients が nullptr なら何もしない）。 */
+    void drawTransients (juce::Graphics&, const std::vector<double>* transients, juce::Rectangle<float> area,
+                         double startSeconds, double endSeconds);
 }
 
 /** 波形表示と長さのキャッシュ（ハッシュ単位）。メッセージスレッドで使う。 */
@@ -50,6 +54,12 @@ public:
     /** 波形。まだ読み込み中なら途中まで描ける。 */
     juce::AudioThumbnail* getThumbnail (const juce::File& projectDir, const std::string& hash);
 
+    /**
+        音の立ち上がり（アタック）の位置（ファイルの先頭からの秒）。波形の上に縦線で出して、グリッドに合わせる目安にする。
+        波形を読み込み終わるまでは nullptr。
+    */
+    const std::vector<double>* getTransients (const juce::File& projectDir, const std::string& hash);
+
     /** 実体の長さ（サンプル）。ファイルがなければ 0。 */
     juce::int64 getLengthSamples (const juce::File& projectDir, const std::string& hash);
 
@@ -60,6 +70,7 @@ private:
     juce::AudioThumbnailCache thumbnailCache { 64 };
     std::map<std::string, std::unique_ptr<juce::AudioThumbnail>> thumbnails;
     std::map<std::string, juce::int64> lengths;
+    std::map<std::string, std::vector<double>> transients;
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
 };

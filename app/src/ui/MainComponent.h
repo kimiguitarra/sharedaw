@@ -159,6 +159,9 @@ private:
     bool lastCopiedRange = false;
     double lastTimelineZoom = 0.0, lastPianoZoom = 0.0;   // 拡大・縮小の連動用
     bool wasRecording = false;
+    std::string autoArmedTrackId;   // 選んだので自動で録音待機にしたトラック（選択が変わったら戻す）
+    std::string autoArmedFor;       // 最後に自動の録音待機を合わせた選択
+    void followSelectionWithRecordArm();
 
     // ピアノロールの画面（ミキサーと同じく別のウィンドウで画面いっぱいに。ピアノロールをそこへ移す）
     bool pianoFullScreen = false;
