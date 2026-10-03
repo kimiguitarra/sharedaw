@@ -28,6 +28,13 @@ struct Change
     Category category = Category::track;
     std::string summary;            // 例: 「3〜4小節目 ノート変更 5件」
     Tick fromTick = -1, toTick = -1; // 該当箇所（ジャンプ・ハイライト用。なければ -1）
+
+    // 変更の中身を特定する（1 件ずつ元に戻す・変更後に戻すため。applyChangeFrom）
+    std::string part;               // "name", "volume", "notes", "midiClip", "audioClip", "trackAdded", "scope" など
+    std::string itemId;             // クリップの id など（part が midiClip / audioClip のとき）
+
+    /** 同じ変更か（一覧で覚えておくための目印）。 */
+    std::string key() const         { return scopeId + "/" + part + "/" + itemId; }
 };
 
 struct ProjectDiff
@@ -83,6 +90,12 @@ enum class Resolution { mine, theirs, both };
     - choices にないスコープ: 自分だけが変えた → ローカル、それ以外 → ヘッド
 */
 Project resolvePull (const Project& base, const Project& local, const Project& head, const std::map<std::string, Resolution>& choices);
+
+/**
+    target のうち change が指す部分（トラックの音量、あるクリップ、ノート、テンポ全体など）だけを source と同じにしたもの。
+    source にベース（前回の同期の版）を渡せば、その変更だけを元に戻せる。戻す前の版を渡せば、変更後に戻せる。
+*/
+Project applyChangeFrom (const Project& target, const Project& source, const Change&);
 
 /** 日本語のドラムパーツ名（差分表示用）。不明なキーはそのまま返す。 */
 std::string drumPieceDisplayName (const std::string& key);

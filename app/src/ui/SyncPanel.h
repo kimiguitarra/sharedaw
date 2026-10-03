@@ -16,6 +16,7 @@
       片方だけにすればその版を使う。テンポなどトラック以外は、どちらかを選ぶ
 
     行をクリックすると、自分の変更とサーバーの変更の中身（何小節目の何が変わったか）を並べて見せる。
+    自分の変更は 1 件ずつ「変更前にする」で元に戻せて、戻したものは「変更後にする」でいつでも戻せる（聞き比べ用）。
     「>>」で右端の細い帯に畳み、「<<」で開く。畳んでいてもダウンロード・アップロードの件数を色分けして出す。
 */
 class SyncPanel  : public juce::Component,
@@ -88,6 +89,12 @@ private:
     bool dirty = true;
     int ticks = 0;
     bool laidOutLinked = false;   // 最後に resized() したときに、サーバーにある曲だったか
+
+    // 変更前に戻した変更（それぞれ「変更後にする」で戻せる）。戻す前の版を覚えておき、その部分だけをそこから戻す
+    struct Reverted { collab::Change change; collab::Project after; };
+    std::vector<Reverted> reverted;
+    void revertChange (const collab::Change&);
+    void restoreChange (size_t index);
 
     struct Checks { bool canDownload = false, canUpload = false, download = false, upload = false; };
     Checks checksFor (const collab::ScopeSyncState&) const;

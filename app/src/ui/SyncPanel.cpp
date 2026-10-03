@@ -71,6 +71,13 @@ public:
         collab::Change change;
         bool header = false;
         juce::String text;
+
+        // 右のボタン: 自分の変更は「変更前にする」、戻したものは「変更後にする」
+        enum class Action { none, revert, restore };
+        Action action = Action::none;
+        size_t revertedIndex = 0;
+        juce::Rectangle<int> button;
+        bool dim = false;   // 変更前に戻している（薄く出す）
     };
 
     struct Row
@@ -105,29 +112,71 @@ public:
             // 開いている行: 自分の変更とサーバーの変更の中身
             if (owner.expandedId == st.id)
             {
-                auto addDetails = [&] (const juce::String& title, const std::vector<collab::Change>& changes)
+                auto addDetails = [&] (const juce::String& title, const std::vector<collab::Change>& changes, Detail::Action action)
                 {
                     if (changes.empty())
                         return;
 
-                    row.details.push_back ({ { 26, y, width - 34, 24 }, {}, true, title });
+                    Detail header;
+                    header.r = { 26, y, width - 34, 24 };
+                    header.header = true;
+                    header.text = title;
+                    row.details.push_back (header);
                     y += 24;
 
                     for (auto& c : changes)
                     {
-                        row.details.push_back ({ { 34, y, width - 42, 24 }, c, false, toJuce (c.summary) });
+                        Detail d;
+                        d.r = { 34, y, width - 42, 24 };
+                        d.change = c;
+                        d.text = toJuce (c.summary);
+                        d.action = action;
+
+                        if (action != Detail::Action::none)
+                        {
+                            d.button = d.r.removeFromRight (action == Detail::Action::revert ? 92 : 92).reduced (2, 2);
+                            d.r.removeFromRight (4);
+                        }
+
+                        row.details.push_back (d);
                         y += 24;
                     }
                 };
 
-                addDetails ("この PC の変更"_ju, localDiff.forScope (st.id));
+                addDetails ("この PC の変更"_ju, localDiff.forScope (st.id), Detail::Action::revert);
+
+                // 変更前に戻したもの（このスコープの分）
+                {
+                    std::vector<collab::Change> back;
+                    std::vector<size_t> indices;
+
+                    for (size_t i = 0; i < owner.reverted.size(); ++i)
+                        if (owner.reverted[i].change.scopeId == st.id)
+                        {
+                            back.push_back (owner.reverted[i].change);
+                            indices.push_back (i);
+                        }
+
+                    const auto first = row.details.size() + 1;   // 見出しの次から
+                    addDetails ("変更前に戻しているもの"_ju, back, Detail::Action::restore);
+
+                    for (size_t k = 0; k < indices.size() && first + k < row.details.size(); ++k)
+                    {
+                        row.details[first + k].revertedIndex = indices[k];
+                        row.details[first + k].dim = true;
+                    }
+                }
 
                 if (serverDiff != nullptr)
-                    addDetails ("サーバーの変更"_ju, serverDiff->forScope (st.id));
+                    addDetails ("サーバーの変更"_ju, serverDiff->forScope (st.id), Detail::Action::none);
 
                 if (row.details.empty())
                 {
-                    row.details.push_back ({ { 26, y, width - 34, 24 }, {}, true, "変更はありません"_ju });
+                    Detail none;
+                    none.r = { 26, y, width - 34, 24 };
+                    none.header = true;
+                    none.text = "変更はありません"_ju;
+                    row.details.push_back (none);
                     y += 24;
                 }
 
@@ -201,9 +250,22 @@ public:
                     g.fillRoundedRectangle (d.r.toFloat().expanded (4.0f, 0.0f), 4.0f);
                 }
 
-                g.setColour (d.header ? Theme::textDim : Theme::text);
+                g.setColour (d.header ? Theme::textDim : (d.dim ? Theme::textDim : Theme::text));
                 g.setFont (juce::FontOptions (d.header ? 13.5f : 14.5f, d.header ? juce::Font::bold : juce::Font::plain));
                 g.drawText (d.text, d.r, juce::Justification::centredLeft, true);
+
+                if (d.action != Detail::Action::none)
+                {
+                    const bool hot = hoveredButton == &d;
+                    const auto colour = d.action == Detail::Action::revert ? Theme::warning : uploadColour();
+                    g.setColour (colour.withAlpha (hot ? 0.35f : 0.18f));
+                    g.fillRoundedRectangle (d.button.toFloat(), 5.0f);
+                    g.setColour (colour);
+                    g.drawRoundedRectangle (d.button.toFloat(), 5.0f, 1.0f);
+                    g.setColour (Theme::text);
+                    g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+                    g.drawText (d.action == Detail::Action::revert ? "変更前にする"_ju : "変更後にする"_ju, d.button, juce::Justification::centred, false);
+                }
             }
         }
 
@@ -218,29 +280,36 @@ public:
     void mouseMove (const juce::MouseEvent& e) override
     {
         const Detail* hit = nullptr;
+        const Detail* button = nullptr;
         bool clickable = false;
 
         for (auto& row : rows)
         {
             for (auto& d : row.details)
+            {
                 if (! d.header && d.r.contains (e.getPosition()))
                     hit = &d;
+
+                if (d.action != Detail::Action::none && d.button.contains (e.getPosition()))
+                    button = &d;
+            }
 
             clickable = clickable || row.r.contains (e.getPosition());
         }
 
-        setMouseCursor (hit != nullptr || clickable ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+        setMouseCursor (hit != nullptr || button != nullptr || clickable ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
 
-        if (hit != hovered)
+        if (hit != hovered || button != hoveredButton)
         {
             hovered = hit;
+            hoveredButton = button;
             repaint();
         }
     }
 
     void mouseExit (const juce::MouseEvent&) override
     {
-        hovered = nullptr;
+        hovered = hoveredButton = nullptr;
         repaint();
     }
 
@@ -251,8 +320,16 @@ public:
         for (auto& row : rows)
         {
             for (auto& d : row.details)
+            {
+                if (d.action == Detail::Action::revert && d.button.contains (pos))
+                    return owner.revertChange (d.change);
+
+                if (d.action == Detail::Action::restore && d.button.contains (pos))
+                    return owner.restoreChange (d.revertedIndex);
+
                 if (! d.header && d.r.contains (pos) && owner.onJump)
                     return owner.onJump (d.change);
+            }
 
             if (! row.r.contains (pos))
                 continue;
@@ -272,6 +349,7 @@ public:
 private:
     SyncPanel& owner;
     const Detail* hovered = nullptr;
+    const Detail* hoveredButton = nullptr;
 };
 
 //==============================================================================
@@ -387,7 +465,43 @@ void SyncPanel::clearAfterSync()
     downloadChecks.clear();
     uploadChecks.clear();
     expandedId.clear();
+    reverted.clear();   // アップ・ダウンロードした後は、戻した変更をもう戻せない（ベースが変わる）
     dirty = true;
+}
+
+void SyncPanel::revertChange (const collab::Change& change)
+{
+    auto* base = sync.getBase();
+
+    if (base == nullptr)
+        return;
+
+    reverted.push_back ({ change, document.getProject() });
+    const auto source = *base;
+    document.perform ("変更前にする: "_ju + toJuce (change.summary), [source, change] (collab::Project& p)
+    {
+        p = collab::applyChangeFrom (p, source, change);
+    });
+
+    dirty = true;
+    rebuild();
+}
+
+void SyncPanel::restoreChange (size_t index)
+{
+    if (index >= reverted.size())
+        return;
+
+    const auto r = reverted[index];
+    reverted.erase (reverted.begin() + (long) index);
+
+    document.perform ("変更後にする: "_ju + toJuce (r.change.summary), [r] (collab::Project& p)
+    {
+        p = collab::applyChangeFrom (p, r.after, r.change);
+    });
+
+    dirty = true;
+    rebuild();
 }
 
 bool SyncPanel::autoPullEnabled() const

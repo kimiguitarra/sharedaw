@@ -150,37 +150,37 @@ namespace
     void diffTrack (const Track* a, const Track* b, const TempoMap& mapA, const TempoMap& mapB, ProjectDiff& diff)
     {
         const auto& ref = b != nullptr ? *b : *a;
-        auto add = [&] (Change::Category cat, std::string summary, Range r = {})
+        auto add = [&] (Change::Category cat, std::string summary, Range r = {}, std::string part = "other", std::string itemId = {})
         {
-            diff.changes.push_back ({ ref.id, ScopeKind::track, ref.name, cat, std::move (summary), r.from, r.to });
+            diff.changes.push_back ({ ref.id, ScopeKind::track, ref.name, cat, std::move (summary), r.from, r.to, std::move (part), std::move (itemId) });
         };
 
         if (a == nullptr)
         {
             Range r;
             for (auto& c : b->midiClips) r.add (c.startTick, c.endTick());
-            add (Change::Category::track, "トラックを追加", r);
+            add (Change::Category::track, "トラックを追加", r, "trackAdded");
             return;
         }
 
         if (b == nullptr)
         {
-            add (Change::Category::track, "トラックを削除");
+            add (Change::Category::track, "トラックを削除", {}, "trackRemoved");
             return;
         }
 
         const auto changesBefore = diff.changes.size();
 
         // トラックのプロパティ
-        if (a->type != b->type)   add (Change::Category::track, "トラックの種類を変更");
-        if (a->name != b->name)   add (Change::Category::track, "名前を変更（" + a->name + " → " + b->name + "）");
-        if (a->color != b->color) add (Change::Category::track, "色を変更");
+        if (a->type != b->type)   add (Change::Category::track, "トラックの種類を変更", {}, "scope");
+        if (a->name != b->name)   add (Change::Category::track, "名前を変更（" + a->name + " → " + b->name + "）", {}, "name");
+        if (a->color != b->color) add (Change::Category::track, "色を変更", {}, "color");
         if (std::abs (a->volumeDb - b->volumeDb) > 1e-9)
-            add (Change::Category::track, "音量を変更（" + fmt (a->volumeDb) + " → " + fmt (b->volumeDb) + " dB）");
+            add (Change::Category::track, "音量を変更（" + fmt (a->volumeDb) + " → " + fmt (b->volumeDb) + " dB）", {}, "volume");
         if (std::abs (a->pan - b->pan) > 1e-9)
-            add (Change::Category::track, "パンを変更（" + fmt (a->pan, 2) + " → " + fmt (b->pan, 2) + "）");
-        if (a->mute != b->mute)   add (Change::Category::track, b->mute ? "ミュート" : "ミュート解除");
-        if (a->solo != b->solo)   add (Change::Category::track, b->solo ? "ソロ" : "ソロ解除");
+            add (Change::Category::track, "パンを変更（" + fmt (a->pan, 2) + " → " + fmt (b->pan, 2) + "）", {}, "pan");
+        if (a->mute != b->mute)   add (Change::Category::track, b->mute ? "ミュート" : "ミュート解除", {}, "mute");
+        if (a->solo != b->solo)   add (Change::Category::track, b->solo ? "ソロ" : "ソロ解除", {}, "solo");
 
         // 音源
         if (a->instrument != b->instrument)
@@ -197,44 +197,44 @@ namespace
                 diffParams (a->instrument->params, b->instrument->params, lines);
 
                 for (auto& l : lines)
-                    add (Change::Category::instrument, l);
+                    add (Change::Category::instrument, l, {}, "instrument");
             }
             else if (sameInstrument)
             {
-                add (Change::Category::instrument, "プラグインの設定を変更");
+                add (Change::Category::instrument, "プラグインの設定を変更", {}, "instrument");
             }
             else
             {
-                add (Change::Category::instrument, "音源を変更（" + instrumentName (a->instrument) + " → " + instrumentName (b->instrument) + "）");
+                add (Change::Category::instrument, "音源を変更（" + instrumentName (a->instrument) + " → " + instrumentName (b->instrument) + "）", {}, "instrument");
             }
         }
 
         if (a->effects != b->effects)
-            add (Change::Category::instrument, "エフェクトを変更");
+            add (Change::Category::instrument, "エフェクトを変更", {}, "effects");
 
         if (a->output != b->output)
-            add (Change::Category::track, "出力先を変更");
+            add (Change::Category::track, "出力先を変更", {}, "output");
 
         if (a->sends != b->sends)
-            add (Change::Category::track, "センドを変更");
+            add (Change::Category::track, "センドを変更", {}, "sends");
 
         if (a->strip.eq != b->strip.eq)
-            add (Change::Category::track, a->strip.eq.enabled != b->strip.eq.enabled ? (b->strip.eq.enabled ? "EQ をオン" : "EQ をオフ") : "EQ を変更");
+            add (Change::Category::track, a->strip.eq.enabled != b->strip.eq.enabled ? (b->strip.eq.enabled ? "EQ をオン" : "EQ をオフ") : "EQ を変更", {}, "eq");
 
         if (a->strip.comp != b->strip.comp)
-            add (Change::Category::track, a->strip.comp.enabled != b->strip.comp.enabled ? (b->strip.comp.enabled ? "コンプをオン" : "コンプをオフ") : "コンプを変更");
+            add (Change::Category::track, a->strip.comp.enabled != b->strip.comp.enabled ? (b->strip.comp.enabled ? "コンプをオン" : "コンプをオフ") : "コンプを変更", {}, "comp");
 
         if (a->strip.compFirst != b->strip.compFirst)
-            add (Change::Category::track, b->strip.compFirst ? "Comp → EQ の順に変更" : "EQ → Comp の順に変更");
+            add (Change::Category::track, b->strip.compFirst ? "Comp → EQ の順に変更" : "EQ → Comp の順に変更", {}, "compFirst");
 
         if (a->inputChannels != b->inputChannels || a->outputChannels != b->outputChannels)
-            add (Change::Category::track, "入出力（モノ / ステレオ）を変更");
+            add (Change::Category::track, "入出力（モノ / ステレオ）を変更", {}, "io");
 
         if (std::abs (a->crossfadeMs - b->crossfadeMs) > 1e-9 || a->crossfadeShape != b->crossfadeShape)
-            add (Change::Category::track, "テイクのつなぎを変更");
+            add (Change::Category::track, "テイクのつなぎを変更", {}, "crossfade");
 
         if (a->render != b->render)
-            add (Change::Category::render, b->render ? "バウンスを更新" : "バウンスを削除");
+            add (Change::Category::render, b->render ? "バウンスを更新" : "バウンスを削除", {}, "render");
 
         // MIDI クリップとノート
         int notesAdded = 0, notesRemoved = 0, notesChanged = 0;
@@ -249,7 +249,7 @@ namespace
                 Range r;
                 r.add (cb.startTick, cb.endTick());
                 add (Change::Category::clips, barRange (mapB, cb.startTick, cb.endTick()) + " クリップを追加（ノート "
-                                                + std::to_string (cb.notes.size()) + " 個）", r);
+                                                + std::to_string (cb.notes.size()) + " 個）", r, "midiClip", cb.id);
                 continue;
             }
 
@@ -260,7 +260,7 @@ namespace
                 std::string what = ca->startTick != cb.startTick ? "クリップを移動（" + barRange (mapA, ca->startTick, ca->endTick())
                                                                      + " → " + barRange (mapB, cb.startTick, cb.endTick()) + "）"
                                                                  : barRange (mapB, cb.startTick, cb.endTick()) + " クリップの長さを変更";
-                add (Change::Category::clips, what, r);
+                add (Change::Category::clips, what, r, "midiClipRange", cb.id);
             }
 
             // ノートは多いので、ID の索引を作って比べる（1 つずつ探すと数千ノートで遅くなる）
@@ -298,7 +298,7 @@ namespace
             {
                 Range r;
                 r.add (ca.startTick, ca.endTick());
-                add (Change::Category::clips, barRange (mapA, ca.startTick, ca.endTick()) + " クリップを削除", r);
+                add (Change::Category::clips, barRange (mapA, ca.startTick, ca.endTick()) + " クリップを削除", r, "midiClip", ca.id);
             }
 
         if (const int total = notesAdded + notesRemoved + notesChanged; total > 0)
@@ -310,7 +310,7 @@ namespace
             part ("変更", notesChanged);
 
             add (Change::Category::notes, barRange (mapB, noteRange.from, noteRange.to) + " ノート変更 " + std::to_string (total)
-                                             + "件（" + detail + "）", noteRange);
+                                             + "件（" + detail + "）", noteRange, "notes");
         }
 
         // オーディオクリップ
@@ -322,7 +322,7 @@ namespace
 
             if (ca == nullptr)
             {
-                add (Change::Category::audioClips, barRange (mapB, cb.startTick, cb.startTick + 1) + " オーディオ「" + cb.displayName + "」を追加", r);
+                add (Change::Category::audioClips, barRange (mapB, cb.startTick, cb.startTick + 1) + " オーディオ「" + cb.displayName + "」を追加", r, "audioClip", cb.id);
                 continue;
             }
 
@@ -340,7 +340,7 @@ namespace
                 for (auto& w : what)
                     joined += (joined.empty() ? "" : "・") + w;
 
-                add (Change::Category::audioClips, barRange (mapB, cb.startTick, cb.startTick + 1) + " オーディオ「" + cb.displayName + "」: " + joined, r);
+                add (Change::Category::audioClips, barRange (mapB, cb.startTick, cb.startTick + 1) + " オーディオ「" + cb.displayName + "」: " + joined, r, "audioClip", cb.id);
             }
         }
 
@@ -349,12 +349,12 @@ namespace
             {
                 Range r;
                 r.add (ca.startTick, ca.startTick + 1);
-                add (Change::Category::audioClips, barRange (mapA, ca.startTick, ca.startTick + 1) + " オーディオ「" + ca.displayName + "」を削除", r);
+                add (Change::Category::audioClips, barRange (mapA, ca.startTick, ca.startTick + 1) + " オーディオ「" + ca.displayName + "」を削除", r, "audioClip", ca.id);
             }
 
         // ここで挙げていない項目だけが変わったとき（新しく足した設定など）も、変わったことは必ず見せる
         if (diff.changes.size() == changesBefore && ! (*a == *b))
-            add (Change::Category::track, "その他の設定を変更");
+            add (Change::Category::track, "その他の設定を変更", {}, "scope");
     }
 
     std::string chordText (const ChordEvent& e)
@@ -433,9 +433,9 @@ ProjectDiff diffProjects (const Project& beforeIn, const Project& afterIn)
 
     // テンポ
     {
-        auto add = [&] (std::string s, Tick t)
+        auto add = [&] (std::string s, Tick t, const std::string& id)
         {
-            diff.changes.push_back ({ after.tempoTrack.id, ScopeKind::tempo, "テンポ", Change::Category::tempo, std::move (s), t, t + 1 });
+            diff.changes.push_back ({ after.tempoTrack.id, ScopeKind::tempo, "テンポ", Change::Category::tempo, std::move (s), t, t + 1, "tempoEvent", id });
         };
 
         for (auto& e : after.tempoTrack.events)
@@ -443,23 +443,23 @@ ProjectDiff diffProjects (const Project& beforeIn, const Project& afterIn)
             auto* o = findById (before.tempoTrack.events, e.id);
 
             if (o == nullptr)
-                add (barRange (mapB, e.tick, e.tick + 1) + " テンポ " + fmt (e.bpm, 1) + " を追加", e.tick);
+                add (barRange (mapB, e.tick, e.tick + 1) + " テンポ " + fmt (e.bpm, 1) + " を追加", e.tick, e.id);
             else if (! (*o == e))
                 add (barRange (mapB, e.tick, e.tick + 1) + " テンポを変更（" + fmt (o->bpm, 1) + " → " + fmt (e.bpm, 1)
-                       + (o->tick != e.tick ? "、位置を移動" : "") + "）", e.tick);
+                       + (o->tick != e.tick ? "、位置を移動" : "") + "）", e.tick, e.id);
         }
 
         for (auto& o : before.tempoTrack.events)
             if (findById (after.tempoTrack.events, o.id) == nullptr)
-                add (barRange (mapA, o.tick, o.tick + 1) + " テンポ " + fmt (o.bpm, 1) + " を削除", o.tick);
+                add (barRange (mapA, o.tick, o.tick + 1) + " テンポ " + fmt (o.bpm, 1) + " を削除", o.tick, o.id);
     }
 
     // 拍子
     {
-        auto add = [&] (std::string s, int bar)
+        auto add = [&] (std::string s, int bar, const std::string& id)
         {
             const Tick t = mapB.barToTick (bar);
-            diff.changes.push_back ({ after.meterTrack.id, ScopeKind::meter, "拍子", Change::Category::meter, std::move (s), t, t + 1 });
+            diff.changes.push_back ({ after.meterTrack.id, ScopeKind::meter, "拍子", Change::Category::meter, std::move (s), t, t + 1, "meterEvent", id });
         };
 
         auto sig = [] (const MeterEvent& e) { return std::to_string (e.numerator) + "/" + std::to_string (e.denominator); };
@@ -469,14 +469,14 @@ ProjectDiff diffProjects (const Project& beforeIn, const Project& afterIn)
             auto* o = findById (before.meterTrack.events, e.id);
 
             if (o == nullptr)
-                add (std::to_string (e.bar) + "小節目 拍子 " + sig (e) + " を追加", e.bar);
+                add (std::to_string (e.bar) + "小節目 拍子 " + sig (e) + " を追加", e.bar, e.id);
             else if (! (*o == e))
-                add (std::to_string (e.bar) + "小節目 拍子を変更（" + sig (*o) + " → " + sig (e) + "）", e.bar);
+                add (std::to_string (e.bar) + "小節目 拍子を変更（" + sig (*o) + " → " + sig (e) + "）", e.bar, e.id);
         }
 
         for (auto& o : before.meterTrack.events)
             if (findById (after.meterTrack.events, o.id) == nullptr)
-                add (std::to_string (o.bar) + "小節目 拍子 " + sig (o) + " を削除", o.bar);
+                add (std::to_string (o.bar) + "小節目 拍子 " + sig (o) + " を削除", o.bar, o.id);
     }
 
     // コード
@@ -512,7 +512,7 @@ ProjectDiff diffProjects (const Project& beforeIn, const Project& afterIn)
             if (! example.empty() && total == 1)
                 s += "（" + example + "）";
 
-            diff.changes.push_back ({ after.chordTrack.id, ScopeKind::chord, "コード", Change::Category::chords, s, r.from, r.to });
+            diff.changes.push_back ({ after.chordTrack.id, ScopeKind::chord, "コード", Change::Category::chords, s, r.from, r.to, "chordEvents", {} });
         }
 
         const auto& pa = before.chordTrack.playback;
@@ -520,21 +520,21 @@ ProjectDiff diffProjects (const Project& beforeIn, const Project& afterIn)
 
         if (pa.enabled != pb.enabled)
             diff.changes.push_back ({ after.chordTrack.id, ScopeKind::chord, "コード", Change::Category::chords,
-                                      pb.enabled ? "コードの発音をオン" : "コードの発音をオフ", -1, -1 });
+                                      pb.enabled ? "コードの発音をオン" : "コードの発音をオフ", -1, -1, "chordPlayback", {} });
 
         if (std::abs (pa.volumeDb - pb.volumeDb) > 1e-9)
             diff.changes.push_back ({ after.chordTrack.id, ScopeKind::chord, "コード", Change::Category::chords,
-                                      "コードの音量を変更（" + fmt (pa.volumeDb) + " → " + fmt (pb.volumeDb) + " dB）", -1, -1 });
+                                      "コードの音量を変更（" + fmt (pa.volumeDb) + " → " + fmt (pb.volumeDb) + " dB）", -1, -1, "chordPlayback", {} });
 
         if (! (pa.instrument == pb.instrument))
-            diff.changes.push_back ({ after.chordTrack.id, ScopeKind::chord, "コード", Change::Category::chords, "コードの音源を変更", -1, -1 });
+            diff.changes.push_back ({ after.chordTrack.id, ScopeKind::chord, "コード", Change::Category::chords, "コードの音源を変更", -1, -1, "chordPlayback", {} });
     }
 
     // マーカー
     {
-        auto add = [&] (std::string s, Tick t)
+        auto add = [&] (std::string s, Tick t, const std::string& id)
         {
-            diff.changes.push_back ({ after.markerTrack.id, ScopeKind::marker, "マーカー", Change::Category::markers, std::move (s), t, t + 1 });
+            diff.changes.push_back ({ after.markerTrack.id, ScopeKind::marker, "マーカー", Change::Category::markers, std::move (s), t, t + 1, "markerEvent", id });
         };
 
         auto label = [] (const Marker& m) { return m.name.empty() ? std::string ("マーカー") : "マーカー「" + m.name + "」"; };
@@ -544,24 +544,24 @@ ProjectDiff diffProjects (const Project& beforeIn, const Project& afterIn)
             auto* o = findById (before.markerTrack.events, e.id);
 
             if (o == nullptr)
-                add (barRange (mapB, e.tick, e.tick + 1) + " " + label (e) + "を追加", e.tick);
+                add (barRange (mapB, e.tick, e.tick + 1) + " " + label (e) + "を追加", e.tick, e.id);
             else if (! (*o == e))
                 add (barRange (mapB, e.tick, e.tick + 1) + " " + label (e) + "を変更"
-                       + (o->tick != e.tick ? "（位置を移動）" : o->name != e.name ? "（名前: " + o->name + " → " + e.name + "）" : ""), e.tick);
+                       + (o->tick != e.tick ? "（位置を移動）" : o->name != e.name ? "（名前: " + o->name + " → " + e.name + "）" : ""), e.tick, e.id);
         }
 
         for (auto& o : before.markerTrack.events)
             if (findById (after.markerTrack.events, o.id) == nullptr)
-                add (barRange (mapA, o.tick, o.tick + 1) + " " + label (o) + "を削除", o.tick);
+                add (barRange (mapA, o.tick, o.tick + 1) + " " + label (o) + "を削除", o.tick, o.id);
     }
 
     // キー
     {
         auto name = [] (const KeyEvent& e) { return chord::keyName ({ e.tonic, e.minor }); };
-        auto add = [&] (std::string s, int bar)
+        auto add = [&] (std::string s, int bar, const std::string& id)
         {
             const auto t = mapB.barToTick (bar);
-            diff.changes.push_back ({ after.keyTrack.id, ScopeKind::key, "キー", Change::Category::keys, std::move (s), t, t + 1 });
+            diff.changes.push_back ({ after.keyTrack.id, ScopeKind::key, "キー", Change::Category::keys, std::move (s), t, t + 1, "keyEvent", id });
         };
 
         for (auto& e : after.keyTrack.events)
@@ -569,14 +569,14 @@ ProjectDiff diffProjects (const Project& beforeIn, const Project& afterIn)
             auto* o = findById (before.keyTrack.events, e.id);
 
             if (o == nullptr)
-                add (std::to_string (e.bar) + "小節 キーを " + name (e) + " に設定", e.bar);
+                add (std::to_string (e.bar) + "小節 キーを " + name (e) + " に設定", e.bar, e.id);
             else if (! (*o == e))
-                add (std::to_string (e.bar) + "小節 キーを変更（" + name (*o) + " → " + name (e) + "）", e.bar);
+                add (std::to_string (e.bar) + "小節 キーを変更（" + name (*o) + " → " + name (e) + "）", e.bar, e.id);
         }
 
         for (auto& o : before.keyTrack.events)
             if (findById (after.keyTrack.events, o.id) == nullptr)
-                add (std::to_string (o.bar) + "小節 キー " + name (o) + " を削除", o.bar);
+                add (std::to_string (o.bar) + "小節 キー " + name (o) + " を削除", o.bar, o.id);
     }
 
     // マスター（リミッター）
@@ -593,7 +593,7 @@ ProjectDiff diffProjects (const Project& beforeIn, const Project& afterIn)
             else
                 s = "マスターのリミッターを変更";
 
-            diff.changes.push_back ({ after.master.id, ScopeKind::master, "マスター", Change::Category::master, s, -1, -1 });
+            diff.changes.push_back ({ after.master.id, ScopeKind::master, "マスター", Change::Category::master, s, -1, -1, "master", {} });
         }
     }
 
@@ -772,6 +772,102 @@ Project resolvePull (const Project& base, const Project& local, const Project& h
     }
 
     return merged;
+}
+
+
+//==============================================================================
+namespace
+{
+    /** target の id の要素を source と同じにする（source になければ消す、target になければ足す）。 */
+    template <typename T>
+    void copyItem (std::vector<T>& target, const std::vector<T>& source, const std::string& id)
+    {
+        const auto inSource = std::find_if (source.begin(), source.end(), [&] (auto& x) { return x.id == id; });
+        const auto inTarget = std::find_if (target.begin(), target.end(), [&] (auto& x) { return x.id == id; });
+
+        if (inSource == source.end())
+        {
+            if (inTarget != target.end())
+                target.erase (inTarget);
+        }
+        else if (inTarget != target.end())
+        {
+            *inTarget = *inSource;
+        }
+        else
+        {
+            target.push_back (*inSource);
+        }
+    }
+}
+
+Project applyChangeFrom (const Project& targetIn, const Project& source, const Change& change)
+{
+    auto target = targetIn;
+    const auto& part = change.part;
+
+    // トラック以外（テンポ・拍子・コード・マーカー・キー・マスター）
+    if (part == "tempoEvent")   { copyItem (target.tempoTrack.events, source.tempoTrack.events, change.itemId);   return target; }
+    if (part == "meterEvent")   { copyItem (target.meterTrack.events, source.meterTrack.events, change.itemId);   return target; }
+    if (part == "markerEvent")  { copyItem (target.markerTrack.events, source.markerTrack.events, change.itemId); return target; }
+    if (part == "keyEvent")     { copyItem (target.keyTrack.events, source.keyTrack.events, change.itemId);       return target; }
+    if (part == "chordEvents")  { target.chordTrack.events = source.chordTrack.events;                           return target; }
+    if (part == "chordPlayback"){ target.chordTrack.playback = source.chordTrack.playback;                       return target; }
+    if (part == "master")       { target.master = source.master;                                                 return target; }
+
+    if (change.scopeKind != ScopeKind::track)
+        return replaceScopes (target, source, { change.scopeId });
+
+    auto* t = target.findTrack (change.scopeId);
+    auto* s = source.findTrack (change.scopeId);
+
+    // トラックそのものの追加・削除・種類の変更など: トラックをまるごと source の版に
+    if (part == "trackAdded" || part == "trackRemoved" || part == "scope" || part == "other" || t == nullptr || s == nullptr)
+        return replaceScopes (target, source, { change.scopeId });
+
+    if      (part == "name")       t->name = s->name;
+    else if (part == "color")      t->color = s->color;
+    else if (part == "volume")     t->volumeDb = s->volumeDb;
+    else if (part == "pan")        t->pan = s->pan;
+    else if (part == "mute")       t->mute = s->mute;
+    else if (part == "solo")       t->solo = s->solo;
+    else if (part == "instrument") t->instrument = s->instrument;
+    else if (part == "effects")    t->effects = s->effects;
+    else if (part == "output")     t->output = s->output;
+    else if (part == "sends")      t->sends = s->sends;
+    else if (part == "eq")         t->strip.eq = s->strip.eq;
+    else if (part == "comp")       t->strip.comp = s->strip.comp;
+    else if (part == "compFirst")  t->strip.compFirst = s->strip.compFirst;
+    else if (part == "io")         { t->inputChannels = s->inputChannels; t->outputChannels = s->outputChannels; }
+    else if (part == "crossfade")  { t->crossfadeMs = s->crossfadeMs; t->crossfadeShape = s->crossfadeShape; }
+    else if (part == "render")     t->render = s->render;
+    else if (part == "midiClip")   copyItem (t->midiClips, s->midiClips, change.itemId);
+    else if (part == "audioClip")  copyItem (t->audioClips, s->audioClips, change.itemId);
+    else if (part == "midiClipRange")
+    {
+        // 位置・長さだけ（中のノートは「ノート変更」の方で）
+        auto* ct = t->findMidiClip (change.itemId);
+        auto* cs = s->findMidiClip (change.itemId);
+
+        if (ct != nullptr && cs != nullptr)
+        {
+            ct->startTick = cs->startTick;
+            ct->lengthTick = cs->lengthTick;
+        }
+    }
+    else if (part == "notes")
+    {
+        // 両方にあるクリップのノート（クリップの追加・削除は別の変更）
+        for (auto& ct : t->midiClips)
+            if (auto* cs = s->findMidiClip (ct.id))
+                ct.notes = cs->notes;
+    }
+    else
+    {
+        return replaceScopes (target, source, { change.scopeId });
+    }
+
+    return target;
 }
 
 } // namespace collab

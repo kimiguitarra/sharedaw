@@ -276,3 +276,37 @@ TEST_CASE ("marker track: stable id, JSON round trip, diff and merge")
     auto merged = resolvePull (a, b, a, {});
     CHECK (merged.markerTrack == b.markerTrack);
 }
+
+TEST_CASE ("each change can be reverted on its own and brought back")
+{
+    const auto base = full();
+    auto local = base;
+
+    // 別々の変更を 4 つ: 音量、ノート 1 つ、テンポ、マーカーの追加
+    auto* midi = [&]() -> Track* { for (auto& t : local.tracks) if (! t.midiClips.empty() && ! t.midiClips[0].notes.empty()) return &t; return nullptr; }();
+    REQUIRE (midi != nullptr);
+    midi->volumeDb -= 6.0;
+    midi->midiClips[0].notes[0].pitch += 1;
+    REQUIRE (! local.tempoTrack.events.empty());
+    local.tempoTrack.events[0].bpm += 10.0;
+    local.markerTrack.events.push_back ({ "new-marker", kPpq * 8, "Bridge" });
+
+    const auto diff = diffProjects (base, local);
+    REQUIRE (diff.changes.size() >= 4);
+
+    for (auto& c : diff.changes)
+    {
+        CAPTURE (c.summary);
+
+        // その変更だけが消え、ほかの変更は残る
+        const auto reverted = applyChangeFrom (local, base, c);
+        const auto after = diffProjects (base, reverted);
+        CHECK (after.changes.size() == diff.changes.size() - 1);
+
+        for (auto& other : after.changes)
+            CHECK (other.key() != c.key());
+
+        // 変更後の版から同じ部分を戻すと、元どおり
+        CHECK (applyChangeFrom (reverted, local, c) == local);
+    }
+}
