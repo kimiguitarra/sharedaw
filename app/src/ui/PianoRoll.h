@@ -4,6 +4,7 @@
 
 #include "ui/AppContext.h"
 #include "ui/Ruler.h"
+#include "ui/StaffView.h"
 
 class PianoRollView;
 
@@ -126,6 +127,8 @@ public:
     void setTopStrip (TopStrip*);
     void selectAllNotes();
     void quantiseSelection();
+    /** 五線譜で表示する（♪ ボタンと同じ）。 */
+    void setStaffMode (bool on)            { staffButton.setToggleState (on, juce::sendNotificationSync); }
 
     /** 選択中のノートを nudgeTicks だけ左（-1）・右（+1）にずらす（グルーヴ用。グリッドには合わせない）。 */
     void nudgeSelection (int direction);
@@ -167,6 +170,8 @@ public:
     /** 選択中のオーディオクリップ（あればピアノロールの代わりに波形を拡大表示する）。 */
     const collab::AudioClip* getAudioClip() const;
     bool isDrumTrack() const;
+    /** 音名（その位置のキーがフラット系なら Bb、シャープ系なら F# のように。キー未設定なら C# D# …）。 */
+    juce::String pitchName (int pitch, collab::Tick absoluteTick) const;
     /** ドラムのキットでこのノートに割り当てた音の名前（キットにない＝鳴らないなら空）。 */
     juce::String drumPieceName (int note) const;
     /** 行の区切り線用の仲間（PianoRollDetail::drumFamily。別名のノートは鳴らすパーツの仲間）。 */
@@ -218,6 +223,10 @@ private:
     juce::TextButton quantiseButton { "クオンタイズ"_ju };
     juce::TextButton nudgeLeftButton { juce::String::fromUTF8 ("\xe2\x97\x80") }, nudgeRightButton { juce::String::fromUTF8 ("\xe2\x96\xb6") };
     juce::ComboBox nudgeBox;
+    juce::TextButton staffButton { juce::String::fromUTF8 ("\xe2\x99\xaa") };   // ♪: 五線譜とピアノロールの切り替え
+    StaffView staff { *this };
+    bool staffMode = false;
+    bool showingStaff() const              { return staffMode && ! shownAsDrums && ! shownAsAudio; }
 
     TopStrip* topStrip = nullptr;
     std::string shownClipId;
@@ -228,5 +237,5 @@ private:
     void scrollBarMoved (juce::ScrollBar*, double) override;
     void clipChanged();
     void updateTitle();
-    int keyboardWidth() const              { return getAudioClip() != nullptr ? 0 : (isDrumTrack() ? 220 : 70); }
+    int keyboardWidth() const              { return getAudioClip() != nullptr ? 0 : (isDrumTrack() ? 220 : (showingStaff() ? 150 : 70)); }
 };

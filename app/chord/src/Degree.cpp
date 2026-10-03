@@ -1,6 +1,8 @@
 #include "collab/chord/Degree.h"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdlib>
 #include <array>
 #include <cctype>
 #include <vector>
@@ -340,6 +342,58 @@ std::optional<Key> estimateKey (const std::vector<Chord>& chords)
         }
 
     return best;
+}
+
+} // namespace collab::chord
+
+namespace collab::chord
+{
+
+int keySignatureAccidental (int letter, const Key& k)
+{
+    static const int sharpOrder[7] = { 3, 0, 4, 1, 5, 2, 6 };   // F C G D A E B
+    static const int flatOrder[7]  = { 6, 2, 5, 1, 4, 0, 3 };   // B E A D G C F
+    const int n = keySignature (k);
+
+    for (int i = 0; i < std::abs (n) && i < 7; ++i)
+        if ((n > 0 ? sharpOrder : flatOrder)[i] == letter)
+            return n > 0 ? 1 : -1;
+
+    return 0;
+}
+
+StaffSpelling spellForStaff (int midiNote, const Key& k)
+{
+    static const int naturals[7] = { 0, 2, 4, 5, 7, 9, 11 };
+    const int pc = mod12 (midiNote);
+    StaffSpelling s;
+    bool found = false;
+
+    // キーの音階の音（調号どおりに書ける音）。例: Gb 長調の Cb
+    for (int letter = 0; letter < 7 && ! found; ++letter)
+    {
+        const int alt = keySignatureAccidental (letter, k);
+
+        if (mod12 (naturals[letter] + alt) == pc)
+        {
+            s.letter = letter;
+            s.accidental = alt;
+            found = true;
+        }
+    }
+
+    if (! found)
+    {
+        const auto name = spellPitch (pc, k);
+        static const std::string letters = "CDEFGAB";
+        s.letter = (int) letters.find (name[0]);
+        s.accidental = name.size() > 1 ? (name[1] == '#' ? 1 : -1) : 0;
+    }
+
+    // オクターブは幹音で数える（Cb4 = B3 の音、B#3 = C4 の音）
+    const int natural = midiNote - s.accidental;
+    s.octave = (int) std::floor ((double) natural / 12.0) - 1;
+    return s;
 }
 
 } // namespace collab::chord

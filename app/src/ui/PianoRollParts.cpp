@@ -125,7 +125,7 @@ void VelocityLane::paint (juce::Graphics& g)
     {
         const float x = (float) axis.tickToX ((double) (clip->startTick + n->tick));
         const bool selected = owner.selectedNotes.count (n->id) > 0;
-        const float left = x - 9.0f;
+        const float left = juce::jmax (0.0f, x - 9.0f);
 
         if (x < -4 || x > (float) getWidth() || (left < lastRight && ! selected))
             continue;

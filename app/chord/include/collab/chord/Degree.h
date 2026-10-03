@@ -32,6 +32,23 @@ std::string keyName (const Key&);
 /** キーの調号に合わせた音名（フラット系のキーは Bb、シャープ系のキーは F# のように）。 */
 std::string spellPitch (int pitchClass, const Key&);
 
+/** 五線譜での書き方。letter は幹音（0 = C … 6 = B）、accidental は -1 = ♭ / 0 / +1 = ♯、octave は C4 = 中央の C。 */
+struct StaffSpelling
+{
+    int letter = 0;
+    int accidental = 0;
+    int octave = 4;
+
+    /** 五線の上の位置（幹音の数。C4 = 28、1 つ上がるごとに線と間を 1 つ上がる）。 */
+    int step() const noexcept   { return octave * 7 + letter; }
+};
+
+/** MIDI ノートを五線譜に書くときの綴り（キーの音階の音は調号どおり、それ以外は spellPitch と同じ）。 */
+StaffSpelling spellForStaff (int midiNote, const Key&);
+
+/** 調号がその幹音（0 = C … 6 = B）につける変化記号（-1 / 0 / +1）。 */
+int keySignatureAccidental (int letter, const Key&);
+
 /**
     コードのディグリー表記（キーの音階が基準。音階にない音は ♭ / ♯ を付ける）。
     例: C キーで Am7 → "Ⅵm7"、Bb → "♭Ⅶ"、C/E → "Ⅰ/Ⅲ"。A マイナーで C → "Ⅲ"、E7 → "Ⅴ7"。

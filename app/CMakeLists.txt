@@ -115,6 +115,7 @@ target_sources(ShareDAW PRIVATE
     src/ui/TempoMeterLanes.cpp
     src/ui/PianoRoll.cpp
     src/ui/PianoNoteGrid.cpp
+    src/ui/StaffView.cpp
     src/ui/PianoRollEditing.cpp
     src/ui/PianoRollParts.cpp
     src/ui/PianoRollPage.cpp

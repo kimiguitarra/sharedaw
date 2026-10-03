@@ -285,6 +285,23 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
         m.togglePianoFullScreen();
         m.toggleMixer();
     }, "open piano roll window and mixer" });
+    steps->push_back ({ 800, [] (MainComponent& m)
+    {
+        // 五線譜の表示に切り替える（SHAREDAW_SMOKE_SHOTS があれば、確認用に画面を保存する）
+        m.pianoRoll.setStaffMode (true);
+        m.pianoRoll.repaint();
+        const auto dir = juce::SystemStats::getEnvironmentVariable ("SHAREDAW_SMOKE_SHOTS", {});
+
+        if (dir.isNotEmpty() && m.pianoRoll.getWidth() > 0)
+        {
+            juce::FileOutputStream out (juce::File (dir).getChildFile ("staff.png"));
+            out.setPosition (0);
+            out.truncate();
+            juce::PNGImageFormat().writeImageToStream (m.pianoRoll.createComponentSnapshot (m.pianoRoll.getLocalBounds()), out);
+        }
+
+        m.pianoRoll.setStaffMode (false);
+    }, "staff view" });
     steps->push_back ({ 1500, [] (MainComponent& m) { m.togglePianoFullScreen(); m.toggleMixer(); }, "close piano roll window and mixer" });
     steps->push_back ({ 300, [] (MainComponent& m)
     {

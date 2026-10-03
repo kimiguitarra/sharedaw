@@ -99,3 +99,32 @@ TEST_CASE ("keys are estimated from chord progressions")
     CHECK (est ({ "Eb", "Bb", "Cm", "Ab" }) == Key { 3, false });
     CHECK_FALSE (est ({}));
 }
+
+TEST_CASE ("staff spelling follows the key signature")
+{
+    const Key c { 0, false }, f { 5, false }, d { 2, false }, gb { 6, false };
+
+    // C 長調: 中央の C は 28、黒鍵は C# と Eb（spellPitch と同じ）
+    CHECK (spellForStaff (60, c).step() == 28);
+    CHECK (spellForStaff (60, c).accidental == 0);
+    CHECK (spellForStaff (61, c).letter == 0);
+    CHECK (spellForStaff (61, c).accidental == 1);
+    CHECK (spellForStaff (63, c).letter == 2);
+    CHECK (spellForStaff (63, c).accidental == -1);
+
+    // F 長調は Bb、D 長調は F#・C#
+    CHECK (spellForStaff (70, f).letter == 6);
+    CHECK (spellForStaff (70, f).accidental == -1);
+    CHECK (spellForStaff (66, d).letter == 3);
+    CHECK (spellForStaff (66, d).accidental == 1);
+
+    // Gb 長調の Cb は B の高さではなく C の位置（オクターブは幹音で数える）
+    const auto cb = spellForStaff (59, gb);
+    CHECK (cb.letter == 0);
+    CHECK (cb.accidental == -1);
+    CHECK (cb.octave == 4);
+
+    CHECK (keySignatureAccidental (6, f) == -1);
+    CHECK (keySignatureAccidental (3, d) == 1);
+    CHECK (keySignatureAccidental (3, c) == 0);
+}

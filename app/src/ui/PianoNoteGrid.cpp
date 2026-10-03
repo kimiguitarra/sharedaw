@@ -194,7 +194,7 @@ void NoteGrid::paint (juce::Graphics& g)
         {
             g.setColour (juce::Colours::black.withAlpha (0.8f));
             g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-            g.drawText (toJuce (collab::midiNoteName (n.pitch)), r.withTrimmedLeft (3.0f), juce::Justification::centredLeft, false);
+            g.drawText (owner.pitchName (n.pitch, clip->startTick + n.tick), r.withTrimmedLeft (3.0f), juce::Justification::centredLeft, false);
         }
     }
 
@@ -287,7 +287,7 @@ void NoteGrid::mouseMove (const juce::MouseEvent& e)
         if (n != nullptr)
         {
             auto name = owner.isDrumTrack() ? owner.drumPieceName (n->pitch) : juce::String();
-            tip = (name.isNotEmpty() ? name : toJuce (collab::midiNoteName (n->pitch))) + "  ベロシティ "_ju + juce::String (n->velocity);
+            tip = (name.isNotEmpty() ? name : owner.pitchName (n->pitch, owner.getClip()->startTick + n->tick)) + "  ベロシティ "_ju + juce::String (n->velocity);
         }
 
         if (tip != getTooltip())

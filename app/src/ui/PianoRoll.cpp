@@ -3,6 +3,7 @@
 
 #include "TimeGrid.h"
 #include "audio/AudioFiles.h"
+#include "collab/ChordPlayback.h"
 #include "collab/ClipEditing.h"
 #include "collab/GmDrumMap.h"
 #include "collab/Uuid.h"
@@ -57,6 +58,17 @@ PianoRollView::PianoRollView (AppContext& c)
 
     for (auto* button : std::initializer_list<juce::Component*> { &nudgeLeftButton, &nudgeBox, &nudgeRightButton })
         addAndMakeVisible (button);
+
+    staffButton.setClickingTogglesState (true);
+    staffButton.setTooltip ("五線譜で表示（もう一度押すとピアノロール。編集はピアノロールで）"_ju);
+    staffButton.onClick = [this]
+    {
+        staffMode = staffButton.getToggleState();
+        resized();
+        repaint();
+    };
+    addAndMakeVisible (staffButton);
+    addChildComponent (staff);
 
 
     addAndMakeVisible (ruler);
@@ -164,6 +176,16 @@ const collab::BuiltinInstrumentManifest* PianoRollView::drumManifest() const
     return ctx.library.find (t->instrument->id, t->instrument->version);
 }
 
+juce::String PianoRollView::pitchName (int pitch, collab::Tick absoluteTick) const
+{
+    const auto key = collab::keyAt (ctx.document.getProject(), ctx.document.getTempoMap(), absoluteTick);
+
+    if (! key || pitch < 0 || pitch > 127)
+        return toJuce (collab::midiNoteName (pitch));
+
+    return toJuce (collab::chord::spellPitch (pitch % 12, *key)) + juce::String (pitch / 12 - 1);
+}
+
 juce::String PianoRollView::drumPieceName (int note) const
 {
     std::string name;
@@ -223,11 +245,23 @@ void PianoRollView::resized()
         c->setVisible (! shownAsAudio);
     audioGrid.setVisible (shownAsAudio);
 
+    // 五線譜（ドラム・オーディオでは使わない）: 鍵盤とノートの欄の代わりに出す
+    staffButton.setVisible (! shownAsDrums && ! shownAsAudio);
+    staff.setVisible (showingStaff());
+
+    if (showingStaff())
+    {
+        keyboard.setVisible (false);
+        grid.setVisible (false);
+        vScroll.setVisible (false);
+    }
+
     if (topStrip != nullptr)
         topStrip->setVisible (! shownAsAudio);
 
     auto area = getLocalBounds().withTrimmedTop (3);
     auto toolbar = area.removeFromTop (toolbarHeight).reduced (6, 3);
+    staffButton.setBounds (toolbar.removeFromRight (34));
     titleLabel.setBounds (toolbar.removeFromLeft (220));
     gridBox.setBounds (toolbar.removeFromLeft (110));
     toolbar.removeFromLeft (6);
@@ -273,6 +307,8 @@ void PianoRollView::resized()
     left.removeFromBottom (velocityHeight);
     grid.setBounds (area);
     keyboard.setBounds (left);
+    staff.setLeftWidth (left.getWidth());
+    staff.setBounds (left.getX(), area.getY(), area.getRight() - left.getX(), area.getHeight());
 
     playhead.setBounds (ruler.getX(), ruler.getY(), ruler.getWidth(), velocity.getBottom() - ruler.getY());
     playhead.refresh();
@@ -312,7 +348,7 @@ void PianoRollView::handleWheel (const juce::MouseEvent& e, const juce::MouseWhe
     {
         ax.zoomAround (e.getEventRelativeTo (&grid).position.x, w.deltaY > 0 ? 1.15 : 1.0 / 1.15, 10.0, 2000.0);
     }
-    else if (e.mods.isShiftDown() || std::abs (w.deltaX) > std::abs (w.deltaY) || shownAsAudio)
+    else if (e.mods.isShiftDown() || std::abs (w.deltaX) > std::abs (w.deltaY) || shownAsAudio || showingStaff())
     {
         const float d = std::abs (w.deltaX) > std::abs (w.deltaY) ? w.deltaX : w.deltaY;
         ax.scrollTick = juce::jmax (0.0, ax.scrollTick - d * 400.0 / ax.pixelsPerTick());
