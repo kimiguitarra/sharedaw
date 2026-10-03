@@ -121,7 +121,8 @@ public:
         int head = 0;
         collab::Project snapshot;                // アップする内容（ベースに選んだスコープのローカルを入れたもの）
         collab::ProjectDiff diff;                // ベース → アップする内容
-        std::vector<std::string> staleRenders;   // バウンスが必要・古いトラック
+        std::vector<std::string> staleRenders;   // バウンスが必要・古いトラック（以前の版でアップ済みの外部プラグインのトラック）
+        std::vector<std::string> staleBounces;   // アップするバウンスしたトラックの元のトラックで、バウンスの後に変わったもの
         bool needsDownload = false;              // サーバーに新しい版がある（先にダウンロード）
     };
 

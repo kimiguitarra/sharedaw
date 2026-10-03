@@ -70,7 +70,16 @@ struct ScopeSyncState
     bool theirs = false;       // サーバーで変わった（ベース → ヘッド）
     bool conflict = false;     // 両方で変わっていて、内容が違う
     bool inLocal = false, inHead = false;
+    bool localOnly = false;    // この PC だけのトラック（外部プラグイン。isLocalOnlyTrack）
 };
+
+/**
+    サーバーにアップしない、この PC だけのトラックか。
+    外部プラグイン（Superior Drummer など）のトラックは他の人の PC では鳴らせないので、アップせずにこの PC に残し、
+    代わりにバウンスしたオーディオトラックをアップする（§3.7）。
+    ベースにある（以前の版でアップ済みの）トラックはこれまでどおり扱う。
+*/
+bool isLocalOnlyTrack (const Project& base, const Project& local, const std::string& trackId);
 
 /**
     すべてのスコープの状態（ローカルの並び順、ヘッドにだけあるトラックはその後ろ）。
@@ -80,6 +89,12 @@ std::vector<ScopeSyncState> syncStates (const Project& base, const Project& loca
 
 /** from の scopeIds のスコープを source の内容に置き換えたもの（source にないトラックは消し、from にないトラックは足す）。 */
 Project replaceScopes (const Project& from, const Project& source, const std::set<std::string>& scopeIds);
+
+/** 初めてサーバーに登録するときの内容（外部プラグインのトラックは入れない）。 */
+Project withoutLocalOnlyTracks (const Project&);
+
+/** アップする内容: ベースに、選んだスコープだけローカルの内容を入れたもの（この PC だけのトラックは入れない）。 */
+Project uploadSnapshot (const Project& base, const Project& local, const std::set<std::string>& scopeIds);
 
 /** 取り込むときの、スコープごとの採用の選択。 */
 enum class Resolution { mine, theirs, both };

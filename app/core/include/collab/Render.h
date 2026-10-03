@@ -31,4 +31,23 @@ enum class RenderStatus
 
 RenderStatus renderStatus (const Track&, const std::string& currentFingerprint);
 
+/**
+    source をバウンスしたオーディオトラック（クリップが source.render の音を使うオーディオトラック）。なければ nullptr。
+    バウンスしたトラックはふつうのオーディオトラックとしてアップする（元のトラックが外部プラグインなら、元はこの PC だけに残る）。
+*/
+const Track* findBounceTrack (const Project&, const Track& source);
+
+/** audioTrack がバウンスで作ったトラックなら、その元のトラック。なければ nullptr。 */
+const Track* findBounceSource (const Project&, const Track& audioTrack);
+
+/**
+    バウンスの結果をプロジェクトに入れる（Cubase の「インプレイスレンダリング」と同じ）:
+    - 元のトラックの render を更新してミュートする（バウンスしたトラックと二重に鳴らないように）
+    - バウンスしたオーディオトラックがあればクリップを差し替え（音量などの設定はそのまま）、
+      なければ元のトラックのすぐ下に作る（名前は「元の名前（バウンス）」、音量・パン・EQ・コンプ・出力先・センドは元と同じ）
+    バウンスしたオーディオトラックの ID を返す。
+*/
+std::string applyBounce (Project&, const std::string& sourceId, const Render&, SampleCount lengthSamples,
+                         const std::string& newTrackId, const std::string& newClipId);
+
 } // namespace collab

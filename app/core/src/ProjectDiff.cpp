@@ -9,6 +9,7 @@
 #include <unordered_map>
 
 #include "collab/ChordPlayback.h"
+#include "collab/Render.h"
 #include "collab/TempoMap.h"
 #include "collab/Uuid.h"
 
@@ -684,13 +685,38 @@ std::vector<ScopeSyncState> syncStates (const Project& base, const Project& loca
         const auto& named = st.inLocal ? local : (head != nullptr ? *head : base);
         st.name = scopeLabel (named, id, st.kind);
 
-        st.mine = ! scopeEquals (base, local, id);
+        st.localOnly = isLocalOnlyTrack (base, local, id);
+        st.mine = ! st.localOnly && ! scopeEquals (base, local, id);
         st.theirs = head != nullptr && ! scopeEquals (base, *head, id);
         st.conflict = st.mine && st.theirs && ! scopeEquals (local, *head, id);
         states.push_back (st);
     }
 
     return states;
+}
+
+bool isLocalOnlyTrack (const Project& base, const Project& local, const std::string& trackId)
+{
+    auto* t = local.findTrack (trackId);
+    return t != nullptr && usesExternalPlugin (*t) && base.findTrack (trackId) == nullptr;
+}
+
+Project withoutLocalOnlyTracks (const Project& local)
+{
+    Project result = local;
+    std::erase_if (result.tracks, [] (const Track& t) { return usesExternalPlugin (t); });
+    return result;
+}
+
+Project uploadSnapshot (const Project& base, const Project& local, const std::set<std::string>& scopeIds)
+{
+    std::set<std::string> ids;
+
+    for (auto& id : scopeIds)
+        if (! isLocalOnlyTrack (base, local, id))
+            ids.insert (id);
+
+    return replaceScopes (base, local, ids);
 }
 
 Project replaceScopes (const Project& from, const Project& source, const std::set<std::string>& scopeIds)
@@ -745,6 +771,13 @@ Project resolvePull (const Project& base, const Project& local, const Project& h
 
     for (auto& st : syncStates (base, local, &head))
     {
+        // この PC だけのトラックは、ダウンロードしてもそのまま残す
+        if (st.localOnly)
+        {
+            takeLocal.insert (st.id);
+            continue;
+        }
+
         auto it = choices.find (st.id);
         Resolution r = st.mine && ! st.theirs ? Resolution::mine : Resolution::theirs;
 

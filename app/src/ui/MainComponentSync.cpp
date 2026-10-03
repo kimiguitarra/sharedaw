@@ -146,7 +146,7 @@ void MainComponent::chooseProjectParent (const juce::String& title, std::functio
 
 void MainComponent::uploadRegistration()
 {
-    const auto snapshot = document.getProject();
+    const auto snapshot = collab::withoutLocalOnlyTracks (document.getProject());
     const auto dir = document.getProjectDir();
     auto r = SyncUI::runWithProgress ("サーバーに登録しています"_ju, [&] (const SyncProgress& p) { return sync.runRegister (snapshot, dir, p); });
 
@@ -392,6 +392,9 @@ void MainComponent::uploadFromPanel (const std::set<std::string>& excluded, cons
         return Dialogs::showInfo ("アップ"_ju, "たった今、他の人がアップしました。同期パネルで確認してから、もう一度アップしてください。"_ju);
     }
 
+    if (plan->diff.changedScopeIds.empty())
+        return setStatus ("アップする変更はありません"_ju);
+
     if (! plan->staleRenders.empty())
     {
         auto text = "外部プラグインを使うトラックはバウンスしてからアップしてください: "_ju + joinNames (sync, plan->staleRenders);
@@ -408,23 +411,36 @@ void MainComponent::uploadFromPanel (const std::set<std::string>& excluded, cons
         return Dialogs::showError ("バウンスが必要です"_ju, text);
     }
 
-    if (document.hasLocation())
-        document.save();
-
-    int revision = 0;
-    const auto dir = document.getProjectDir();
-    auto res = SyncUI::runWithProgress ("アップしています"_ju,
-                                        [&] (const SyncProgress& p) { return sync.runUpload (*plan, message, dir, revision, p); });
-
-    if (res.failed())
+    auto upload = [this, plan, message]
     {
-        sync.checkServerNow();
-        return Dialogs::showError ("アップできませんでした"_ju, res.getErrorMessage());
-    }
+        if (document.hasLocation())
+            document.save();
 
-    sync.applyUploaded (*plan, revision);
-    syncPanel.clearAfterSync();
-    setStatus ("アップしました（"_ju + joinNames (sync, std::vector<std::string> (scopes.begin(), scopes.end())) + "）"_ju);
+        int revision = 0;
+        const auto dir = document.getProjectDir();
+        auto res = SyncUI::runWithProgress ("アップしています"_ju,
+                                            [&] (const SyncProgress& p) { return sync.runUpload (*plan, message, dir, revision, p); });
+
+        if (res.failed())
+        {
+            sync.checkServerNow();
+            return Dialogs::showError ("アップできませんでした"_ju, res.getErrorMessage());
+        }
+
+        sync.applyUploaded (*plan, revision);
+        syncPanel.clearAfterSync();
+        setStatus ("アップしました（"_ju + joinNames (sync, plan->diff.changedScopeIds) + "）"_ju);
+    };
+
+    // バウンスした後に元のトラック（ノート・プラグインの設定など）を変えている
+    if (! plan->staleBounces.empty())
+        return Dialogs::confirm ("バウンスが古くなっています"_ju,
+                                 "「"_ju + joinNames (sync, plan->staleBounces) + "」はバウンスした後に変更されています。"_ju
+                                     + "\n今の内容をアップするには、トラックを右クリックして「バウンス」し直してください。"_ju
+                                     + "\n\n前にバウンスした音のままアップしますか？"_ju,
+                                 "このままアップ"_ju, upload);
+
+    upload();
 }
 
 void MainComponent::showProjectPicker()

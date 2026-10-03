@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # 外部プラグインまわりの動作確認（Linux / CI 用）。
 #   1. スキャンは別プロセスで行い、クラッシュするプラグインはブラックリストに入る（本体は落ちない）
-#   2. 外部プラグインの音源でバウンスでき、状態ファイルが書かれ、バウンスが最新と判定される
+#   2. 外部プラグインの音源でバウンスでき、状態ファイルが書かれ、バウンスが最新と判定される。
+#      バウンスしたオーディオトラックができ、元のトラックはミュートになる
 #   3. 状態ファイルがない環境（他の人の環境）ではバウンスした音で再生する
 # 使い方: tools/plugin-smoke-test.sh <ShareDAW の実行ファイル> <ビルドフォルダ（-DCOLLAB_BUILD_TEST_PLUGINS=ON）>
 set -euo pipefail
@@ -43,6 +44,16 @@ PY
 out="$(run --bounce "$work/proj")"
 echo "$out" | grep -q "^Bass: upToDate$" || { echo "bounce is not up to date"; exit 1; }
 test -s "$work/proj/plugins-state/synth.bin" || { echo "plugin state was not written"; exit 1; }
+# バウンスすると元のトラックのすぐ下にオーディオトラックができ、元のトラックはミュートになる
+python3 - "$work/proj/project.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+src, bounced = d["tracks"][0], d["tracks"][1]
+assert src["name"] == "Bass" and src.get("mute") is True, src.get("mute")
+assert bounced["type"] == "audio" and bounced["name"] == "Bass（バウンス）", bounced["name"]
+clip = bounced["clips"][0]
+assert clip["audioHash"] == src["render"]["audioHash"] and clip["lengthSamples"] > 48000, clip
+PY
 
 echo "== follow host (the plugin sees the song's tempo and meter, not the engine's fixed 60 BPM 4/4)"
 cp -r "$work/proj" "$work/tempo"

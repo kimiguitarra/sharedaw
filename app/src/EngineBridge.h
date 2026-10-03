@@ -66,7 +66,7 @@ public:
 
     /** バウンスして audio/<hash>.wav に保存し、Project に書き込む render 情報を返す（プロジェクトの保存先が必要）。
         先に flushPluginStates() を呼んでおくこと（フィンガープリントに状態ファイルのハッシュが入る）。 */
-    juce::Result bounceTrack (const std::string& trackId, collab::Render& result);
+    juce::Result bounceTrack (const std::string& trackId, collab::Render& result, collab::SampleCount& lengthSamples);
 
     /** トラックの音の元（MIDI・音源・エフェクト・プラグインの状態）のフィンガープリント（§3.7）。 */
     std::string trackFingerprint (const collab::Track&) const;

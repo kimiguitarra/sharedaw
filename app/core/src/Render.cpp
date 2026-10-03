@@ -1,5 +1,7 @@
 #include "collab/Render.h"
 
+#include <algorithm>
+
 #include "collab/ProjectJson.h"
 #include "collab/Sha256.h"
 
@@ -62,6 +64,83 @@ RenderStatus renderStatus (const Track& t, const std::string& currentFingerprint
         return RenderStatus::missing;
 
     return t.render->sourceFingerprint == currentFingerprint ? RenderStatus::upToDate : RenderStatus::stale;
+}
+
+namespace
+{
+    bool usesAudio (const Track& t, const std::string& hash)
+    {
+        return t.type == TrackType::audio && ! hash.empty()
+            && std::any_of (t.audioClips.begin(), t.audioClips.end(), [&] (const AudioClip& c) { return c.audioHash == hash; });
+    }
+}
+
+const Track* findBounceTrack (const Project& p, const Track& source)
+{
+    if (! source.render)
+        return nullptr;
+
+    for (auto& t : p.tracks)
+        if (t.id != source.id && usesAudio (t, source.render->audioHash))
+            return &t;
+
+    return nullptr;
+}
+
+const Track* findBounceSource (const Project& p, const Track& audioTrack)
+{
+    for (auto& t : p.tracks)
+        if (t.id != audioTrack.id && t.render && usesAudio (audioTrack, t.render->audioHash))
+            return &t;
+
+    return nullptr;
+}
+
+std::string applyBounce (Project& p, const std::string& sourceId, const Render& render, SampleCount lengthSamples,
+                         const std::string& newTrackId, const std::string& newClipId)
+{
+    auto* source = p.findTrack (sourceId);
+
+    if (source == nullptr)
+        return {};
+
+    std::string targetId;
+
+    if (auto* existing = findBounceTrack (p, *source))
+        targetId = existing->id;
+
+    source->render = render;
+    source->mute = true;
+    const Track original = *source;
+
+    AudioClip clip;
+    clip.id = newClipId;
+    clip.startTick = 0;   // バウンスは曲の先頭から
+    clip.audioHash = render.audioHash;
+    clip.displayName = original.name;
+    clip.lengthSamples = lengthSamples;
+
+    if (auto* target = p.findTrack (targetId))
+    {
+        target->audioClips = { clip };
+        return targetId;
+    }
+
+    Track t;
+    t.id = newTrackId;
+    t.type = TrackType::audio;
+    t.name = original.name + "（バウンス）";
+    t.color = original.color;
+    t.volumeDb = original.volumeDb;
+    t.pan = original.pan;
+    t.strip = original.strip;
+    t.output = original.output;
+    t.sends = original.sends;
+    t.outputChannels = original.outputChannels;
+    t.audioClips = { clip };
+
+    p.tracks.insert (p.tracks.begin() + p.indexOfTrack (sourceId) + 1, t);
+    return newTrackId;
 }
 
 } // namespace collab

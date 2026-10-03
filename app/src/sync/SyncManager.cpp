@@ -254,7 +254,10 @@ SyncManager::LocalInfo SyncManager::inspectFolder (const juce::File& folder)
         if (auto baseFile = dir.getChildFile ("base.json"); info.linked && baseFile.existsAsFile())
         {
             const auto baseProject = collab::parseProject (baseFile.loadFileAsString().toStdString());
-            const auto diff = collab::diffProjects (baseProject, project);
+            auto diff = collab::diffProjects (baseProject, project);
+
+            // この PC だけのトラック（外部プラグイン）はアップしないので数えない
+            std::erase_if (diff.changedScopeIds, [&] (const std::string& id) { return collab::isLocalOnlyTrack (baseProject, project, id); });
             info.changedScopes = (int) diff.changedScopeIds.size();
 
             for (auto& id : diff.changedScopeIds)
@@ -363,7 +366,7 @@ bool SyncManager::hasLocalChanges (const std::string& scopeId) const
     if (! linked || ! base)
         return false;
 
-    return ! collab::scopeEquals (*base, document.getProject(), scopeId);
+    return ! collab::isLocalOnlyTrack (*base, document.getProject(), scopeId) && ! collab::scopeEquals (*base, document.getProject(), scopeId);
 }
 
 juce::String SyncManager::scopeName (const std::string& scopeId) const
@@ -698,7 +701,8 @@ collab::ScopeSyncState SyncManager::scopeState (const std::string& scopeId) cons
         return st;
 
     const auto& local = document.getProject();
-    st.mine = ! collab::scopeEquals (*base, local, scopeId);
+    st.localOnly = collab::isLocalOnlyTrack (*base, local, scopeId);
+    st.mine = ! st.localOnly && ! collab::scopeEquals (*base, local, scopeId);
 
     if (const auto preview = headPreview())
     {
@@ -737,7 +741,7 @@ juce::Result SyncManager::fetchUploadPlan (const collab::Project& local, const s
 
     // アップするもの = ベース（= サーバーの最新）に、選んだスコープだけこの PC の内容を入れたもの
     const auto& baseProject = base ? *base : local;
-    plan.snapshot = collab::replaceScopes (baseProject, local, scopeIds);
+    plan.snapshot = collab::uploadSnapshot (baseProject, local, scopeIds);
     plan.snapshot.name = local.name;
     plan.diff = collab::diffProjects (baseProject, plan.snapshot);
 
@@ -763,6 +767,13 @@ juce::Result SyncManager::fetchUploadPlan (const collab::Project& local, const s
         if (status == collab::RenderStatus::missing || status == collab::RenderStatus::stale)
             plan.staleRenders.push_back (t.id);
     }
+
+    // バウンスしたトラックをアップするのに、元のトラックがバウンスの後に変わっている
+    for (auto& t : plan.snapshot.tracks)
+        if (plan.diff.touches (t.id))
+            if (auto* source = collab::findBounceSource (local, t))
+                if (source->render->sourceFingerprint != collab::trackSourceFingerprint (*source, [dir] (const std::string& ref) { return PluginHost::stateHash (dir, ref); }))
+                    plan.staleBounces.push_back (source->id);
 
     return juce::Result::ok();
 }

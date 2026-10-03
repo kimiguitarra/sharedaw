@@ -143,7 +143,20 @@ public:
                     }
                 };
 
-                addDetails ("この PC の変更"_ju, localDiff.forScope (st.id), Detail::Action::revert);
+                if (st.localOnly)
+                {
+                    // 外部プラグインのトラックはアップしない（代わりにバウンスしたトラックをアップする）
+                    Detail note;
+                    note.r = { 26, y, width - 34, 24 };
+                    note.header = true;
+                    note.text = "外部プラグインのトラックはアップしません。バウンスしたトラックをアップします"_ju;
+                    row.details.push_back (note);
+                    y += 24;
+                }
+                else
+                {
+                    addDetails ("この PC の変更"_ju, localDiff.forScope (st.id), Detail::Action::revert);
+                }
 
                 // 変更前に戻したもの（このスコープの分）
                 {
@@ -221,6 +234,7 @@ public:
 
             if (st.conflict)                        { tag = "競合"_ju; tagColour = Theme::warning; }
             else if (row.checks.canDownload)        { tag = "新着"_ju; tagColour = downloadColour(); }
+            else if (st.localOnly)                  { tag = "この PC だけ"_ju; tagColour = Theme::textDim; }
 
             if (tag.isNotEmpty())
             {

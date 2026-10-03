@@ -719,26 +719,31 @@ private:
         {
             bridge->flushPluginStates();
 
+            std::vector<std::string> ids;
+
             for (const auto& t : document->getProject().tracks)
+                if (args.size() >= 3 ? toJuce (t.name) == args[2] : collab::usesExternalPlugin (t))
+                    ids.push_back (t.id);
+
+            for (const auto& id : ids)
             {
-                if (args.size() >= 3 ? toJuce (t.name) != args[2] : ! collab::usesExternalPlugin (t))
-                    continue;
-
+                const auto name = document->getProject().findTrack (id)->name;
                 collab::Render render;
+                collab::SampleCount length = 0;
 
-                if (auto r = bridge->bounceTrack (t.id, render); r.failed())
+                if (auto r = bridge->bounceTrack (id, render, length); r.failed())
                 {
-                    std::cerr << "bounce failed: " << t.name << ": " << r.getErrorMessage() << std::endl;
+                    std::cerr << "bounce failed: " << name << ": " << r.getErrorMessage() << std::endl;
                     return 3;
                 }
 
-                const auto id = t.id;
-                document->perform ("bounce", [id, render] (collab::Project& p)
+                std::string bouncedId;
+                document->perform ("bounce", [&] (collab::Project& p)
                 {
-                    if (auto* track = p.findTrack (id))
-                        track->render = render;
+                    bouncedId = collab::applyBounce (p, id, render, length, collab::generateUuid(), collab::generateUuid());
                 });
-                std::cout << "bounced " << t.name << " -> " << render.audioHash << std::endl;
+                std::cout << "bounced " << name << " -> " << render.audioHash << " (" << document->getProject().findTrack (bouncedId)->name
+                          << ", " << length << " samples)" << std::endl;
             }
 
             if (auto r = document->save(); r.failed())
@@ -871,7 +876,7 @@ private:
 
         if (command == "--sync-register")
         {
-            const auto snapshot = document->getProject();
+            const auto snapshot = collab::withoutLocalOnlyTracks (document->getProject());
             auto r = sync->runRegister (snapshot, dir);
             if (r.failed()) return fail (r.getErrorMessage());
             sync->applyRegistered (snapshot, sync->getMeta().baseRevision);

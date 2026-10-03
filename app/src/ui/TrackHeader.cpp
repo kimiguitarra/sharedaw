@@ -163,6 +163,7 @@ void TrackHeader::paint (juce::Graphics& g)
     if (t != nullptr)
     {
         juce::String renderBadge;
+        bool done = false;
 
         if (ctx.engine.isPlayingRender (trackId))
             renderBadge = "バウンス音で再生"_ju;
@@ -171,13 +172,13 @@ void TrackHeader::paint (juce::Graphics& g)
             {
                 case collab::RenderStatus::missing:  renderBadge = "要バウンス"_ju; break;
                 case collab::RenderStatus::stale:    renderBadge = "バウンスが古い"_ju; break;
-                case collab::RenderStatus::notNeeded:
-                case collab::RenderStatus::upToDate: break;
+                case collab::RenderStatus::upToDate: renderBadge = "バウンス済み"_ju; done = true; break;
+                case collab::RenderStatus::notNeeded: break;
             }
 
         if (renderBadge.isNotEmpty())
         {
-            g.setColour (Theme::warning);
+            g.setColour (done ? Theme::textDim : Theme::warning);
             g.setFont (juce::FontOptions (13.5f));
             g.drawText (renderBadge, getLocalBounds().withTrimmedLeft (10).withTrimmedRight (10).removeFromBottom (32).removeFromTop (12),
                         juce::Justification::centredRight, true);

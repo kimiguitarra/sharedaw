@@ -200,18 +200,20 @@ void PluginWindows::timerCallback()
 
     static const int keys[] = { juce::KeyPress::spaceKey, juce::KeyPress::numberPad0, juce::KeyPress::numberPad1, juce::KeyPress::numberPad2,
                                 juce::KeyPress::numberPadDecimalPoint, juce::KeyPress::numberPadMultiply, juce::KeyPress::numberPadDivide,
-                                juce::KeyPress::numberPadAdd, juce::KeyPress::numberPadSubtract };
+                                juce::KeyPress::numberPadAdd, juce::KeyPress::numberPadSubtract,
+                                '1', '2', '3', '4', '5', '6', '7', '8', '9' };   // 数字は Shift と一緒のときだけ（マーカーへ移動）
 
     const auto mods = juce::ModifierKeys::getCurrentModifiersRealtime();
     const bool plain = ! (mods.isCommandDown() || mods.isCtrlDown() || mods.isAltDown());
 
     for (int key : keys)
     {
-        const bool down = pluginInFront && juce::KeyPress::isKeyCurrentlyDown (key);
+        const bool digit = key >= '1' && key <= '9';
+        const bool down = pluginInFront && juce::KeyPress::isKeyCurrentlyDown (key) && (! digit || mods.isShiftDown());
 
         // 押した瞬間だけ（押しっぱなしで繰り返さない）
         if (down && ! keysDown[key] && plain && onKey)
-            onKey (juce::KeyPress (key));
+            onKey (juce::KeyPress (key, digit ? juce::ModifierKeys (juce::ModifierKeys::shiftModifier) : juce::ModifierKeys(), 0));
 
         keysDown[key] = down;
     }

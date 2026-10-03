@@ -364,15 +364,16 @@ void AppContext::bounceTrack (const std::string& trackId)
     engine.flushPluginStates();
 
     collab::Render render;
-    auto r = SyncUI::runWithProgress ("バウンスしています"_ju, [&] { return engine.bounceTrack (trackId, render); });
+    collab::SampleCount length = 0;
+    auto r = SyncUI::runWithProgress ("バウンスしています"_ju, [&] { return engine.bounceTrack (trackId, render, length); });
 
     if (r.failed())
         return Dialogs::showError ("バウンスできませんでした"_ju, r.getErrorMessage());
 
-    document.perform ("バウンス"_ju, [trackId, render] (collab::Project& p)
+    // Cubase のインプレイスレンダリングと同じく、すぐ下にオーディオトラックを作って元のトラックはミュートする
+    document.perform ("バウンス"_ju, [&] (collab::Project& p)
     {
-        if (auto* t = p.findTrack (trackId))
-            t->render = render;
+        collab::applyBounce (p, trackId, render, length, collab::generateUuid(), collab::generateUuid());
     });
 }
 

@@ -199,7 +199,7 @@ std::string EngineBridge::trackFingerprint (const collab::Track& t) const
     return collab::trackSourceFingerprint (t, [dir] (const std::string& ref) { return PluginHost::stateHash (dir, ref); });
 }
 
-juce::Result EngineBridge::bounceTrack (const std::string& trackId, collab::Render& result)
+juce::Result EngineBridge::bounceTrack (const std::string& trackId, collab::Render& result, collab::SampleCount& lengthSamples)
 {
     if (! document.hasLocation())
         return juce::Result::fail ("プロジェクトがまだ保存されていません"_ju);
@@ -220,6 +220,15 @@ juce::Result EngineBridge::bounceTrack (const std::string& trackId, collab::Rend
         return r;
 
     const auto hash = AudioFiles::hashFile (temp.getFile());
+
+    {
+        juce::WavAudioFormat wav;
+
+        if (auto reader = std::unique_ptr<juce::AudioFormatReader> (wav.createReaderFor (temp.getFile().createInputStream().release(), true)))
+            lengthSamples = (collab::SampleCount) reader->lengthInSamples;
+        else
+            return juce::Result::fail ("書き出したファイルを読めません"_ju);
+    }
 
     if (hash.empty())
         return juce::Result::fail ("ハッシュを計算できません"_ju);
