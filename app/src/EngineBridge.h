@@ -164,6 +164,9 @@ public:
     /** 録音中の入力の大きさを集める（画面のタイマーから呼ぶ）。 */
     void pollRecording();
 
+    /** Tracktion の Edit（Tracktion に「操作中の Edit」として知らせる用）。 */
+    te::Edit& getEdit() noexcept   { return *edit; }
+
     /** 手動のレイテンシ補正（サンプル）。ドライバが報告するレイテンシの補正に加えてずらす。 */
     void setManualLatencySamples (int samples);
     /** 録音のタイミングの確認（--record-test）で使う仮想 MIDI 入力の名前。 */
@@ -376,7 +379,8 @@ private:
     InputMeter inputMeter;
     std::unique_ptr<InputMeter::Recorder> recorder;
     juce::TimeSliceThread takeWriterThread { "ShareDAW take writer" };
-    double midiOutputLatencySeconds = 0.0;   // MIDI の録音: 聞こえる音は出力の遅れの分だけ後なので、その分を前へ戻す
+    double midiOutputLatencySeconds = 0.0;
+    bool inputsChangedWhileRecording = false;   // 録音中に届いた入力の変更（録音が終わってから反映する）   // MIDI の録音: 聞こえる音は出力の遅れの分だけ後なので、その分を前へ戻す
     void startOwnRecording (const juce::File& dir);
     void finishOwnRecording();
     void deliverRecordings();

@@ -47,6 +47,11 @@ namespace
     /** Tracktion からの UI 要求。書き出しなどの重い処理は、いまは同期実行する（進捗表示は M2 で追加）。 */
     struct CollabUIBehaviour  : public te::UIBehaviour
     {
+        // Tracktion は MIDI 入力の行き先（録音中に弾いたノートの表示など）を「操作中の Edit」から調べる
+        te::Edit* edit = nullptr;
+        te::Edit* getCurrentlyFocusedEdit() override   { return edit; }
+        te::Edit* getLastFocusedEdit() override        { return edit; }
+
         void runTaskWithProgressBar (te::ThreadPoolJobWithProgress& task) override
         {
             while (task.runJob() == juce::ThreadPoolJob::jobNeedsRunningAgain)
@@ -177,6 +182,9 @@ public:
         library = std::make_unique<InstrumentLibrary> (AppPaths::getAssetsDir());
         document = std::make_unique<ProjectDocument>();
         bridge = std::make_unique<EngineBridge> (*engine, *document, *library);
+
+        if (auto* ui = dynamic_cast<CollabUIBehaviour*> (&engine->getUIBehaviour()))
+            ui->edit = &bridge->getEdit();
         sync = std::make_unique<SyncManager> (*document, *settings);
         document->beforeSave = [this] { bridge->flushPluginStates(); };
 
@@ -256,6 +264,9 @@ public:
 
         mainWindow = nullptr;
         sync = nullptr;
+        if (auto* ui = dynamic_cast<CollabUIBehaviour*> (&engine->getUIBehaviour()))
+            ui->edit = nullptr;
+
         bridge = nullptr;
         document = nullptr;
         engine = nullptr;
@@ -675,6 +686,9 @@ private:
         juce::Timer::callAfterDelay ((int) (args[2].getDoubleValue() * 1000.0), [this]
         {
             std::cout << "stop at " << bridge->getPositionSeconds() << " s" << std::endl;
+
+            for (auto& [id, live] : bridge->getLiveRecordings())
+                std::cout << "live: " << id << " peaks " << live.peaks.size() << " notes " << live.notes.size() << std::endl;
             bridge->stop();
         });
 

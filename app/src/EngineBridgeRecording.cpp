@@ -6,6 +6,7 @@
 #include <tracktion_graph/tracktion_graph.h>
 
 #include "collab/ClipEditing.h"
+#include <iostream>
 #include <sstream>
 #include "SfizzPlugin.h"
 #include "audio/ChannelStripPlugin.h"
@@ -143,6 +144,13 @@ void EngineBridge::setTrackInput (const std::string& trackId, const TrackInput& 
 
 void EngineBridge::applyInputs()
 {
+    // 録音中は入力の割り当てを変えない（変えると、その入力の録音が止まる）。録音が終わってから行う
+    if (edit->getTransport().isRecording())
+    {
+        inputsChangedWhileRecording = true;
+        return;
+    }
+
     edit->getTransport().ensureContextAllocated();
 
     for (auto* in : edit->getAllInputDevices())
@@ -315,6 +323,13 @@ bool EngineBridge::isRecording() const
 
 void EngineBridge::restoreAfterRecording()
 {
+    if (std::exchange (inputsChangedWhileRecording, false))
+        juce::MessageManager::callAsync ([this, alive = std::weak_ptr<bool> (aliveFlag)]
+        {
+            if (! alive.expired())
+                configureInputs();
+        });
+
     if (countIn != nullptr)
         countIn->setClicks ({}, metronomeVolumeDb);
 
@@ -471,6 +486,10 @@ void EngineBridge::recordingFinished (te::InputDeviceInstance& input, te::EditIt
             RecordedMidi rec;
             rec.trackId = trackId;
             rec.punchInTick = (collab::Tick) std::llround (map.secondsToTick (juce::jmax (0.0, punchInSeconds)));
+
+            if (juce::SystemStats::getEnvironmentVariable ("SHAREDAW_LOOPBACK_LOG", {}).isNotEmpty())
+                std::cerr << "tracktion midi clip: start " << clipStart << " offset " << offset << " length " << midi->getPosition().getLength().inSeconds()
+                          << " notes " << midi->getSequence().getNotes().size() << " punch " << punchInSeconds << std::endl;
 
             for (auto* n : midi->getSequence().getNotes())
             {

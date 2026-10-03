@@ -152,6 +152,14 @@ void EngineBridge::changeListenerCallback (juce::ChangeBroadcaster* source)
 
 void EngineBridge::configureInputs()
 {
+    // 録音中に入力の設定を変えると、Tracktion はその入力の録音を止めてしまう（MIDI のノートが途中から消える）。
+    // 機器の一覧の更新（MIDI 機器の再検出など）は録音中にも届くので、録音が終わってからまとめて行う
+    if (edit->getTransport().isRecording())
+    {
+        inputsChangedWhileRecording = true;
+        return;
+    }
+
     auto& dm = engine.getDeviceManager();
 
     // 入力はモノラルのチャンネルごとに扱う（ギター・マイクを 1 本ずつ録る想定）

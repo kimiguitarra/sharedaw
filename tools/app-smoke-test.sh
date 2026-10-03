@@ -95,7 +95,7 @@ json.dump(p, open(sys.argv[1], "w"), ensure_ascii=False)
 PY
     status=0
     SHAREDAW_LOOPBACK="$spec" HOME="$work/home" run_with_timeout 120 ${SMOKE_WRAPPER:-} "$exe" --record-test "$work/rec" 5 0 1 > "$work/rec.log" 2>&1 || status=$?
-    grep -E "^(loopback|audio offset|midi offset|take|record failed|no take)" "$work/rec.log" || true
+    grep -E "^(loopback|audio offset|midi offset|live|take|record failed|no take)" "$work/rec.log" || true
     [ "$status" -eq 0 ] || { echo "record test failed (exit status $status)"; exit 1; }
     python3 - "$work/rec.log" <<'PY'
 import re, sys
@@ -104,6 +104,11 @@ m = re.search(r"audio offset ms: median (-?[\d.e-]+)", text)
 assert m, "no audio offset"
 # 録った音は拍から 1 ms 以内（Tracktion の録音は、バッファ 1〜2 個分＝5〜20 ms 前にずれていた）
 assert abs(float(m.group(1))) < 1.0, text
+# MIDI: クリックごとに弾いたノートが全部録れている（録音中に入力の設定を触ると途中で止まっていた）・拍から 15 ms 以内
+m = re.search(r"midi offset ms: median (-?[\d.e-]+) .*\((\d+)\)", text)
+assert m and int(m.group(2)) >= 6 and abs(float(m.group(1))) < 15.0, text
+# 録音中も、弾いたノートが画面用に届いている
+assert re.search(r"live: \S+ peaks \d+ notes ([1-9]\d*)", text), text
 PY
 done
 echo "recording timing ok"
