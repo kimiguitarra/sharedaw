@@ -601,13 +601,16 @@ private:
                 if (virtualMidi == nullptr)
                     return;
 
+                // 本物の MIDI 機器と同じく、ドライバーの時刻（弾いた瞬間）を付けて送る。
+                // 時刻を付けないと届いた時刻になり、スレッドの起きる遅れ（混んだ CI の macOS で 20 ms 以上）がそのままずれに出る
                 std::thread ([virtualMidi, heardAtMs]
                 {
                     auto waitUntil = [] (double ms) { while (juce::Time::getMillisecondCounterHiRes() < ms) juce::Thread::sleep (0); };
+                    auto stamped = [] (juce::MidiMessage m, double ms) { m.setTimeStamp (ms * 0.001); return m; };
                     waitUntil (heardAtMs);
-                    virtualMidi->handleIncomingMidiMessage (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), {});
+                    virtualMidi->handleIncomingMidiMessage (stamped (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), heardAtMs), {});
                     waitUntil (heardAtMs + 60.0);
-                    virtualMidi->handleIncomingMidiMessage (juce::MidiMessage::noteOff (1, 60), {});
+                    virtualMidi->handleIncomingMidiMessage (stamped (juce::MidiMessage::noteOff (1, 60), heardAtMs + 60.0), {});
                 }).detach();
             };
 
