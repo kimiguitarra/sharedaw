@@ -7,6 +7,7 @@
 #include "audio/AudioFiles.h"
 #include "collab/ClipEditing.h"
 #include "collab/GmDrumMap.h"
+#include "collab/Stretch.h"
 #include "collab/Uuid.h"
 
 using namespace PianoRollDetail;
@@ -317,4 +318,13 @@ void PianoRollView::changeSelectedVelocity (int delta)
             if (sel.count (n.id) > 0)
                 n.velocity = juce::jlimit (1, 127, n.velocity + delta);
     }, "velocity-keys");
+}
+
+void PianoRollView::stretchSelection (double factor)
+{
+    if (getClip() == nullptr || selectedNotes.empty())
+        return;
+
+    const auto sel = selectedNotes;
+    editNotes ("ノートの伸び縮み"_ju, [sel, factor] (collab::MidiClip& c) { c = collab::stretchNotes (c, sel, factor); });
 }

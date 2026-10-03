@@ -32,6 +32,11 @@ struct AppContext
     }
 
 
+    /** MIDI クリップの中身（ノートの位置・長さ）とクリップの長さを factor 倍にする（開始位置は変えない）。 */
+    void stretchMidiClips (const std::set<std::string>& clipIds, double factor);
+    /** 伸び縮みの倍率の選択肢（メニュー用）。 */
+    static juce::PopupMenu stretchMenu (std::function<void (double)> apply);
+
     /** 新しい MIDI トラック（内蔵音源）を追加して選択する。 */
     void addBuiltinMidiTrack (const std::string& instrumentId, const juce::String& name);
     /** 外部の音源プラグインを鳴らす MIDI トラックを追加して、プラグインの画面を開く。 */

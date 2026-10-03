@@ -1,6 +1,7 @@
 // MainComponent の別のウィンドウ・ダイアログ: ピアノロールの画面、ミキサー、エフェクト・EQ/Comp・マスターの画面、設定、ショートカット一覧、クレジット
 
 #include "MainComponent.h"
+#include "collab/Stretch.h"
 #include "MainComponentCommands.h"
 
 #include <iostream>
@@ -579,4 +580,62 @@ void MainComponent::showCredits()
     }
 
     Dialogs::showInfo ("クレジット"_ju, text);
+}
+
+//==============================================================================
+void MainComponent::showStretchSongDialog()
+{
+    // 例: 3/4・BPM 180 の曲を 6/8・BPM 90 として扱う = 位置と長さを 1/2、テンポも 1/2、拍子を 6/8
+    auto* w = new juce::AlertWindow ("曲全体の伸び縮み"_ju,
+                                     "MIDI・コード・マーカー・オーディオの位置と、MIDI のノートの長さをまとめて変えます。"_ju
+                                     "テンポも同じ割合で変えると、聞こえ方はそのままで小節・拍の数え方だけが変わります。"_ju,
+                                     juce::MessageBoxIconType::NoIcon, this);
+
+    const std::vector<std::pair<double, juce::String>> factors {
+        { 0.5, "1/2 にする（例: 3/4 の曲を 6/8・半分の BPM で数え直す）"_ju },
+        { 2.0, "2 倍にする（例: 6/8 の曲を 3/4・倍の BPM で数え直す）"_ju },
+        { 2.0 / 3.0, "2/3 にする"_ju },
+        { 1.5, "3/2 にする"_ju } };
+    juce::StringArray factorNames;
+
+    for (auto& f : factors)
+        factorNames.add (f.second);
+
+    w->addComboBox ("factor", factorNames, "位置と長さ"_ju);
+    w->addComboBox ("tempo", { "同じ割合で変える（聞こえ方はそのまま）"_ju, "変えない（曲の速さが変わる）"_ju }, "テンポ"_ju);
+
+    const std::vector<std::pair<int, int>> meters { { 6, 8 }, { 3, 4 }, { 4, 4 }, { 2, 4 }, { 12, 8 }, { 9, 8 }, { 3, 8 } };
+    juce::StringArray meterNames { "変えない"_ju };
+
+    for (auto [n, d] : meters)
+        meterNames.add (juce::String (n) + "/" + juce::String (d));
+
+    w->addComboBox ("meter", meterNames, "拍子"_ju);
+
+    for (auto* name : { "factor", "tempo", "meter" })
+        if (auto* box = w->getComboBoxComponent (name))
+            box->setSelectedItemIndex (0, juce::dontSendNotification);
+
+    w->addButton ("変える"_ju, 1, juce::KeyPress (juce::KeyPress::returnKey));
+    w->addButton ("キャンセル"_ju, 0, juce::KeyPress (juce::KeyPress::escapeKey));
+
+    w->enterModalState (true, juce::ModalCallbackFunction::create ([this, w, factors, meters] (int result)
+    {
+        if (result != 1)
+            return;
+
+        collab::ProjectStretch s;
+        s.factor = factors[(size_t) juce::jmax (0, w->getComboBoxComponent ("factor")->getSelectedItemIndex())].first;
+        s.scaleTempo = w->getComboBoxComponent ("tempo")->getSelectedItemIndex() == 0;
+
+        if (const int m = w->getComboBoxComponent ("meter")->getSelectedItemIndex(); m > 0)
+            s.newMeter = collab::TimeSignature { meters[(size_t) m - 1].first, meters[(size_t) m - 1].second };
+
+        document.perform ("曲全体の伸び縮み"_ju, [s] (collab::Project& p) { collab::stretchProject (p, s); });
+
+        // ループ範囲も同じ割合に
+        state.loopStart = collab::stretchTick (state.loopStart, s.factor);
+        state.loopEnd = collab::stretchTick (state.loopEnd, s.factor);
+        state.changed();
+    }), true);
 }

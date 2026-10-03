@@ -4,6 +4,7 @@
 #include "collab/Uuid.h"
 #include "collab/ClipEditing.h"
 #include "Dialogs.h"
+#include "collab/Stretch.h"
 #include "SyncUI.h"
 #include "audio/AudioFiles.h"
 #include "audio/MidiImport.h"
@@ -980,4 +981,29 @@ void AppContext::setRecordArm (const std::string& trackId, bool arm, bool tellPr
     in.armed = arm;
     engine.setTrackInput (trackId, in);
     state.changed();   // 他のトラックの表示も更新（入力は 1 つのトラックにだけ割り当てる）
+}
+
+//==============================================================================
+void AppContext::stretchMidiClips (const std::set<std::string>& clipIds, double factor)
+{
+    document.perform ("MIDI の伸び縮み"_ju, [clipIds, factor] (collab::Project& p)
+    {
+        for (auto& t : p.tracks)
+            for (auto& c : t.midiClips)
+                if (clipIds.count (c.id) > 0)
+                    c = collab::stretchMidiClip (c, factor);
+    });
+}
+
+juce::PopupMenu AppContext::stretchMenu (std::function<void (double)> apply)
+{
+    juce::PopupMenu m;
+
+    const std::pair<double, juce::String> choices[] = { { 0.5, "1/2 にする（倍速）"_ju }, { 2.0, "2 倍にする（半分の速さ）"_ju },
+                                                        { 2.0 / 3.0, "2/3 にする"_ju }, { 1.5, "3/2 にする"_ju } };
+
+    for (auto& [factor, label] : choices)
+        m.addItem (label, [apply, factor = factor] { apply (factor); });
+
+    return m;
 }

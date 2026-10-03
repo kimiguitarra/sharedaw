@@ -500,6 +500,14 @@ private:
         std::cout << "loopback: " << adm.setAudioDeviceSetup (setup, true) << " latency in " << in << " out " << out << std::endl;
 
         engine->getDeviceManager().createVirtualMidiDevice (EngineBridge::loopbackMidiName);
+
+        // 有効にするのは録音の前に（有効にすると機器の一覧が作り直され、その間の録音は途中で止まる）
+        juce::Timer::callAfterDelay (300, [this]
+        {
+            for (auto& d : engine->getDeviceManager().getMidiInDevices())
+                if (d != nullptr && d->getName() == EngineBridge::loopbackMidiName)
+                    d->setEnabled (true);
+        });
     }
 
     /** 録った音・ノートが拍からどれだけずれたか（ms）を出す。 */

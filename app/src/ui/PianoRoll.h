@@ -129,6 +129,8 @@ public:
 
     /** 選択中のノートを nudgeTicks だけ左（-1）・右（+1）にずらす（グルーヴ用。グリッドには合わせない）。 */
     void nudgeSelection (int direction);
+    /** 選択中のノートを、いちばん早いノートを起点に factor 倍に伸び縮みさせる（位置と長さ）。 */
+    void stretchSelection (double factor);
     /** 選択中のノートのベロシティを delta だけ変える。 */
     void changeSelectedVelocity (int delta);
     collab::Tick nudgeTicks = 10;

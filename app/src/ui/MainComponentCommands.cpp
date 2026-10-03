@@ -38,7 +38,7 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
                          cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
                          cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9,
                          cmdToolSplit, cmdCopy, cmdCut, cmdPaste, cmdNudgeLeft, cmdNudgeRight,
-                         cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate, cmdToLoopStart, cmdToLoopEnd, cmdInspector, cmdCursorLeft, cmdCursorRight, cmdBarLeft, cmdBarRight, cmdTrackUp, cmdTrackDown, cmdPianoFull, cmdWaveBigger, cmdWaveSmaller, cmdAutoArm });
+                         cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate, cmdToLoopStart, cmdToLoopEnd, cmdInspector, cmdCursorLeft, cmdCursorRight, cmdBarLeft, cmdBarRight, cmdTrackUp, cmdTrackDown, cmdPianoFull, cmdWaveBigger, cmdWaveSmaller, cmdAutoArm, cmdStretchSong });
 }
 
 void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommandInfo& info)
@@ -267,6 +267,9 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
             info.setInfo ("選択中のトラックのソロ"_ju, {}, "Track", 0);
             info.addDefaultKeypress ('s', 0);
             info.setActive (ctx.selectedTrack() != nullptr);
+            break;
+        case cmdStretchSong:
+            info.setInfo ("曲全体の伸び縮み（テンポ・拍子の解釈を変える）…"_ju, {}, "Edit", 0);
             break;
         case cmdAutoArm:
             info.setInfo ("選んだトラックを自動で録音待機にする"_ju, {}, "Transport", 0);
@@ -519,6 +522,9 @@ bool MainComponent::perform (const InvocationInfo& info)
             if (auto* t = ctx.selectedTrack())
                 ctx.toggleRecordArm (t->id);
             break;
+        case cmdStretchSong:
+            showStretchSongDialog();
+            break;
         case cmdAutoArm:
             state.autoArmSelected = ! state.autoArmSelected;
             settings.setValue ("autoArmSelected", state.autoArmSelected);
@@ -620,6 +626,26 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addCommandItem (cm, cmdNudgeRight);
             m.addCommandItem (cm, cmdSplit);
             m.addCommandItem (cm, cmdQuantise);
+            {
+                // 選んだノート（ピアノロール）があればノート、なければ選んだ MIDI クリップ
+                const bool notes = pianoRoll.hasSelectedNotes();
+                std::set<std::string> clips;
+
+                for (auto& id : state.clipSelection())
+                    for (auto& t : document.getProject().tracks)
+                        if (t.findMidiClip (id) != nullptr)
+                            clips.insert (id);
+
+                auto stretch = AppContext::stretchMenu ([this, notes, clips] (double f)
+                {
+                    if (notes)
+                        pianoRoll.stretchSelection (f);
+                    else
+                        ctx.stretchMidiClips (clips, f);
+                });
+                m.addSubMenu (notes ? "選んだノートの伸び縮み"_ju : "選んだ MIDI クリップの伸び縮み"_ju, stretch, notes || ! clips.empty());
+            }
+            m.addCommandItem (cm, cmdStretchSong);
             m.addSeparator();
             m.addCommandItem (cm, cmdToolSelect);
             m.addCommandItem (cm, cmdToolPencil);

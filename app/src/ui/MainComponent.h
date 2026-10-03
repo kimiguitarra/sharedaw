@@ -152,6 +152,7 @@ private:
 public:
     /** 「楽曲を選ぶ」画面（起動時にも出す）。 */
     void showProjectPicker();
+    void showStretchSongDialog();
 
 private:
     // 同期パネル（右側）から: 画面に出ている差分のまま、すぐに取り込む・アップする

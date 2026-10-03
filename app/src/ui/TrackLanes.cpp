@@ -592,6 +592,20 @@ void TrackLanes::showClipMenu (const collab::Track& track, const std::string& cl
     }
     else
     {
+        // 伸び縮み: このクリップ（選んでいる MIDI クリップがあれば、それも一緒に）
+        {
+            auto ids = ctx.state.clipSelection();
+            ids.insert (clipId);
+            std::set<std::string> midiIds;
+
+            for (auto& id : ids)
+                for (auto& t : ctx.document.getProject().tracks)
+                    if (t.findMidiClip (id) != nullptr)
+                        midiIds.insert (id);
+
+            m.addSubMenu ("伸び縮み（音価を変える）"_ju, AppContext::stretchMenu ([this, midiIds] (double f) { ctx.stretchMidiClips (midiIds, f); }));
+        }
+
         m.addItem ("複製"_ju, [this, trackId, clipId]
         {
             auto newId = collab::generateUuid();

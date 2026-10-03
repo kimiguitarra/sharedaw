@@ -7,6 +7,7 @@ add_executable(collab_core_tests
     ChordPlaybackTests.cpp
     MidiExportTests.cpp
     ClipEditingTests.cpp
+    StretchTests.cpp
     GridTests.cpp
     ProjectDiffTests.cpp
     ProjectJsonTests.cpp
