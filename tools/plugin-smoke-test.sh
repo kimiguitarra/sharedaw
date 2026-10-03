@@ -44,6 +44,29 @@ out="$(run --bounce "$work/proj")"
 echo "$out" | grep -q "^Bass: upToDate$" || { echo "bounce is not up to date"; exit 1; }
 test -s "$work/proj/plugins-state/synth.bin" || { echo "plugin state was not written"; exit 1; }
 
+echo "== follow host (the plugin sees the song's tempo and meter, not the engine's fixed 60 BPM 4/4)"
+cp -r "$work/proj" "$work/tempo"
+python3 - "$work/tempo/project.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["tempoTrack"]["events"] = [{"id": d["tempoTrack"]["events"][0]["id"], "tick": 0, "bpm": 132.0}]
+d["meterTrack"]["events"] = [{"id": d["meterTrack"]["events"][0]["id"], "bar": 1, "numerator": 3, "denominator": 4}]
+json.dump(d, open(p, "w"), indent=2)
+PY
+SHAREDAW_TEST_PLAYHEAD_LOG="$work/playhead.txt" run --bounce "$work/tempo" > /dev/null
+cat "$work/playhead.txt"
+python3 - "$work/playhead.txt" <<'PY'
+import re, sys
+line = open(sys.argv[1]).read().splitlines()[0]
+v = dict(re.findall(r"(\w+)=([^ ]+)", line))
+bpm, time, ppq, bar = float(v["bpm"]), float(v["time"]), float(v["ppq"]), float(v["bar"])
+assert abs(bpm - 132) < 1e-6, line
+assert v["sig"] == "3/4", line
+assert abs(ppq - time * 132 / 60) < 0.01, line
+assert abs(bar - 3 * int(ppq // 3)) < 1e-6, line
+PY
+
 echo "== other environment (no plugin state)"
 cp -r "$work/proj" "$work/other"
 rm -rf "$work/other/plugins-state"

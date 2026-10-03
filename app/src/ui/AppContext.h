@@ -34,6 +34,8 @@ struct AppContext
 
     /** 新しい MIDI トラック（内蔵音源）を追加して選択する。 */
     void addBuiltinMidiTrack (const std::string& instrumentId, const juce::String& name);
+    /** 外部の音源プラグインを鳴らす MIDI トラックを追加して、プラグインの画面を開く。 */
+    void addExternalMidiTrack (const juce::PluginDescription&);
 
     /** 空のオーディオトラックを追加して選択する。 */
     std::string addAudioTrack (const juce::String& name);
@@ -122,6 +124,8 @@ struct AppContext
 
     /** プラグインのエディタを開く（MainComponent が設定する）。 */
     std::function<void (const std::string& trackId, const std::string& effectId)> openPluginEditor;
+    /** 音源プラグインがエンジンに読み込まれるのを待ってから、その画面を開く（MainComponent が設定する）。 */
+    std::function<void (const std::string& trackId)> openPluginEditorSoon;
 
     /**
         トラックの録音待機（●）を切り替える（R キーとトラックヘッダーのボタン）。
@@ -145,4 +149,8 @@ struct AppContext
 
     /** マスターの画面（リミッター・ラウドネス）を開く。 */
     std::function<void()> openMaster;
+
+private:
+    std::string addMidiTrack (const collab::Instrument&, const juce::String& name);
+    void openInstrumentEditorSoon (const std::string& trackId);
 };

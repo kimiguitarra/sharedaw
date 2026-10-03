@@ -180,8 +180,10 @@ void InstrumentPanel::show (AppContext& ctx, const std::string& trackId, juce::C
 
     if (t->instrument->kind != collab::Instrument::Kind::builtin)
     {
-        juce::AlertWindow::showAsync (juce::MessageBoxOptions::makeOptionsOk (juce::MessageBoxIconType::InfoIcon, "外部プラグイン"_ju,
-                                                                              "外部プラグインは M2 で対応します。"_ju), nullptr);
+        // 外部の音源はプラグインの画面で調整する
+        if (ctx.openPluginEditor)
+            ctx.openPluginEditor (trackId, {});
+
         return;
     }
 

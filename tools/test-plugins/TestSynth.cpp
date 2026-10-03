@@ -43,6 +43,7 @@ public:
     void processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi) override
     {
         buffer.clear();
+        logPlayHead();
         int pos = 0;
 
         auto render = [&] (int until)
@@ -81,6 +82,29 @@ public:
     }
 
 private:
+    /** SHAREDAW_TEST_PLAYHEAD_LOG があれば、再生中の最初のブロックでホストから受け取った位置を書き出す（Follow Host の確認用）。 */
+    void logPlayHead()
+    {
+        const auto path = juce::SystemStats::getEnvironmentVariable ("SHAREDAW_TEST_PLAYHEAD_LOG", {});
+
+        if (path.isEmpty() || loggedPlayHead || getPlayHead() == nullptr)
+            return;
+
+        const auto pos = getPlayHead()->getPosition();
+
+        if (! pos.hasValue() || ! pos->getIsPlaying() || ! pos->getTimeInSeconds().hasValue() || *pos->getTimeInSeconds() < 1.0)
+            return;
+
+        loggedPlayHead = true;
+        const auto sig = pos->getTimeSignature().orFallback (juce::AudioPlayHead::TimeSignature {});
+        juce::File (path).appendText ("bpm=" + juce::String (pos->getBpm().orFallback (0.0), 3)
+                                      + " sig=" + juce::String (sig.numerator) + "/" + juce::String (sig.denominator)
+                                      + " time=" + juce::String (*pos->getTimeInSeconds(), 6)
+                                      + " ppq=" + juce::String (pos->getPpqPosition().orFallback (-1.0), 6)
+                                      + " bar=" + juce::String (pos->getPpqPositionOfLastBarStart().orFallback (-1.0), 6) + "\n");
+    }
+
+    bool loggedPlayHead = false;
     juce::AudioParameterFloat* gain = nullptr;
     double sampleRate = 48000.0;
     float phase = 0.0f;

@@ -168,6 +168,7 @@ public:
         engine->getPluginManager().createBuiltInType<ChannelStripPlugin>();
         engine->getPluginManager().createBuiltInType<BuiltinEffectPlugin>();
         engine->getPluginManager().createBuiltInType<MasterLimiterPlugin>();
+        engine->getPluginManager().createBuiltInType<HostSyncedExternalPlugin>();
         engine->getPluginManager().setUsesSeparateProcessForScanning (true);
         preferProjectSampleRate();
 

@@ -15,17 +15,30 @@ void AppContext::addBuiltinMidiTrack (const std::string& instrumentId, const juc
 {
     auto* manifest = library.findLatest (instrumentId);
 
-    collab::Track t;
-    t.id = collab::generateUuid();
-    t.type = collab::TrackType::midi;
-    t.name = toStd (name);
-    t.color = toStd (Theme::trackColourHex ((int) document.getProject().tracks.size()));
-
     collab::Instrument inst;
     inst.kind = collab::Instrument::Kind::builtin;
     inst.id = instrumentId;
     inst.version = manifest != nullptr ? manifest->version : "0.1.0";
     inst.params = manifest != nullptr ? manifest->defaultParams : nlohmann::json::object();
+    addMidiTrack (inst, name);
+}
+
+void AppContext::addExternalMidiTrack (const juce::PluginDescription& desc)
+{
+    collab::Instrument inst;
+    inst.kind = collab::Instrument::Kind::external;
+    inst.plugin = PluginHost::describe (desc);
+    inst.stateRef = PluginHost::stateRefFor (collab::generateUuid());
+    openInstrumentEditorSoon (addMidiTrack (inst, desc.name));
+}
+
+std::string AppContext::addMidiTrack (const collab::Instrument& inst, const juce::String& name)
+{
+    collab::Track t;
+    t.id = collab::generateUuid();
+    t.type = collab::TrackType::midi;
+    t.name = toStd (name);
+    t.color = toStd (Theme::trackColourHex ((int) document.getProject().tracks.size()));
     t.instrument = inst;
 
     // 選択中のトラックの下に追加する
@@ -40,6 +53,13 @@ void AppContext::addBuiltinMidiTrack (const std::string& instrumentId, const juc
     state.selectedTrackId = t.id;
     state.selectClip ({});
     state.changed();
+    return t.id;
+}
+
+void AppContext::openInstrumentEditorSoon (const std::string& trackId)
+{
+    if (openPluginEditorSoon)
+        openPluginEditorSoon (trackId);
 }
 
 //==============================================================================
@@ -240,6 +260,8 @@ void AppContext::setExternalInstrument (const std::string& trackId, const juce::
         if (auto* t = p.findTrack (trackId))
             t->instrument = inst;
     });
+
+    openInstrumentEditorSoon (trackId);
 }
 
 void AppContext::addEffect (const std::string& trackId, const juce::PluginDescription& desc)

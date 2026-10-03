@@ -79,6 +79,7 @@ target_sources(ShareDAW PRIVATE
     src/SfizzPlugin.cpp
     src/Translations.cpp
     src/plugins/PluginHost.cpp
+    src/plugins/HostSyncedPlugin.cpp
     src/sync/CredentialStore.cpp
     src/sync/SyncClient.cpp
     src/sync/SyncManager.cpp

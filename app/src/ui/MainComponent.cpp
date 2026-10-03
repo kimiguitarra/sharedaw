@@ -131,6 +131,23 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
         else if (bridge.isPlayingRender (trackId))
             Dialogs::showInfo ("プラグイン"_ju, "この環境ではプラグインを鳴らせないため、バウンスした音で再生しています。"_ju);
     };
+    ctx.openPluginEditorSoon = [this] (const std::string& trackId)
+    {
+        // エンジンへの反映（プラグインの読み込み）は変更通知の後なので、読み込まれるまで少し待つ
+        auto attempt = std::make_shared<std::function<void (int)>>();
+        *attempt = [safe = juce::Component::SafePointer<MainComponent> (this), trackId, weak = std::weak_ptr (attempt)] (int left)
+        {
+            if (safe == nullptr)
+                return;
+
+            if (auto* plugin = safe->bridge.getExternalPlugin (trackId))
+                safe->pluginWindows.show (*plugin, plugin->getName());
+            else if (left > 0)
+                if (auto next = weak.lock())
+                    juce::Timer::callAfterDelay (200, [next, left] { (*next) (left - 1); });
+        };
+        juce::Timer::callAfterDelay (100, [attempt] { (*attempt) (10); });
+    };
     bridge.onPluginRemoved = [this] (te::Plugin* p) { pluginWindows.closeFor (p); };
     timeline.onOpenClip = [this] { pianoRoll.focusEditor(); };
     transport.onMixer = [this] { toggleMixer(); };
@@ -506,6 +523,17 @@ juce::PopupMenu MainComponent::addTrackMenu()
     instruments.addCommandItem (&commandManager, cmdAddBass);
     instruments.addCommandItem (&commandManager, cmdAddPiano);
     instruments.addCommandItem (&commandManager, cmdAddEPiano);
+
+    juce::PopupMenu plugins;
+
+    for (auto& d : PluginHost::list (engine, true))
+        plugins.addItem (d.name + " (" + d.manufacturerName + ")", [this, d] { ctx.addExternalMidiTrack (d); });
+
+    if (plugins.getNumItems() == 0)
+        plugins.addItem ("プラグインがありません（設定 → プラグイン… でスキャン）"_ju, false, false, nullptr);
+
+    instruments.addSeparator();
+    instruments.addSubMenu ("外部プラグイン"_ju, plugins);
 
     m.addCommandItem (&commandManager, cmdAddAudioTrack);
     m.addSubMenu ("音源トラックを追加"_ju, instruments);

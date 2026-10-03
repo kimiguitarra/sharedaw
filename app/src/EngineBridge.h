@@ -7,6 +7,7 @@
 #include "Common.h"
 #include "InstrumentLibrary.h"
 #include "ProjectDocument.h"
+#include "plugins/HostSyncedPlugin.h"
 
 class SfizzPlugin;
 class ChannelStripPlugin;
@@ -19,6 +20,7 @@ class CountInPlugin;
     - 時間の扱い: Edit のテンポは 60BPM・4/4 に固定し「1拍 = 1秒」とする。
       tick → 秒の変換は collab::TempoMap（四分音符基準の BPM・拍子の分母を正しく扱う）で行い、
       その秒数をそのまま Tracktion の拍数として置く。これにより Tracktion 側の拍子・テンポの解釈に依存しない。
+      外部プラグインには HostSyncedExternalPlugin が曲のテンポ・拍子・PPQ を渡す（Follow Host）。
     - Edit 上の編集 → JSON への反映（録音結果の取り込みなど）は M2 で追加する。
 */
 class EngineBridge  : private juce::ChangeListener,
@@ -245,6 +247,7 @@ private:
     te::Engine& engine;
     ProjectDocument& document;
     const InstrumentLibrary& library;
+    std::shared_ptr<HostTempo> hostTempo = std::make_shared<HostTempo>();   // 外部プラグインに知らせる曲のテンポ（Follow Host）
     std::unique_ptr<te::Edit> edit;
 
     std::map<std::string, Binding> bindings;

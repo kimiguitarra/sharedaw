@@ -280,6 +280,9 @@ void EngineBridge::sync()
     const double positionTick = tempoChanged && ! tempoKey.empty() ? getPositionTick() : -1.0;
     tempoKey = newTempoKey;
 
+    if (tempoChanged)
+        hostTempo->setTempoMap (document.getTempoMap());
+
     // 削除されたトラック
     for (auto it = bindings.begin(); it != bindings.end();)
     {
@@ -539,7 +542,10 @@ te::Plugin::Ptr EngineBridge::createExternal (const collab::ExternalPlugin& plug
     if (! desc)
         return {};
 
-    auto p = edit->getPluginCache().createNewPlugin (te::ExternalPlugin::xmlTypeName, *desc);
+    auto p = edit->getPluginCache().createNewPlugin (HostSyncedExternalPlugin::create (engine, *desc));
+
+    if (auto* synced = dynamic_cast<HostSyncedExternalPlugin*> (p.get()))
+        synced->setHostTempo (hostTempo);
 
     if (auto* ext = dynamic_cast<te::ExternalPlugin*> (p.get()))
     {
@@ -1255,8 +1261,11 @@ void EngineBridge::applyLoop()
     const auto& map = document.getTempoMap();
 
     if (loopEnd > loopStart)
-        transport.setLoopRange (te::TimeRange (secondsToTime (map.tickToSeconds ((double) loopStart)),
-                                               secondsToTime (map.tickToSeconds ((double) loopEnd))));
+    {
+        const double start = map.tickToSeconds ((double) loopStart), end = map.tickToSeconds ((double) loopEnd);
+        transport.setLoopRange (te::TimeRange (secondsToTime (start), secondsToTime (end)));
+        hostTempo->setLoopRange (start, end);
+    }
 
     transport.looping = loopEnabled;
 }
