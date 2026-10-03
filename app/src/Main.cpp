@@ -23,12 +23,14 @@
 #include "audio/AudioFiles.h"
 #include "audio/Export.h"
 #include "audio/Takes.h"
+#include "audio/LoopbackDevice.h"
 #include "plugins/PluginHost.h"
 #include "ui/Dialogs.h"
 #include "ui/MainComponent.h"
 #include "ui/Theme.h"
 
 #include <iostream>
+#include <thread>
 #include <optional>
 
 namespace
@@ -189,8 +191,11 @@ public:
         // --record-test <プロジェクトフォルダ> <秒> [カウントインの小節数] [開始小節]（動作確認用: 最初の入力から新しいトラックに録音する）
         if (auto args = getCommandLineParameterArray(); args.size() >= 3 && args[0] == "--record-test")
         {
+            // SHAREDAW_LOOPBACK=<入力レイテンシ>,<出力レイテンシ>,<バッファ>（サンプル）なら、出力を入力に戻す仮想の機器で録音のずれを測る
+            installLoopbackIfRequested();
+
             // 入力デバイスの一覧ができるのを待つ
-            juce::Timer::callAfterDelay (1000, [this, args] { recordTest (args); });
+            juce::Timer::callAfterDelay (1500, [this, args] { recordTest (args); });
             return;
         }
 
@@ -452,6 +457,64 @@ private:
         return document->save().wasOk() ? 0 : 4;
     }
 
+    LoopbackDeviceType* loopbackType = nullptr;
+    struct MeasuredMidi { std::vector<collab::Tick> ticks; };
+    std::shared_ptr<MeasuredMidi> measuredMidi;
+
+    void installLoopbackIfRequested()
+    {
+        const auto spec = juce::SystemStats::getEnvironmentVariable ("SHAREDAW_LOOPBACK", {});
+
+        if (spec.isEmpty())
+            return;
+
+        const int in = spec.upToFirstOccurrenceOf (",", false, false).getIntValue();
+        const int out = spec.fromFirstOccurrenceOf (",", false, false).upToFirstOccurrenceOf (",", false, false).getIntValue();
+        const int buffer = juce::jmax (32, spec.fromLastOccurrenceOf (",", false, false).getIntValue());
+        auto& adm = engine->getDeviceManager().deviceManager;
+        auto type = std::make_unique<LoopbackDeviceType> (in, out, buffer);
+        loopbackType = type.get();
+        adm.addAudioDeviceType (std::move (type));
+        adm.setCurrentAudioDeviceType ("Loopback", true);
+
+        auto setup = adm.getAudioDeviceSetup();
+        setup.inputDeviceName = setup.outputDeviceName = "Loopback";
+        setup.useDefaultInputChannels = setup.useDefaultOutputChannels = false;
+        setup.inputChannels.clear();
+        setup.inputChannels.setRange (0, 2, true);
+        setup.outputChannels.clear();
+        setup.outputChannels.setRange (0, 2, true);
+        setup.sampleRate = juce::SystemStats::getEnvironmentVariable ("SHAREDAW_LOOPBACK_RATE", "48000").getDoubleValue();
+        setup.bufferSize = buffer;
+        std::cout << "loopback: " << adm.setAudioDeviceSetup (setup, true) << " latency in " << in << " out " << out << std::endl;
+
+        engine->getDeviceManager().createVirtualMidiDevice (EngineBridge::loopbackMidiName);
+    }
+
+    /** 録った音・ノートが拍からどれだけずれたか（ms）を出す。 */
+    void printOffsets (const char* what, const std::vector<double>& seconds)
+    {
+        const auto& map = document->getTempoMap();
+        std::vector<double> offsets;
+
+        for (double t : seconds)
+        {
+            const double tick = map.secondsToTick (t);
+            const double beat = std::round (tick / collab::kPpq) * collab::kPpq;
+            offsets.push_back ((t - map.tickToSeconds (beat)) * 1000.0);
+        }
+
+        if (offsets.empty())
+        {
+            std::cout << what << " offset: none" << std::endl;
+            return;
+        }
+
+        std::sort (offsets.begin(), offsets.end());
+        std::cout << what << " offset ms: median " << offsets[offsets.size() / 2] << " min " << offsets.front()
+                  << " max " << offsets.back() << " (" << offsets.size() << ")" << std::endl;
+    }
+
     void recordTest (const juce::StringArray& args)
     {
         auto finish = [this] (int code) { setApplicationReturnValue (code); quit(); };
@@ -484,6 +547,60 @@ private:
         bridge->sync();
         bridge->setTrackInput (track.id, { inputs[0], {}, true, false });
 
+        // 仮想の機器: メトロノームを鳴らし、クリックが聞こえた瞬間に MIDI のノートも送る（MIDI トラックへ録音）
+        if (loopbackType != nullptr)
+        {
+            bridge->setMetronome (juce::SystemStats::getEnvironmentVariable ("SHAREDAW_LOOPBACK_NOMETRO", {}).isEmpty(), 0.0f);
+
+            collab::Track midiTrack;
+            midiTrack.id = collab::generateUuid();
+            midiTrack.type = collab::TrackType::midi;
+            midiTrack.name = "MIDI Rec";
+            midiTrack.color = "#81C784";
+            collab::Instrument inst;
+            inst.kind = collab::Instrument::Kind::builtin;
+            inst.id = collab::builtin::piano;
+            inst.version = library->findLatest (inst.id)->version;
+            midiTrack.instrument = inst;
+            document->perform ("track", [midiTrack] (collab::Project& p) { p.tracks.push_back (midiTrack); });
+            bridge->sync();
+
+            te::MidiInputDevice* virtualMidi = nullptr;
+
+            for (auto& d : engine->getDeviceManager().getMidiInDevices())
+                if (d != nullptr && d->getName() == EngineBridge::loopbackMidiName)
+                {
+                    d->setEnabled (true);
+                    virtualMidi = d.get();
+                }
+
+            bridge->setMidiTarget (midiTrack.id);
+            std::cout << "virtual midi: " << (virtualMidi != nullptr ? "yes" : "no") << std::endl;
+
+            loopbackType->onClickHeard = [virtualMidi] (double heardAtMs)
+            {
+                if (virtualMidi == nullptr)
+                    return;
+
+                std::thread ([virtualMidi, heardAtMs]
+                {
+                    auto waitUntil = [] (double ms) { while (juce::Time::getMillisecondCounterHiRes() < ms) juce::Thread::sleep (0); };
+                    waitUntil (heardAtMs);
+                    virtualMidi->handleIncomingMidiMessage (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), {});
+                    waitUntil (heardAtMs + 60.0);
+                    virtualMidi->handleIncomingMidiMessage (juce::MidiMessage::noteOff (1, 60), {});
+                }).detach();
+            };
+
+            measuredMidi = std::make_shared<MeasuredMidi>();
+            bridge->onMidiRecorded = [this, m = measuredMidi] (std::vector<EngineBridge::RecordedMidi> recs)
+            {
+                for (auto& r : recs)
+                    for (auto& n : r.notes)
+                        m->ticks.push_back (n.tick);
+            };
+        }
+
         bridge->onRecordingFinished = [this, finish] (std::vector<EngineBridge::RecordedTake> takes)
         {
             for (auto& t : takes)
@@ -497,6 +614,48 @@ private:
             for (auto& c : clips)
                 std::cout << "clip: tick " << c.clip.startTick << " offset " << c.clip.sourceOffsetSamples
                           << " length " << c.clip.lengthSamples << " hash " << c.clip.audioHash << std::endl;
+
+            // 仮想の機器なら、録れた音（クリックの立ち上がり）と MIDI のノートが拍からどれだけずれたかを出す
+            if (loopbackType != nullptr)
+            {
+                for (auto& c : clips)
+                {
+                    juce::AudioFormatManager formats;
+                    formats.registerBasicFormats();
+                    std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (AudioFiles::fileForHash (document->getProjectDir(), c.clip.audioHash)));
+
+                    if (reader == nullptr)
+                        continue;
+
+                    juce::AudioBuffer<float> audio (1, (int) reader->lengthInSamples);
+                    reader->read (&audio, 0, (int) reader->lengthInSamples, 0, true, false);
+                    std::vector<double> onsets;
+                    int quiet = 100000;
+                    const double clipStart = document->getTempoMap().tickToSeconds ((double) c.clip.startTick);
+
+                    for (int i = (int) c.clip.sourceOffsetSamples; i < audio.getNumSamples(); ++i)
+                    {
+                        const float v = std::abs (audio.getSample (0, i));
+
+                        if (v > 0.02f && quiet > (int) (reader->sampleRate * 0.1))
+                            onsets.push_back (clipStart + (double) (i - c.clip.sourceOffsetSamples) / reader->sampleRate);
+
+                        quiet = v > 0.02f ? 0 : quiet + 1;
+                    }
+
+                    printOffsets ("audio", onsets);
+                }
+
+                if (measuredMidi != nullptr)
+                {
+                    std::vector<double> seconds;
+
+                    for (auto t : measuredMidi->ticks)
+                        seconds.push_back (document->getTempoMap().tickToSeconds ((double) t));
+
+                    printOffsets ("midi", seconds);
+                }
+            }
 
             finish (r.wasOk() && document->save().wasOk() && ! clips.empty() ? 0 : 4);
         };
@@ -821,7 +980,7 @@ private:
             if (! juce::exactlyEqual (device->getCurrentSampleRate(), 48000.0) && device->getAvailableSampleRates().contains (48000.0))
             {
                 auto setup = dm.getAudioDeviceSetup();
-                setup.sampleRate = 48000.0;
+                setup.sampleRate = juce::SystemStats::getEnvironmentVariable ("SHAREDAW_LOOPBACK_RATE", "48000").getDoubleValue();
                 dm.setAudioDeviceSetup (setup, true);
             }
         }

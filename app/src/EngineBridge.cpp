@@ -125,6 +125,8 @@ EngineBridge::EngineBridge (te::Engine& e, ProjectDocument& doc, const Instrumen
 EngineBridge::~EngineBridge()
 {
     midiKeyDispatcher->listeners.remove (this);
+    finishOwnRecording();
+    takeWriterThread.stopThread (2000);
 
     for (auto& [id, b] : bindings)
         b.meter.reset();

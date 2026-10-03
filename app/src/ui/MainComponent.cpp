@@ -150,6 +150,14 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
         juce::Timer::callAfterDelay (100, [attempt] { (*attempt) (10); });
     };
     bridge.onPluginRemoved = [this] (te::Plugin* p) { pluginWindows.closeFor (p); };
+
+    // プラグインの画面（Superior Drummer など）を操作している間も、Space などで再生できるように
+    pluginWindows.keyListener = &numpadKeys;
+    pluginWindows.onKey = [this] (const juce::KeyPress& key)
+    {
+        if (const auto command = commandManager.getKeyMappings()->findCommandForKeyPress (key); command != 0)
+            commandManager.invokeDirectly (command, true);
+    };
     timeline.onOpenClip = [this] { pianoRoll.focusEditor(); };
     transport.onMixer = [this] { toggleMixer(); };
     transport.onPianoFull = [this] { togglePianoFullScreen(); };

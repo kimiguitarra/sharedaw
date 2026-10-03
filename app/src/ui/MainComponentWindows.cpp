@@ -504,9 +504,9 @@ void MainComponent::showAudioSettings()
             {
                 const double rate = juce::jmax (1.0, device->getCurrentSampleRate());
                 const int in = device->getInputLatencyInSamples(), out = device->getOutputLatencyInSamples();
-                info.setText ("オーディオはドライバが報告する遅れ（入力 "_ju + juce::String (in) + " + 出力 "_ju + juce::String (out)
-                                + " サンプル = "_ju + juce::String ((in + out) * 1000.0 / rate, 1) + " ms）の分だけ、録音を自動で前にずらしています。"_ju
-                                + "録音が前のめり（早い）なら負の値、遅れるなら正の値にしてください（どちらも、正の値で録音を前＝早くずらします）。"_ju,
+                info.setText ("録音は、オーディオインターフェースが報告する遅れ（入力 "_ju + juce::String (in) + " + 出力 "_ju + juce::String (out)
+                                + " サンプル = "_ju + juce::String ((in + out) * 1000.0 / rate, 1) + " ms）を引いて、聞こえていた位置に置きます（Cubase と同じ）。"_ju
+                                + "ふつうは 0 のままで大丈夫です。インターフェースの報告が実際と違うときだけ調整してください（正の値で録音を前＝早くずらします）。"_ju,
                               juce::dontSendNotification);
             }
         }

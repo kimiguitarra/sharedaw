@@ -36,13 +36,25 @@ namespace PluginHost
 }
 
 /** プラグインのエディタ（GUI）のウィンドウ。 */
-class PluginWindows
+class PluginWindows  : private juce::Timer
 {
 public:
     void show (te::Plugin&, const juce::String& title);
     void closeAll();
     void closeFor (te::Plugin*);
 
+    /**
+        プラグインの画面の上でも DAW のキー（Space で再生・停止、テンキーのトランスポートなど）が効くようにする。
+        Mac はプラグインが使わなかったキーがウィンドウに届くので keyListener で受ける。
+        Windows はプラグインの画面（別のウィンドウ）がキーを持っていってしまうので、プラグインの画面が前にある間、
+        キーが押されたかを見て onKey を呼ぶ。
+    */
+    juce::KeyListener* keyListener = nullptr;
+    std::function<void (const juce::KeyPress&)> onKey;
+
 private:
     std::map<te::Plugin*, std::unique_ptr<juce::DocumentWindow>> windows;
+    std::map<int, bool> keysDown;
+
+    void timerCallback() override;
 };

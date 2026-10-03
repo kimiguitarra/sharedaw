@@ -77,3 +77,33 @@ if [ "$status" -ne 0 ] || ! grep -q "SMOKE TEST PASSED" "$work/smoke.log"; then
     echo "smoke test failed (exit status $status)"
     exit 1
 fi
+
+# 録音のタイミング: 出力を決まった遅れで入力に戻す仮想の機器で録音し、録れた音（メトロノームのクリック）が拍の位置に来るか
+# （入力 300 + 出力 500 サンプル、バッファ 256 / 入力 600 + 出力 600、バッファ 512）
+echo "== recording timing"
+for spec in 300,500,256 600,600,512; do
+    rm -rf "$work/rec"
+    cp -r "$work/demo" "$work/rec"
+    # 曲の音はほぼ無音にして（トラックは残す）、メトロノームのクリックだけが入力に戻るようにする
+    python3 - "$work/rec/project.json" <<'PY'
+import json, sys
+p = json.load(open(sys.argv[1]))
+for t in p["tracks"]:
+    t["volumeDb"] = -80.0
+p["chordTrack"]["events"] = []
+json.dump(p, open(sys.argv[1], "w"), ensure_ascii=False)
+PY
+    status=0
+    SHAREDAW_LOOPBACK="$spec" HOME="$work/home" run_with_timeout 120 ${SMOKE_WRAPPER:-} "$exe" --record-test "$work/rec" 5 0 1 > "$work/rec.log" 2>&1 || status=$?
+    grep -E "^(loopback|audio offset|midi offset|take|record failed|no take)" "$work/rec.log" || true
+    [ "$status" -eq 0 ] || { echo "record test failed (exit status $status)"; exit 1; }
+    python3 - "$work/rec.log" <<'PY'
+import re, sys
+text = open(sys.argv[1]).read()
+m = re.search(r"audio offset ms: median (-?[\d.e-]+)", text)
+assert m, "no audio offset"
+# 録った音は拍から 1 ms 以内（Tracktion の録音は、バッファ 1〜2 個分＝5〜20 ms 前にずれていた）
+assert abs(float(m.group(1))) < 1.0, text
+PY
+done
+echo "recording timing ok"

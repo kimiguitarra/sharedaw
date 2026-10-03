@@ -164,6 +164,14 @@ void PluginWindows::show (te::Plugin& plugin, const juce::String& title)
 
     auto w = std::make_unique<Window> (title, *this, &plugin);
     w->setUsingNativeTitleBar (true);
+
+   #if JUCE_WINDOWS
+    startTimer (15);
+   #else
+    if (keyListener != nullptr)
+        w->addKeyListener (keyListener);
+   #endif
+
     w->setContentOwned (editor, true);
     w->setResizable (editor->isResizable(), false);
     w->centreWithSize (w->getWidth(), w->getHeight());
@@ -174,9 +182,37 @@ void PluginWindows::show (te::Plugin& plugin, const juce::String& title)
 void PluginWindows::closeFor (te::Plugin* p)
 {
     windows.erase (p);
+
+    if (windows.empty())
+        stopTimer();
 }
 
 void PluginWindows::closeAll()
 {
     windows.clear();
+    stopTimer();
+}
+
+void PluginWindows::timerCallback()
+{
+    // プラグインの画面が前にあるときだけ（DAW の画面ではふつうにキーが届く）
+    const bool pluginInFront = std::any_of (windows.begin(), windows.end(), [] (auto& w) { return w.second->isActiveWindow(); });
+
+    static const int keys[] = { juce::KeyPress::spaceKey, juce::KeyPress::numberPad0, juce::KeyPress::numberPad1, juce::KeyPress::numberPad2,
+                                juce::KeyPress::numberPadDecimalPoint, juce::KeyPress::numberPadMultiply, juce::KeyPress::numberPadDivide,
+                                juce::KeyPress::numberPadAdd, juce::KeyPress::numberPadSubtract };
+
+    const auto mods = juce::ModifierKeys::getCurrentModifiersRealtime();
+    const bool plain = ! (mods.isCommandDown() || mods.isCtrlDown() || mods.isAltDown());
+
+    for (int key : keys)
+    {
+        const bool down = pluginInFront && juce::KeyPress::isKeyCurrentlyDown (key);
+
+        // 押した瞬間だけ（押しっぱなしで繰り返さない）
+        if (down && ! keysDown[key] && plain && onKey)
+            onKey (juce::KeyPress (key));
+
+        keysDown[key] = down;
+    }
 }

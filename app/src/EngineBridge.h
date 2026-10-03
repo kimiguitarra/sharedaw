@@ -2,6 +2,7 @@
 
 #include "collab/MasterDsp.h"
 
+#include <limits>
 #include <map>
 
 #include "Common.h"
@@ -165,6 +166,8 @@ public:
 
     /** 手動のレイテンシ補正（サンプル）。ドライバが報告するレイテンシの補正に加えてずらす。 */
     void setManualLatencySamples (int samples);
+    /** 録音のタイミングの確認（--record-test）で使う仮想 MIDI 入力の名前。 */
+    static constexpr const char* loopbackMidiName = "ShareDAW Loopback MIDI";
     /** MIDI の録音位置の補正（ミリ秒。正の値で録音を前＝早くずらす。オーディオの補正と同じ向き）。 */
     void setMidiRecordOffsetMs (double msEarlier);
 
@@ -329,6 +332,41 @@ private:
         std::array<std::atomic<float>, maxChannels> peaks {};
         std::array<std::atomic<float>, maxChannels> recordingPeaks {};   // 録音中の表示用（ミキサーのメーターとは別に読む）
 
+        /**
+            オーディオの録音（入ってきた音をそのままファイルに書く）。
+            位置は「このブロックで鳴らしている位置 − （入力 + 出力 + エンジン内の遅れ）」。
+            Tracktion の録音は位置がバッファ 1〜2 個分前にずれる（録音のタイミングの確認: --record-test と SHAREDAW_LOOPBACK）ので、自前で書く。
+            エンジン内の遅れ（プラグインの遅れの補正）も引く（再生の位置は、補正の分だけ先を処理している）。
+        */
+        struct Take
+        {
+            std::string trackId;
+            std::array<int, 2> channels { -1, -1 };   // InputMeter の番号（有効なチャンネルだけを数えた順）
+            int numChannels = 1;
+            juce::File file;
+            std::unique_ptr<juce::AudioFormatWriter::ThreadedWriter> writer;
+            juce::int64 written = 0;
+
+            // ブロックごとの「再生位置 − それまでに書いたサンプル数」（= 最初のサンプルの位置）。
+            // 再生の始まりは位置がずれることがあるので、最後に真ん中の値（中央値）を使う
+            std::array<juce::int64, 2048> anchors {};
+            int numAnchors = 0;
+            juce::int64 lastPosition = std::numeric_limits<juce::int64>::min();
+            int lastBlock = 0;
+        };
+
+        struct Recorder
+        {
+            std::vector<std::unique_ptr<Take>> takes;
+            tracktion::graph::PlayHead* playHead = nullptr;
+            juce::int64 latency = 0;
+            double sampleRate = 48000.0;
+            std::vector<float> silence = std::vector<float> (16384, 0.0f);
+        };
+
+        juce::SpinLock recorderLock;     // 音の処理のスレッドは recorder を使う間これを持つ
+        Recorder* recorder = nullptr;
+
         void audioDeviceIOCallbackWithContext (const float* const* in, int numIn, float* const* out, int numOut,
                                                int numSamples, const juce::AudioIODeviceCallbackContext&) override;
         void audioDeviceAboutToStart (juce::AudioIODevice*) override {}
@@ -336,6 +374,12 @@ private:
     };
 
     InputMeter inputMeter;
+    std::unique_ptr<InputMeter::Recorder> recorder;
+    juce::TimeSliceThread takeWriterThread { "ShareDAW take writer" };
+    double midiOutputLatencySeconds = 0.0;   // MIDI の録音: 聞こえる音は出力の遅れの分だけ後なので、その分を前へ戻す
+    void startOwnRecording (const juce::File& dir);
+    void finishOwnRecording();
+    void deliverRecordings();
 
     struct MidiIn
     {
