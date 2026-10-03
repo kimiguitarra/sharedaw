@@ -283,7 +283,7 @@ void AudioClipGrid::paint (juce::Graphics& g)
         const double start = (double) clip->sourceOffsetSamples / collab::kSampleRate;
         const double end = start + (double) clip->lengthSamples / collab::kSampleRate;
         AudioFiles::drawWaveform (g, *thumb, r.reduced (0.0f, 6.0f), start, end,
-                                  juce::Decibels::decibelsToGain ((float) clip->gainDb), Theme::clipWave (colour));
+                                  juce::Decibels::decibelsToGain ((float) clip->gainDb) * owner.ctx.state.waveformZoom, Theme::clipWave (colour));
     }
     else
     {

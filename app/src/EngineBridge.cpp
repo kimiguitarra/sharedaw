@@ -64,6 +64,7 @@ EngineBridge::EngineBridge (te::Engine& e, ProjectDocument& doc, const Instrumen
     : engine (e), document (doc), library (lib)
 {
     edit = std::make_unique<te::Edit> (engine, te::Edit::forEditing);
+    midiKeyDispatcher->listeners.add (this);
 
     // 既定で作られるトラックは使わない
     for (auto t : te::getAudioTracks (*edit))
@@ -123,6 +124,8 @@ EngineBridge::EngineBridge (te::Engine& e, ProjectDocument& doc, const Instrumen
 
 EngineBridge::~EngineBridge()
 {
+    midiKeyDispatcher->listeners.remove (this);
+
     for (auto& [id, b] : bindings)
         b.meter.reset();
 

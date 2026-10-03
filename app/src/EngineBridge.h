@@ -24,7 +24,8 @@ class CountInPlugin;
     - Edit 上の編集 → JSON への反映（録音結果の取り込みなど）は M2 で追加する。
 */
 class EngineBridge  : private juce::ChangeListener,
-                      private te::TransportControl::Listener
+                      private te::TransportControl::Listener,
+                      private te::MidiInputDevice::MidiKeyChangeDispatcher::Listener
 {
 public:
     EngineBridge (te::Engine&, ProjectDocument&, const InstrumentLibrary&);
@@ -147,6 +148,20 @@ public:
     /** 録音を始める。停止中なら再生位置から countInBars 小節のカウントインのあとに録音する。 */
     juce::Result startRecording (int countInBars);
     bool isRecording() const;
+
+    /** 録音中に入ってきている音（画面に出すため。録音が終わると消え、取り込んだクリップに替わる）。 */
+    struct LiveRecording
+    {
+        double startSeconds = 0.0;                      // 録音を始めた位置（秒）
+        std::vector<std::pair<double, float>> peaks;    // オーディオ: (秒, その間のピーク 0〜1)
+        struct Note { double start = 0, end = -1; int pitch = 60, velocity = 100; };   // MIDI: end < 0 は押している途中
+        std::vector<Note> notes;
+    };
+
+    const std::map<std::string, LiveRecording>& getLiveRecordings() const noexcept   { return liveRecordings; }
+
+    /** 録音中の入力の大きさを集める（画面のタイマーから呼ぶ）。 */
+    void pollRecording();
 
     /** 手動のレイテンシ補正（サンプル）。ドライバが報告するレイテンシの補正に加えてずらす。 */
     void setManualLatencySamples (int samples);
@@ -310,6 +325,7 @@ private:
     {
         static constexpr int maxChannels = 64;
         std::array<std::atomic<float>, maxChannels> peaks {};
+        std::array<std::atomic<float>, maxChannels> recordingPeaks {};   // 録音中の表示用（ミキサーのメーターとは別に読む）
 
         void audioDeviceIOCallbackWithContext (const float* const* in, int numIn, float* const* out, int numOut,
                                                int numSamples, const juce::AudioIODeviceCallbackContext&) override;
@@ -340,6 +356,11 @@ private:
     int manualLatencySamples = 0;
     double punchInSeconds = 0;
     std::shared_ptr<bool> aliveFlag = std::make_shared<bool> (true);
+
+    std::map<std::string, LiveRecording> liveRecordings;
+    juce::SharedResourcePointer<te::MidiInputDevice::MidiKeyChangeDispatcher> midiKeyDispatcher;
+    void midiKeyStateChanged (te::AudioTrack*, const juce::Array<int>& notesOn, const juce::Array<int>& velocities, const juce::Array<int>& notesOff) override;
+    int activeInputIndex (const juce::String& waveInputName) const;
 
     bool loopEnabled = false;
     collab::Tick loopStart = 0, loopEnd = 0;

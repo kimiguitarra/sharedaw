@@ -113,6 +113,8 @@ TrackLanes::Hit TrackLanes::findHit (juce::Point<float> p) const
             hit.zone = Zone::fadeIn;
         else if (nearTop && std::abs (p.x - fadeOutHandle) <= 6.0f)
             hit.zone = Zone::fadeOut;
+        else if (nearTop && std::abs (p.x - (x1 + x2) * 0.5f) <= 7.0f)
+            hit.zone = Zone::gain;   // 上の真ん中のつまみ: 上下にドラッグでクリップの音量
         else if (p.x - x1 <= edgeGrab && x2 - x1 > edgeGrab * 3)
             hit.zone = Zone::leftEdge;
         else if (x2 - p.x <= edgeGrab && x2 - x1 > edgeGrab * 3)
@@ -179,6 +181,10 @@ void TrackLanes::paint (juce::Graphics& g)
             paintAudioClip (g, c, juce::Rectangle<float> (x1, (float) row.getY() + 3.0f, juce::jmax (2.0f, x2 - x1), (float) row.getHeight() - 7.0f),
                             colour, ctx.state.isClipSelected (c.id));
         }
+
+        // 録音中: 入ってきている音をその場で描く（オーディオは入力の大きさ、MIDI は弾いたノート）
+        if (auto it = ctx.engine.getLiveRecordings().find (t.id); it != ctx.engine.getLiveRecordings().end())
+            paintLiveRecording (g, it->second, juce::Rectangle<float> (0.0f, (float) row.getY() + 3.0f, (float) getWidth(), (float) row.getHeight() - 7.0f));
     }
 
     // ループ範囲
@@ -223,6 +229,81 @@ void TrackLanes::paint (juce::Graphics& g)
         g.drawText ("左側（トラック名の欄）の空いている所を右クリックしてトラックを追加してください（オーディオファイルはここへドラッグ＆ドロップ）"_ju,
                     getLocalBounds(), juce::Justification::centred);
     }
+}
+
+void TrackLanes::paintLiveRecording (juce::Graphics& g, const EngineBridge::LiveRecording& live, juce::Rectangle<float> row) const
+{
+    const auto& map = ctx.document.getTempoMap();
+    const auto& axis = ctx.state.timeline;
+    auto xAt = [&] (double seconds) { return (float) axis.tickToX (map.secondsToTick (seconds)); };
+
+    double end = live.startSeconds;
+
+    if (! live.peaks.empty())
+        end = live.peaks.back().first;
+
+    for (auto& n : live.notes)
+        end = std::max (end, n.end >= 0 ? n.end : n.start);
+
+    end = std::max (end, ctx.engine.getPositionSeconds());
+
+    const float x1 = xAt (live.startSeconds), x2 = xAt (end);
+
+    if (x2 < 0 || x1 > row.getRight())
+        return;
+
+    const auto area = juce::Rectangle<float> (x1, row.getY(), juce::jmax (2.0f, x2 - x1), row.getHeight());
+    g.setColour (Theme::danger.withAlpha (0.18f));
+    g.fillRoundedRectangle (area, 3.0f);
+    g.setColour (Theme::danger.withAlpha (0.8f));
+    g.drawRoundedRectangle (area, 3.0f, 1.0f);
+
+    // オーディオ: 前の点からその点までを、その間のピークの高さで塗る
+    if (! live.peaks.empty())
+    {
+        const float centre = area.getCentreY(), half = area.getHeight() * 0.5f - 2.0f;
+        g.setColour (Theme::danger.withAlpha (0.85f));
+        float prevX = x1;
+
+        for (auto& [seconds, peak] : live.peaks)
+        {
+            const float x = xAt (seconds);
+            const float h = half * juce::jlimit (0.0f, 1.0f, peak * ctx.state.waveformZoom);
+
+            if (x > prevX)
+                g.fillRect (juce::Rectangle<float> (prevX, centre - h, juce::jmax (1.0f, x - prevX), juce::jmax (1.0f, h * 2.0f)));
+
+            prevX = x;
+        }
+    }
+
+    // MIDI: 弾いた高さの範囲を行の高さに合わせて描く
+    if (! live.notes.empty())
+    {
+        int lo = 127, hi = 0;
+
+        for (auto& n : live.notes)
+        {
+            lo = std::min (lo, n.pitch);
+            hi = std::max (hi, n.pitch);
+        }
+
+        lo -= 2;
+        hi += 2;
+        const float noteH = juce::jlimit (2.0f, 8.0f, area.getHeight() / (float) (hi - lo + 1));
+
+        for (auto& n : live.notes)
+        {
+            const float nx1 = xAt (n.start), nx2 = xAt (n.end >= 0 ? n.end : end);
+            const float y = area.getBottom() - 2.0f - (float) (n.pitch - lo + 1) / (float) (hi - lo + 1) * (area.getHeight() - 4.0f);
+            g.setColour (Theme::danger.withMultipliedBrightness (0.6f + 0.4f * (float) n.velocity / 127.0f));
+            g.fillRoundedRectangle (juce::Rectangle<float> (nx1, y, juce::jmax (3.0f, nx2 - nx1), noteH), 1.5f);
+        }
+    }
+
+    g.setColour (Theme::text);
+    g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+    g.drawText ("録音中"_ju, area.reduced (5.0f, 2.0f), juce::Justification::topLeft, false);
 }
 
 void TrackLanes::paintMidiClip (juce::Graphics& g, const collab::MidiClip& c, juce::Rectangle<float> r,
@@ -298,7 +379,7 @@ void TrackLanes::paintAudioClip (juce::Graphics& g, const collab::AudioClip& c, 
         g.reduceClipRegion (r.toNearestInt());
         const double start = (double) c.sourceOffsetSamples / collab::kSampleRate;
         const double end = start + (double) c.lengthSamples / collab::kSampleRate;
-        AudioFiles::drawWaveform (g, *thumb, wave, start, end, juce::Decibels::decibelsToGain ((float) c.gainDb),
+        AudioFiles::drawWaveform (g, *thumb, wave, start, end, juce::Decibels::decibelsToGain ((float) c.gainDb) * ctx.state.waveformZoom,
                                   Theme::clipWave (colour));
     }
     else
@@ -327,6 +408,14 @@ void TrackLanes::paintAudioClip (juce::Graphics& g, const collab::AudioClip& c, 
     g.setColour (Theme::text.withAlpha (0.8f));
     g.fillRect (juce::Rectangle<float> (r.getX() + juce::jmax (4.0f, fadeInW) - 3.0f, r.getY(), 6.0f, 6.0f));
     g.fillRect (juce::Rectangle<float> (r.getRight() - juce::jmax (4.0f, fadeOutW) - 3.0f, r.getY(), 6.0f, 6.0f));
+
+    // 音量のつまみ（上の真ん中。上下にドラッグ）
+    if (r.getWidth() >= 30.0f)
+    {
+        const auto knob = juce::Rectangle<float> (r.getCentreX() - 4.0f, r.getY() + 1.0f, 8.0f, 6.0f);
+        g.setColour (std::abs (c.gainDb) > 0.05 ? Theme::selection : Theme::text.withAlpha (0.8f));
+        g.fillRoundedRectangle (knob, 1.5f);
+    }
 
     g.setColour (selected ? Theme::selection : colour.darker (0.3f));
     g.drawRoundedRectangle (r, 3.0f, selected ? 2.0f : 1.0f);
@@ -389,6 +478,7 @@ void TrackLanes::mouseMove (const juce::MouseEvent& e)
         case Zone::rightEdge:  setMouseCursor (juce::MouseCursor::LeftRightResizeCursor); break;
         case Zone::fadeIn:
         case Zone::fadeOut:    setMouseCursor (juce::MouseCursor::CrosshairCursor); break;
+        case Zone::gain:       setMouseCursor (juce::MouseCursor::UpDownResizeCursor); break;
         case Zone::none:       setMouseCursor (ctx.state.pencil() ? Theme::pencilCursor() : juce::MouseCursor::NormalCursor); break;
         case Zone::body:       setMouseCursor (juce::MouseCursor::NormalCursor); break;
     }
@@ -477,6 +567,7 @@ void TrackLanes::showClipMenu (const collab::Track& track, const std::string& cl
             }
         }
 
+        m.addItem ("ノーマライズ（いちばん大きい所を -1 dB に）"_ju, [this, trackId, clipId] { normaliseClip (trackId, clipId); });
         m.addItem ("クリップの音量…"_ju, [this, trackId, clipId]
         {
             double current = 0;
@@ -637,6 +728,7 @@ void TrackLanes::mouseDown (const juce::MouseEvent& e)
             case Zone::rightEdge: dragMode = DragMode::trimEnd; break;
             case Zone::fadeIn:    dragMode = DragMode::fadeIn; break;
             case Zone::fadeOut:   dragMode = DragMode::fadeOut; break;
+            case Zone::gain:      dragMode = DragMode::gain; break;
             case Zone::none:
             case Zone::body:      dragMode = DragMode::move; break;
         }
@@ -803,6 +895,14 @@ void TrackLanes::mouseDrag (const juce::MouseEvent& e)
                 break;
             }
 
+            case DragMode::gain:
+            {
+                // 上へ 4 ピクセルで +1 dB（Shift で細かく）
+                const double perPixel = e.mods.isShiftDown() ? 0.05 : 0.25;
+                updated.gainDb = juce::jlimit (-60.0, 24.0, std::round ((orig.gainDb - perPixel * e.getDistanceFromDragStartY()) * 10.0) / 10.0);
+                break;
+            }
+
             case DragMode::none:
             case DragMode::move:
             case DragMode::resizeMidi:
@@ -811,7 +911,8 @@ void TrackLanes::mouseDrag (const juce::MouseEvent& e)
                 break;
         }
 
-        editClip (dragMode == DragMode::fadeIn || dragMode == DragMode::fadeOut ? "フェード"_ju : "トリム"_ju,
+        editClip (dragMode == DragMode::fadeIn || dragMode == DragMode::fadeOut ? "フェード"_ju
+                  : dragMode == DragMode::gain ? "クリップの音量"_ju : "トリム"_ju,
                   [updated] (collab::Track& t)
         {
             for (auto& c : t.audioClips)
@@ -996,4 +1097,49 @@ void TrackLanes::filesDropped (const juce::StringArray& paths, int x, int y)
         if (! files.isEmpty())
             safe->ctx.importAudioFiles (files, trackId, tick);
     });
+}
+
+void TrackLanes::normaliseClip (const std::string& trackId, const std::string& clipId)
+{
+    auto* t = ctx.document.getProject().findTrack (trackId);
+
+    if (t == nullptr)
+        return;
+
+    for (auto& c : t->audioClips)
+    {
+        if (c.id != clipId)
+            continue;
+
+        auto* thumb = ctx.audioCache.getThumbnail (ctx.document.getProjectDir(), c.audioHash);
+
+        if (thumb == nullptr)
+            return;
+
+        // クリップの範囲（元ファイルの offset 〜 offset + length）のピーク
+        const double start = (double) c.sourceOffsetSamples / collab::kSampleRate;
+        const double end = start + (double) c.lengthSamples / collab::kSampleRate;
+        float peak = 0.0f;
+
+        for (int ch = 0; ch < thumb->getNumChannels(); ++ch)
+        {
+            float mn = 0.0f, mx = 0.0f;
+            thumb->getApproximateMinMax (start, end, ch, mn, mx);
+            peak = juce::jmax (peak, std::abs (mn), std::abs (mx));
+        }
+
+        if (peak <= 1.0e-5f)
+            return;
+
+        const double db = juce::jlimit (-60.0, 24.0, std::round ((-1.0 - juce::Decibels::gainToDecibels ((double) peak)) * 10.0) / 10.0);
+
+        ctx.document.perform ("ノーマライズ"_ju, [trackId, clipId, db] (collab::Project& p)
+        {
+            if (auto* track = p.findTrack (trackId))
+                for (auto& clip : track->audioClips)
+                    if (clip.id == clipId)
+                        clip.gainDb = db;
+        });
+        return;
+    }
 }

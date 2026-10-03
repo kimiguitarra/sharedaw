@@ -45,8 +45,8 @@ public:
 private:
     AppContext& ctx;
 
-    enum class Zone { none, body, leftEdge, rightEdge, fadeIn, fadeOut };
-    enum class DragMode { none, move, resizeMidi, trimMidiStart, trimStart, trimEnd, fadeIn, fadeOut, rubberBand };
+    enum class Zone { none, body, leftEdge, rightEdge, fadeIn, fadeOut, gain };
+    enum class DragMode { none, move, resizeMidi, trimMidiStart, trimStart, trimEnd, fadeIn, fadeOut, gain, rubberBand };
 
     struct Hit
     {
@@ -78,6 +78,8 @@ private:
     collab::Tick snap (double tick, const juce::ModifierKeys&) const;
     void paintMidiClip (juce::Graphics&, const collab::MidiClip&, juce::Rectangle<float>, juce::Colour, bool selected) const;
     void paintAudioClip (juce::Graphics&, const collab::AudioClip&, juce::Rectangle<float>, juce::Colour, bool selected);
+    void normaliseClip (const std::string& trackId, const std::string& clipId);
+    void paintLiveRecording (juce::Graphics&, const EngineBridge::LiveRecording&, juce::Rectangle<float> row) const;
     void showClipMenu (const collab::Track&, const std::string& clipId, bool audio);
     void createMidiClip (const std::string& trackId, int bar, bool thenDragLength);
     void updateBandSelection();
@@ -121,6 +123,7 @@ public:
     /** マーカー〜コードのレーンの上のホイール（レーンから親へ渡ってくる）: Ctrl でズーム、Shift で横スクロール。 */
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
     void setPlayheadTick (double tick);
+    void repaintLanes()                     { lanes.repaint(); }
 
     /** テンポ・拍子・コードのレーンにフォーカスがあれば、そこで選択中のものを削除する（削除したら true）。 */
     bool deleteLaneSelection();

@@ -34,6 +34,9 @@ void EngineBridge::InputMeter::audioDeviceIOCallbackWithContext (const float* co
 
         if (peak > peaks[(size_t) ch].load (std::memory_order_relaxed))
             peaks[(size_t) ch].store (peak, std::memory_order_relaxed);
+
+        if (peak > recordingPeaks[(size_t) ch].load (std::memory_order_relaxed))
+            recordingPeaks[(size_t) ch].store (peak, std::memory_order_relaxed);
     }
 
     // 音は出さない（ほかのコールバックの音に足されるので 0 にしておく）
@@ -380,4 +383,122 @@ void EngineBridge::recordingFinished (te::InputDeviceInstance& input, te::EditIt
         if (onRecordingFinished)
             onRecordingFinished (std::move (takes));
     });
+}
+
+//==============================================================================
+int EngineBridge::activeInputIndex (const juce::String& waveInputName) const
+{
+    // 入力（Tracktion の WaveInputDevice）→ オーディオ機器のチャンネル → InputMeter の番号（有効なチャンネルだけを数えた順）
+    auto& dm = engine.getDeviceManager();
+    auto* device = dm.deviceManager.getCurrentAudioDevice();
+
+    if (device == nullptr)
+        return -1;
+
+    for (int i = 0; i < dm.getNumWaveInDevices(); ++i)
+    {
+        auto* w = dm.getWaveInDevice (i);
+
+        if (w == nullptr || w->getName() != waveInputName || w->getChannels().empty())
+            continue;
+
+        const int channel = w->getChannels().front().indexInDevice;
+        const auto active = device->getActiveInputChannels();
+
+        if (channel < 0 || ! active[channel])
+            return -1;
+
+        int index = 0;
+
+        for (int ch = 0; ch < channel; ++ch)
+            if (active[ch])
+                ++index;
+
+        return index < InputMeter::maxChannels ? index : -1;
+    }
+
+    return -1;
+}
+
+void EngineBridge::pollRecording()
+{
+    if (! isRecording())
+    {
+        liveRecordings.clear();
+
+        for (auto& p : inputMeter.recordingPeaks)
+            p.store (0.0f, std::memory_order_relaxed);
+
+        return;
+    }
+
+    const double now = getPositionSeconds();
+    std::map<int, float> channelPeaks;   // 同じ入力を 2 つのトラックで録っていても、読むのは 1 回
+
+    auto peakOf = [&] (const juce::String& name)
+    {
+        const int index = name.isNotEmpty() ? activeInputIndex (name) : -1;
+
+        if (index < 0)
+            return 0.0f;
+
+        if (auto it = channelPeaks.find (index); it != channelPeaks.end())
+            return it->second;
+
+        return channelPeaks[index] = inputMeter.recordingPeaks[(size_t) index].exchange (0.0f, std::memory_order_relaxed);
+    };
+
+    for (auto& [trackId, input] : trackInputs)
+    {
+        if (! input.armed || input.device.isEmpty())
+            continue;
+
+        auto* t = document.getProject().findTrack (trackId);
+
+        if (t == nullptr || t->type != collab::TrackType::audio)
+            continue;
+
+        const float peak = juce::jmax (peakOf (input.device), peakOf (input.deviceRight));
+
+        // カウントイン中は描かない（録音はまだ始まっていない）
+        if (now < punchInSeconds)
+            continue;
+
+        auto& live = liveRecordings[trackId];
+        live.startSeconds = punchInSeconds;
+        live.peaks.emplace_back (now, peak);
+    }
+}
+
+void EngineBridge::midiKeyStateChanged (te::AudioTrack* track, const juce::Array<int>& notesOn,
+                                        const juce::Array<int>& velocities, const juce::Array<int>& notesOff)
+{
+    // Tracktion がメッセージスレッドで少し遅れて（25〜50 ms）知らせてくる。画面に出すだけなのでこれで足りる
+    if (track == nullptr || ! isRecording())
+        return;
+
+    std::string trackId;
+
+    for (auto& [id, b] : bindings)
+        if (b.track.get() == track)
+            trackId = id;
+
+    const double now = getPositionSeconds();
+
+    if (trackId.empty() || now < punchInSeconds)
+        return;
+
+    auto& live = liveRecordings[trackId];
+    live.startSeconds = punchInSeconds;
+
+    for (int pitch : notesOff)
+        for (auto it = live.notes.rbegin(); it != live.notes.rend(); ++it)
+            if (it->pitch == pitch && it->end < 0)
+            {
+                it->end = now;
+                break;
+            }
+
+    for (int i = 0; i < notesOn.size(); ++i)
+        live.notes.push_back ({ now, -1.0, notesOn[i], velocities[i] });
 }

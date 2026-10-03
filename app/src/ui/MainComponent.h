@@ -158,6 +158,7 @@ private:
     void toggleSyncPanel();
     bool lastCopiedRange = false;
     double lastTimelineZoom = 0.0, lastPianoZoom = 0.0;   // 拡大・縮小の連動用
+    bool wasRecording = false;
 
     // ピアノロールの画面（ミキサーと同じく別のウィンドウで画面いっぱいに。ピアノロールをそこへ移す）
     bool pianoFullScreen = false;

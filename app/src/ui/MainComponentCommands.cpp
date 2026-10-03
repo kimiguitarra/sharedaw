@@ -38,7 +38,7 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
                          cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
                          cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9,
                          cmdToolSplit, cmdCopy, cmdCut, cmdPaste, cmdNudgeLeft, cmdNudgeRight,
-                         cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate, cmdToLoopStart, cmdToLoopEnd, cmdInspector, cmdCursorLeft, cmdCursorRight, cmdBarLeft, cmdBarRight, cmdTrackUp, cmdTrackDown, cmdPianoFull });
+                         cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate, cmdToLoopStart, cmdToLoopEnd, cmdInspector, cmdCursorLeft, cmdCursorRight, cmdBarLeft, cmdBarRight, cmdTrackUp, cmdTrackDown, cmdPianoFull, cmdWaveBigger, cmdWaveSmaller });
 }
 
 void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommandInfo& info)
@@ -129,6 +129,15 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdZoomOut:
             info.setInfo ("縮小（横）"_ju, {}, "View", 0);
             info.defaultKeypresses.add (state.behaviour().zoomOutKey);
+            break;
+        case cmdWaveBigger:
+            info.setInfo ("波形を大きく表示（音量は変えない）"_ju, {}, "View", 0);
+            info.addDefaultKeypress ('h', juce::ModifierKeys::shiftModifier);
+            break;
+        case cmdWaveSmaller:
+            info.setInfo ("波形を小さく表示"_ju, {}, "View", 0);
+            info.addDefaultKeypress ('g', juce::ModifierKeys::shiftModifier);
+            info.setActive (state.waveformZoom > 1.0f);
             break;
         case cmdAddMarker:
             info.setInfo ("再生位置にマーカーを追加"_ju, {}, "Transport", 0);
@@ -326,6 +335,17 @@ bool MainComponent::perform (const InvocationInfo& info)
                 bridge.returnToStart();
             break;
         case cmdZoomIn:     zoom (1.25); break;
+        case cmdWaveBigger:
+        case cmdWaveSmaller:
+            // 表示だけ（クリップの音量や書き出しは変わらない）。1 倍〜16 倍
+            state.waveformZoom = juce::jlimit (1.0f, 16.0f, state.waveformZoom * (info.commandID == cmdWaveBigger ? 1.5f : 1.0f / 1.5f));
+
+            if (state.waveformZoom < 1.05f)
+                state.waveformZoom = 1.0f;
+
+            state.changed();
+            commandManager.commandStatusChanged();
+            break;
         case cmdZoomOut:    zoom (0.8); break;
         case cmdAddMarker:
         {
@@ -649,6 +669,8 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addSeparator();
             m.addCommandItem (cm, cmdZoomIn);
             m.addCommandItem (cm, cmdZoomOut);
+            m.addCommandItem (cm, cmdWaveBigger);
+            m.addCommandItem (cm, cmdWaveSmaller);
             m.addCommandItem (cm, cmdAutoScroll);
             m.addSeparator();
             m.addSubMenu ("文字サイズ（画面共有用）"_ju, sizes);

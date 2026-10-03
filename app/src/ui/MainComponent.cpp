@@ -318,6 +318,23 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
             std::_Exit (7);
         }
     }, "nudge and velocity in the piano roll" });
+    steps->push_back ({ 300, [] (MainComponent& m)
+    {
+        m.commandManager.invokeDirectly (cmdWaveBigger, false);
+        m.commandManager.invokeDirectly (cmdWaveBigger, false);
+        m.timeline.repaintLanes();
+    }, "waveform display zoom" });
+    steps->push_back ({ 300, [] (MainComponent& m)
+    {
+        for (int i = 0; i < 4; ++i)
+            m.commandManager.invokeDirectly (cmdWaveSmaller, false);
+
+        if (m.state.waveformZoom != 1.0f)
+        {
+            std::cout << "smoke: FAILED waveform zoom did not return to 1" << std::endl;
+            std::_Exit (7);
+        }
+    }, "waveform display zoom back" });
     steps->push_back ({ 800, [] (MainComponent& m) { m.commandManager.invokeDirectly (cmdPlay, false); }, "play" });
     steps->push_back ({ 2000, [] (MainComponent& m) { m.commandManager.invokeDirectly (cmdPlay, false); m.bridge.stop(); }, "stop" });
 
@@ -468,6 +485,12 @@ void MainComponent::timerCallback()
     }
 
     bridge.pollMidiActivity();
+    bridge.pollRecording();
+
+    if (bridge.isRecording() || ! bridge.getLiveRecordings().empty() || wasRecording)
+        timeline.repaintLanes();   // 録音中の音を描き足す
+
+    wasRecording = bridge.isRecording();
     const bool playing = bridge.isPlaying();
     const double tick = bridge.getPositionTick();
     state.playheadTick = tick;

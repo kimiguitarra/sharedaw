@@ -139,6 +139,7 @@ struct EditorState  : public juce::ChangeBroadcaster
     }
 
     bool autoScroll = true;                     // 再生中に再生位置を追ってスクロールする（F）
+    float waveformZoom = 1.0f;                  // 波形を表示の上だけ大きくする倍率（音量は変わらない。Shift+H / Shift+G）
 
     std::string selectedTrackId;
     std::string selectedClipId;             // 主に選んでいるクリップ（ピアノロールで開くもの）
