@@ -65,7 +65,7 @@ void MainComponent::togglePianoFullScreen()
         window->setContentOwned (new Page (pianoRoll), false);
         window->setResizable (true, false);
         window->setResizeLimits (400, 300, 6000, 4000);
-        window->addKeyListener (commandManager.getKeyMappings());   // この画面でも Space・E などが効くように
+        window->addKeyListener (&numpadKeys);   // この画面でも Space・E などが効くように
 
         if (auto* top = getTopLevelComponent())
             if (auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect (top->getScreenBounds()))
@@ -114,7 +114,7 @@ void MainComponent::toggleMixer()
         window->setContentOwned (new MixerView (ctx), true);
         window->setResizable (true, false);
         window->setResizeLimits (300, 280, 4000, 2000);
-        window->addKeyListener (commandManager.getKeyMappings());   // ミキサーの上でも F3 などが効くように
+        window->addKeyListener (&numpadKeys);   // ミキサーの上でも F3 などが効くように
 
         // 最初は画面いっぱい（メイン画面のあるディスプレイの作業領域）
         if (auto* top = getTopLevelComponent())
@@ -162,7 +162,7 @@ bool MainComponent::openBuiltinEffect (const std::string& trackId, const std::st
         window->setName (editor->getTitle());
         window->setContentOwned (editor, true);
         window->setResizable (false, false);
-        window->addKeyListener (commandManager.getKeyMappings());
+        window->addKeyListener (&numpadKeys);
 
         if (auto* top = getTopLevelComponent())
             window->setTopLeftPosition (top->getX() + 180 + 24 * (int) (effectWindows.size() % 6), top->getY() + 180 + 24 * (int) (effectWindows.size() % 6));
@@ -198,7 +198,7 @@ void MainComponent::openChannelStrip (const std::string& trackId, bool compresso
         editor->onTitleChanged = [w, editor] { w->setName (editor->getTitle()); };
         window->setContentOwned (editor, true);
         window->setResizable (false, false);
-        window->addKeyListener (commandManager.getKeyMappings());
+        window->addKeyListener (&numpadKeys);
 
         if (auto* top = getTopLevelComponent())
             window->setTopLeftPosition (top->getX() + (compressor ? 160 : 120), top->getY() + (compressor ? 160 : 120));
@@ -237,7 +237,7 @@ void MainComponent::openMaster()
         window->setUsingNativeTitleBar (true);
         window->setContentOwned (new MasterPanel (ctx), true);
         window->setResizable (false, false);
-        window->addKeyListener (commandManager.getKeyMappings());
+        window->addKeyListener (&numpadKeys);
 
         if (auto* top = getTopLevelComponent())
             window->setTopLeftPosition (top->getX() + 160, top->getY() + 140);

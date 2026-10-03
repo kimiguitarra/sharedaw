@@ -1,0 +1,14 @@
+// rimshot: Virtuosity Drums（CC0）snare_rimshot のキック・スネア・オーバーヘッドのマイクを同じ音量でまとめたもの
+<group> loop_mode=one_shot off_mode=normal ampeg_release=0.05 group_volume=7 amp_veltrack=0
+<region> sample=../1.2.0/audio/virtuosity/rimshot/snare_rimshot_vl1.flac hivel=10
+<region> sample=../1.2.0/audio/virtuosity/rimshot/snare_rimshot_vl2.flac lovel=11 hivel=21
+<region> sample=../1.2.0/audio/virtuosity/rimshot/snare_rimshot_vl3.flac lovel=22 hivel=32
+<region> sample=../1.2.0/audio/virtuosity/rimshot/snare_rimshot_vl4.flac lovel=33 hivel=42
+<region> sample=../1.2.0/audio/virtuosity/rimshot/snare_rimshot_vl5.flac lovel=43 hivel=53
+<region> sample=../1.2.0/audio/virtuosity/rimshot/snare_rimshot_vl6.flac lovel=54 hivel=63
+<region> sample=../1.2.0/audio/virtuosity/rimshot/snare_rimshot_vl7.flac lovel=64 hivel=74
+<region> sample=../1.2.0/audio/virtuosity/rimshot/snare_rimshot_vl8.flac lovel=75 hivel=85
+<region> sample=../1.2.0/audio/virtuosity/rimshot/snare_rimshot_vl9.flac lovel=86 hivel=95
+<region> sample=../1.2.0/audio/virtuosity/rimshot/snare_rimshot_vl10.flac lovel=96 hivel=106
+<region> sample=../1.2.0/audio/virtuosity/rimshot/snare_rimshot_vl11.flac lovel=107 hivel=117
+<region> sample=../1.2.0/audio/virtuosity/rimshot/snare_rimshot_vl12.flac lovel=118

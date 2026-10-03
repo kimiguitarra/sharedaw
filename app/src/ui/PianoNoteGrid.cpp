@@ -73,7 +73,7 @@ void NoteGrid::paint (juce::Graphics& g)
             g.setColour (Theme::gridSub);
             g.drawHorizontalLine ((int) (y + (float) owner.noteHeight) - 1, 0.0f, (float) getWidth());
 
-            if (rowIndex + 1 < (int) owner.drumRows.size() && drumFamily (owner.drumRows[(size_t) rowIndex + 1]) != drumFamily (p))
+            if (rowIndex + 1 < (int) owner.drumRows.size() && owner.drumFamilyOf (owner.drumRows[(size_t) rowIndex + 1]) != owner.drumFamilyOf (p))
             {
                 g.setColour (Theme::gridBar);
                 g.fillRect (0.0f, y + (float) owner.noteHeight - 2.0f, (float) getWidth(), 2.0f);
@@ -166,6 +166,18 @@ void NoteGrid::paint (juce::Graphics& g)
             {
                 g.setColour (Theme::warning);
                 g.drawLine (hit.getX(), hit.getBottom(), hit.getRight(), hit.getY(), 1.0f);
+            }
+
+            // ベロシティの数値（ブロックに収まる幅があるとき）
+            if (w >= 17.0f && owner.noteHeight >= 12)
+            {
+                const auto textArea = juce::Rectangle<float> (hit.getX(), y, w, (float) owner.noteHeight);
+                const auto text = juce::String (n.velocity);
+                g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+                g.setColour (Theme::background.withAlpha (0.85f));
+                g.drawText (text, textArea.translated (0.8f, 0.8f), juce::Justification::centred, false);
+                g.setColour (Theme::text);
+                g.drawText (text, textArea, juce::Justification::centred, false);
             }
 
             continue;
@@ -265,11 +277,27 @@ void NoteGrid::mouseMove (const juce::MouseEvent& e)
         }
     }
 
+    bool edge = false;
+    auto* n = hitNote (e.position, edge);
+
+    // ノートの上ではベロシティを出す
+    {
+        juce::String tip;
+
+        if (n != nullptr)
+        {
+            auto name = owner.isDrumTrack() ? owner.drumPieceName (n->pitch) : juce::String();
+            tip = (name.isNotEmpty() ? name : toJuce (collab::midiNoteName (n->pitch))) + "  ベロシティ "_ju + juce::String (n->velocity);
+        }
+
+        if (tip != getTooltip())
+            setTooltip (tip);
+    }
+
     if (owner.ctx.state.tool != EditTool::select)
         return setMouseCursor (Theme::toolCursor (owner.ctx.state.tool));
 
-    bool edge = false;
-    auto* n = hitNote (e.position, edge);
+
     setMouseCursor (n != nullptr && edge ? juce::MouseCursor::LeftRightResizeCursor
                                          : n != nullptr ? juce::MouseCursor::DraggingHandCursor
                                                         : juce::MouseCursor::NormalCursor);
@@ -551,6 +579,20 @@ bool NoteGrid::keyPressed (const juce::KeyPress& key)
     {
         owner.selectedNotes.clear();
         owner.repaint();
+        return true;
+    }
+
+    // Ctrl（Mac は Cmd）+ Alt + ←→: ナッジ（選んだノートを少しだけずらす）
+    if (mods.isAltDown() && mods.isCommandDown() && (code == juce::KeyPress::leftKey || code == juce::KeyPress::rightKey))
+    {
+        owner.nudgeSelection (code == juce::KeyPress::leftKey ? -1 : 1);
+        return true;
+    }
+
+    // Alt + ↑↓: 選んだノートのベロシティを 1（Shift も押すと 10）上げ下げ
+    if (mods.isAltDown() && ! owner.selectedNotes.empty() && (code == juce::KeyPress::upKey || code == juce::KeyPress::downKey))
+    {
+        owner.changeSelectedVelocity ((code == juce::KeyPress::upKey ? 1 : -1) * (mods.isShiftDown() ? 10 : 1));
         return true;
     }
 

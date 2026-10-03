@@ -19,6 +19,31 @@ const DrumPiece* BuiltinInstrumentManifest::findPiece (const std::string& key) c
     return nullptr;
 }
 
+const DrumPiece* BuiltinInstrumentManifest::findPieceForNote (int note, std::string* name) const
+{
+    for (auto& p : pieces)
+    {
+        if (p.note == note)
+        {
+            if (name != nullptr)
+                *name = p.displayName;
+
+            return &p;
+        }
+
+        for (auto& a : p.aliases)
+            if (a.note == note)
+            {
+                if (name != nullptr)
+                    *name = a.displayName;
+
+                return &p;
+            }
+    }
+
+    return nullptr;
+}
+
 BuiltinInstrumentManifest BuiltinInstrumentManifest::fromJson (const json& j)
 {
     try
@@ -38,8 +63,15 @@ BuiltinInstrumentManifest BuiltinInstrumentManifest::fromJson (const json& j)
         if (m.type == "drums")
         {
             for (auto& p : j.at ("pieces"))
-                m.pieces.push_back ({ p.at ("key").get<std::string>(), p.value ("name", p.at ("key").get<std::string>()),
-                                      p.at ("note").get<int>(), p.value ("sfzExtra", std::string()) });
+            {
+                DrumPiece piece { p.at ("key").get<std::string>(), p.value ("name", p.at ("key").get<std::string>()),
+                                  p.at ("note").get<int>(), p.value ("sfzExtra", std::string()), {} };
+
+                for (auto& a : p.value ("aliases", json::array()))
+                    piece.aliases.push_back ({ a.at ("note").get<int>(), a.value ("name", piece.displayName) });
+
+                m.pieces.push_back (std::move (piece));
+            }
 
             for (auto& [kit, map] : j.at ("kits").items())
                 for (auto& [piece, sample] : map.items())
@@ -64,7 +96,7 @@ BuiltinInstrumentManifest BuiltinInstrumentManifest::fromJson (const json& j)
             if (j.contains ("presets"))
                 for (auto& p : j.at ("presets"))
                     m.presets.push_back ({ p.at ("key").get<std::string>(), p.value ("name", p.at ("key").get<std::string>()),
-                                           p.at ("sfz").get<std::string>() });
+                                           p.at ("sfz").get<std::string>(), p.value ("volumeDb", 0.0) });
 
             if (m.mainSfz.empty() && m.presets.empty())
                 throw std::runtime_error ("melodic instrument needs 'main' or 'presets'");
@@ -196,12 +228,21 @@ std::string generateSfz (const BuiltinInstrumentManifest& m, const json& params)
     if (m.type == "melodic")
     {
         auto sfz = m.mainSfz;
+        double presetVolumeDb = 0.0;
 
         for (auto& p : m.presets)
             if (p.key == r.preset)
+            {
                 sfz = p.sfz;
+                presetVolumeDb = p.volumeDb;
+            }
 
-        s << "<master>" << toneOpcodes << "\n";
+        s << "<master>" << toneOpcodes;
+
+        if (std::abs (presetVolumeDb) > 0.001)
+            s << " volume=" << fmt (presetVolumeDb);
+
+        s << "\n";
 
         if (isSafeRelativePath (sfz))
             s << "#include \"" << sfz << "\"\n";
@@ -217,16 +258,25 @@ std::string generateSfz (const BuiltinInstrumentManifest& m, const json& params)
             continue;
 
         auto& p = it->second;
-        s << "<master> key=" << piece.note
-          << " volume=" << fmt (p.volumeDb)
-          << " pan=" << fmt (p.pan * 100.0)
-          << " tune=" << fmt (std::round (p.tuneSemitones * 100.0))
-          << toneOpcodes;
+        std::vector<int> notes { piece.note };
 
-        if (! piece.sfzExtra.empty())
-            s << " " << piece.sfzExtra;
+        for (auto& a : piece.aliases)
+            notes.push_back (a.note);
 
-        s << "\n#include \"samples/" << p.sample << ".sfz\"\n";
+        // 別名のノートも同じ設定・同じサンプルで鳴らす（チョークのグループも同じ）
+        for (int note : notes)
+        {
+            s << "<master> key=" << note
+              << " volume=" << fmt (p.volumeDb)
+              << " pan=" << fmt (p.pan * 100.0)
+              << " tune=" << fmt (std::round (p.tuneSemitones * 100.0))
+              << toneOpcodes;
+
+            if (! piece.sfzExtra.empty())
+                s << " " << piece.sfzExtra;
+
+            s << "\n#include \"samples/" << p.sample << ".sfz\"\n";
+        }
     }
 
     return s.str();

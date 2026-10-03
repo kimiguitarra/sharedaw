@@ -284,3 +284,37 @@ void PianoRollView::quantiseSelection()
         collab::quantiseNotes (c, ids, g, map);
     });
 }
+
+void PianoRollView::nudgeSelection (int direction)
+{
+    auto* clip = getClip();
+
+    if (clip == nullptr || selectedNotes.empty())
+        return;
+
+    const auto sel = selectedNotes;
+    const auto step = direction * nudgeTicks;
+
+    // 続けて押した分は 1 回の「元に戻す」にまとめる
+    editNotes ("ナッジ"_ju, [sel, step] (collab::MidiClip& c)
+    {
+        for (auto& n : c.notes)
+            if (sel.count (n.id) > 0)
+                n.tick = juce::jlimit<collab::Tick> (0, c.lengthTick - 1, n.tick + step);
+    }, "nudge");
+}
+
+void PianoRollView::changeSelectedVelocity (int delta)
+{
+    if (getClip() == nullptr || selectedNotes.empty())
+        return;
+
+    const auto sel = selectedNotes;
+
+    editNotes ("ベロシティの変更"_ju, [sel, delta] (collab::MidiClip& c)
+    {
+        for (auto& n : c.notes)
+            if (sel.count (n.id) > 0)
+                n.velocity = juce::jlimit (1, 127, n.velocity + delta);
+    }, "velocity-keys");
+}

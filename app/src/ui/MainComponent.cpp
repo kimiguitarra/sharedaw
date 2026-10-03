@@ -155,7 +155,7 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
 
     commandManager.registerAllCommandsForTarget (this);
     commandManager.setFirstCommandTarget (this);
-    addKeyListener (commandManager.getKeyMappings());
+    addKeyListener (&numpadKeys);
     setWantsKeyboardFocus (true);
 
     document.addChangeListener (this);
@@ -286,6 +286,38 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
         m.toggleMixer();
     }, "open piano roll window and mixer" });
     steps->push_back ({ 1500, [] (MainComponent& m) { m.togglePianoFullScreen(); m.toggleMixer(); }, "close piano roll window and mixer" });
+    steps->push_back ({ 300, [] (MainComponent& m)
+    {
+        // ピアノロールの編集: 全部選んでナッジ・ベロシティを変え、元に戻す
+        auto* clip = m.ctx.selectedClip();
+
+        if (clip == nullptr || clip->notes.empty())
+            return;
+
+        const auto before = *clip;
+        m.pianoRoll.selectAllNotes();
+        m.pianoRoll.nudgeSelection (1);
+        m.pianoRoll.changeSelectedVelocity (-5);
+        auto* after = m.ctx.selectedClip();
+        const auto& n0 = before.notes.front();
+        auto it = std::find_if (after->notes.begin(), after->notes.end(), [&] (auto& n) { return n.id == n0.id; });
+
+        if (it == after->notes.end() || it->tick != std::min (n0.tick + m.pianoRoll.nudgeTicks, before.lengthTick - 1)
+             || it->velocity != juce::jlimit (1, 127, n0.velocity - 5))
+        {
+            std::cout << "smoke: FAILED nudge / velocity" << std::endl;
+            std::_Exit (7);
+        }
+
+        m.document.undo();
+        m.document.undo();
+
+        if (m.ctx.selectedClip()->notes.front().tick != before.notes.front().tick)
+        {
+            std::cout << "smoke: FAILED undo of nudge" << std::endl;
+            std::_Exit (7);
+        }
+    }, "nudge and velocity in the piano roll" });
     steps->push_back ({ 800, [] (MainComponent& m) { m.commandManager.invokeDirectly (cmdPlay, false); }, "play" });
     steps->push_back ({ 2000, [] (MainComponent& m) { m.commandManager.invokeDirectly (cmdPlay, false); m.bridge.stop(); }, "stop" });
 

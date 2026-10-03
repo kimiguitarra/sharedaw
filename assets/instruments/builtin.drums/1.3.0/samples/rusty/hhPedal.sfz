@@ -1,0 +1,27 @@
+// hhPedal: Big Rusty Drums（CC0）hihat_14 / ht_chik_cl.sfz のマイクを作者の既定のバランスでまとめたもの
+// ShareDAW 1.3.0: 強さによる音量を (ベロシティ/127)^0.8 に揃えた（tools/build-instruments/drums_1_3.py）
+<group> lovel=0 hivel=25 amp_veltrack=100 amp_velcurve_1=0.0761 amp_velcurve_25=1 group_volume=7.54
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhPedal/ht_chik_vl1_rr1.flac seq_position=1
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhPedal/ht_chik_vl1_rr2.flac seq_position=2
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhPedal/ht_chik_vl1_rr3.flac seq_position=3
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhPedal/ht_chik_vl1_rr4.flac seq_position=4
+<group> lovel=26 hivel=51 amp_veltrack=100 amp_velcurve_26=0.5833 amp_velcurve_51=1 group_volume=9.43
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhPedal/ht_chik_vl2_rr1.flac seq_position=1
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhPedal/ht_chik_vl2_rr2.flac seq_position=2
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhPedal/ht_chik_vl2_rr3.flac seq_position=3
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhPedal/ht_chik_vl2_rr4.flac seq_position=4
+<group> lovel=52 hivel=76 amp_veltrack=100 amp_velcurve_52=0.7382 amp_velcurve_76=1 group_volume=8.55
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhPedal/ht_chik_vl3_rr1.flac seq_position=1
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhPedal/ht_chik_vl3_rr2.flac seq_position=2
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhPedal/ht_chik_vl3_rr3.flac seq_position=3
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhPedal/ht_chik_vl3_rr4.flac seq_position=4
+<group> lovel=77 hivel=101 amp_veltrack=100 amp_velcurve_77=0.8049 amp_velcurve_101=1 group_volume=8.40
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhPedal/ht_chik_vl4_rr1.flac seq_position=1
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhPedal/ht_chik_vl4_rr2.flac seq_position=2
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhPedal/ht_chik_vl4_rr3.flac seq_position=3
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhPedal/ht_chik_vl4_rr4.flac seq_position=4
+<group> lovel=102 hivel=127 amp_veltrack=100 amp_velcurve_102=0.8391 amp_velcurve_127=1 group_volume=7.00
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhPedal/ht_chik_vl5_rr1.flac seq_position=1
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhPedal/ht_chik_vl5_rr2.flac seq_position=2
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhPedal/ht_chik_vl5_rr3.flac seq_position=3
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhPedal/ht_chik_vl5_rr4.flac seq_position=4

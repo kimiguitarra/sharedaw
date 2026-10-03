@@ -14,12 +14,20 @@
 namespace collab
 {
 
+/** パーツを鳴らす別のノート（Superior Drummer 3 のマップなど）。 */
+struct DrumNoteAlias
+{
+    int note = 0;
+    std::string displayName;  // 例: "ハイハット（クローズ・エッジ）"
+};
+
 struct DrumPiece
 {
     std::string key;          // "kick", "snare", ...（params.pieces のキー）
     std::string displayName;  // 表示名
     int note = 36;            // 発音する MIDI ノート（GM ドラムマップ）
     std::string sfzExtra;     // チョーク等、SFZ の追加オプコード
+    std::vector<DrumNoteAlias> aliases;   // 同じ音で鳴る別のノート
 };
 
 /** 旋律楽器の音色（プリセット）。params.preset で選ぶ。 */
@@ -28,6 +36,7 @@ struct InstrumentPreset
     std::string key;          // params.preset の値
     std::string displayName;
     std::string sfz;          // 音色の SFZ（マニフェストのフォルダからの相対パス）
+    double volumeDb = 0.0;    // 音色ごとの音量の補正（ほかの内蔵音源と同じくらいの大きさにする）
 };
 
 struct BuiltinInstrumentManifest
@@ -50,6 +59,8 @@ struct BuiltinInstrumentManifest
     InstrumentRef ref() const     { return { id, version }; }
     const std::string& sampleVersion() const   { return samplesFrom.empty() ? version : samplesFrom; }
     const DrumPiece* findPiece (const std::string& key) const;
+    /** このノートで鳴るパーツ（別名のノートを含む）。name にはそのノートの表示名を入れる。 */
+    const DrumPiece* findPieceForNote (int note, std::string* name = nullptr) const;
 
     /** manifest.json の内容から読み込む。不正なら std::runtime_error。 */
     static BuiltinInstrumentManifest fromJson (const nlohmann::json&);

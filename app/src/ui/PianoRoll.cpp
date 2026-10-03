@@ -43,6 +43,21 @@ PianoRollView::PianoRollView (AppContext& c)
     quantiseButton.onClick = [this] { quantiseSelection(); };
     addAndMakeVisible (quantiseButton);
 
+    // ナッジ（Superior Drummer と同じく tick 単位。1 拍 = 960 tick）
+    for (int ticks : { 1, 5, 10, 20, 40, 80 })
+        nudgeBox.addItem (juce::String (ticks) + " tick", ticks);
+
+    nudgeBox.setSelectedId ((int) nudgeTicks, juce::dontSendNotification);
+    nudgeBox.setTooltip ("ナッジでずらす量（1 拍 = 960 tick）"_ju);
+    nudgeBox.onChange = [this] { nudgeTicks = nudgeBox.getSelectedId(); };
+    nudgeLeftButton.setTooltip ("ナッジ: 選んだノートを少し前へ（Ctrl+Alt+←）"_ju);
+    nudgeRightButton.setTooltip ("ナッジ: 選んだノートを少し後ろへ（Ctrl+Alt+→）"_ju);
+    nudgeLeftButton.onClick = [this] { nudgeSelection (-1); };
+    nudgeRightButton.onClick = [this] { nudgeSelection (1); };
+
+    for (auto* button : std::initializer_list<juce::Component*> { &nudgeLeftButton, &nudgeBox, &nudgeRightButton })
+        addAndMakeVisible (button);
+
 
     addAndMakeVisible (ruler);
     addAndMakeVisible (keyboard);
@@ -99,43 +114,74 @@ void PianoRollView::rebuildDrumRows()
     if (! isDrumTrack())
         return;
 
+    auto* manifest = drumManifest();
+    auto* clip = getClip();
+    auto used = [clip] (int p) { return clip != nullptr && std::any_of (clip->notes.begin(), clip->notes.end(), [p] (auto& n) { return n.pitch == p; }); };
+    auto listed = [this] (int p) { return std::find (drumRows.begin(), drumRows.end(), p) != drumRows.end(); };
+
+    // パーツの行と、その下に（使っていれば）同じ音で鳴る別のノート（Superior Drummer のクローズ・エッジなど）の行
+    auto addPiece = [&] (int note)
+    {
+        if (listed (note))
+            return;
+
+        drumRows.push_back (note);
+
+        if (manifest != nullptr)
+            if (auto* piece = manifest->findPieceForNote (note); piece != nullptr && piece->note == note)
+                for (auto& a : piece->aliases)
+                    if (used (a.note) && ! listed (a.note))
+                        drumRows.push_back (a.note);
+    };
+
     // 叩く頻度の高い順: キック → スネア → ハイハット → タム（高い順）→ シンバル（最後に上下を逆にする）
     const int order[] = { 36, 35, 38, 40, 37, 39, 42, 44, 46, 50, 48, 47, 45, 43, 41, 51, 59, 53, 49, 57, 55, 52 };
 
     for (int p : order)
-        if (drumPieceName (p).isNotEmpty())
-            drumRows.push_back (p);
+        if (manifest != nullptr && manifest->findPieceForNote (p) != nullptr && manifest->findPieceForNote (p)->note == p)
+            addPiece (p);
 
     // キットにあるが上の並びにない音と、キットにないのにノートがある音（消せるように）は後ろに
+    if (manifest != nullptr)
+        for (auto& piece : manifest->pieces)
+            addPiece (piece.note);
+
     for (int p = 0; p < 128; ++p)
-    {
-        const bool listed = std::find (drumRows.begin(), drumRows.end(), p) != drumRows.end();
-        bool used = false;
-
-        if (auto* clip = getClip())
-            used = std::any_of (clip->notes.begin(), clip->notes.end(), [p] (auto& n) { return n.pitch == p; });
-
-        if (! listed && (drumPieceName (p).isNotEmpty() || used))
+        if (! listed (p) && used (p))
             drumRows.push_back (p);
-    }
 
     // 画面では下からキック → スネア → ハイハット → タム → シンバル（EZ Drummer と同じく、キックがいちばん下）
     std::reverse (drumRows.begin(), drumRows.end());
 }
 
-juce::String PianoRollView::drumPieceName (int note) const
+const collab::BuiltinInstrumentManifest* PianoRollView::drumManifest() const
 {
     auto* t = getTrack();
 
     if (t == nullptr || ! t->instrument)
-        return {};
+        return nullptr;
 
-    if (auto* m = ctx.library.find (t->instrument->id, t->instrument->version))
-        for (auto& piece : m->pieces)
-            if (piece.note == note)
-                return toJuce (piece.displayName);
+    return ctx.library.find (t->instrument->id, t->instrument->version);
+}
+
+juce::String PianoRollView::drumPieceName (int note) const
+{
+    std::string name;
+
+    if (auto* m = drumManifest(); m != nullptr && m->findPieceForNote (note, &name) != nullptr)
+        return toJuce (name);
 
     return {};
+}
+
+int PianoRollView::drumFamilyOf (int note) const
+{
+    // 別名のノートは、鳴らすパーツの仲間にする
+    if (auto* m = drumManifest())
+        if (auto* piece = m->findPieceForNote (note))
+            return PianoRollDetail::drumFamily (piece->note);
+
+    return PianoRollDetail::drumFamily (note);
 }
 
 bool PianoRollView::isDrumTrack() const
@@ -172,7 +218,8 @@ void PianoRollView::resized()
     rebuildDrumRows();
     shownAsAudio = getAudioClip() != nullptr;
 
-    for (auto* c : std::initializer_list<juce::Component*> { &keyboard, &grid, &velocity, &vScroll, &snapToggle, &quantiseButton })
+    for (auto* c : std::initializer_list<juce::Component*> { &keyboard, &grid, &velocity, &vScroll, &snapToggle, &quantiseButton,
+                                                             &nudgeLeftButton, &nudgeBox, &nudgeRightButton })
         c->setVisible (! shownAsAudio);
     audioGrid.setVisible (shownAsAudio);
 
@@ -186,6 +233,10 @@ void PianoRollView::resized()
     toolbar.removeFromLeft (6);
     snapToggle.setBounds (toolbar.removeFromLeft (90));
     quantiseButton.setBounds (toolbar.removeFromLeft (100));
+    toolbar.removeFromLeft (10);
+    nudgeLeftButton.setBounds (toolbar.removeFromLeft (26));
+    nudgeBox.setBounds (toolbar.removeFromLeft (88));
+    nudgeRightButton.setBounds (toolbar.removeFromLeft (26));
     toolbar.removeFromLeft (10);
 
     if (shownAsAudio)

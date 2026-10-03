@@ -1,0 +1,32 @@
+// hhOpen: Big Rusty Drums（CC0）hihat_14 / ht_open_cl.sfz のマイクを作者の既定のバランスでまとめたもの
+// ShareDAW 1.3.0: 強さによる音量を (ベロシティ/127)^0.8 に揃えた（tools/build-instruments/drums_1_3.py）
+<group> lovel=0 hivel=21 amp_veltrack=100 amp_velcurve_1=0.0875 amp_velcurve_21=1 group_volume=8.69
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhOpen/ht_open_vl1_rr1.flac seq_position=1
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhOpen/ht_open_vl1_rr2.flac seq_position=2
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhOpen/ht_open_vl1_rr3.flac seq_position=3
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhOpen/ht_open_vl1_rr4.flac seq_position=4
+<group> lovel=22 hivel=42 amp_veltrack=100 amp_velcurve_22=0.5961 amp_velcurve_42=1 group_volume=9.63
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhOpen/ht_open_vl2_rr1.flac seq_position=1
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhOpen/ht_open_vl2_rr2.flac seq_position=2
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhOpen/ht_open_vl2_rr3.flac seq_position=3
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhOpen/ht_open_vl2_rr4.flac seq_position=4
+<group> lovel=43 hivel=63 amp_veltrack=100 amp_velcurve_43=0.7367 amp_velcurve_63=1 group_volume=9.86
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhOpen/ht_open_vl3_rr1.flac seq_position=1
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhOpen/ht_open_vl3_rr2.flac seq_position=2
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhOpen/ht_open_vl3_rr3.flac seq_position=3
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhOpen/ht_open_vl3_rr4.flac seq_position=4
+<group> lovel=64 hivel=85 amp_veltrack=100 amp_velcurve_64=0.7969 amp_velcurve_85=1 group_volume=8.77
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhOpen/ht_open_vl4_rr1.flac seq_position=1
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhOpen/ht_open_vl4_rr2.flac seq_position=2
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhOpen/ht_open_vl4_rr3.flac seq_position=3
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhOpen/ht_open_vl4_rr4.flac seq_position=4
+<group> lovel=86 hivel=106 amp_veltrack=100 amp_velcurve_86=0.8460 amp_velcurve_106=1 group_volume=8.67
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhOpen/ht_open_vl5_rr1.flac seq_position=1
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhOpen/ht_open_vl5_rr2.flac seq_position=2
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhOpen/ht_open_vl5_rr3.flac seq_position=3
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhOpen/ht_open_vl5_rr4.flac seq_position=4
+<group> lovel=107 hivel=127 amp_veltrack=100 amp_velcurve_107=0.8719 amp_velcurve_127=1 group_volume=7.00
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhOpen/ht_open_vl6_rr1.flac seq_position=1
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhOpen/ht_open_vl6_rr2.flac seq_position=2
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhOpen/ht_open_vl6_rr3.flac seq_position=3
+<region> seq_length=4 loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.0.0/audio/rusty/hhOpen/ht_open_vl6_rr4.flac seq_position=4

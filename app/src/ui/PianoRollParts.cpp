@@ -44,7 +44,7 @@ void PianoKeyboard::paint (juce::Graphics& g)
             g.drawText (toJuce (collab::midiNoteName (p)), row.withTrimmedRight (6.0f), juce::Justification::centredRight, false);
 
             // 仲間（キック・スネア・ハイハット…）の境目
-            if (rowIndex + 1 < (int) owner.drumRows.size() && drumFamily (owner.drumRows[(size_t) rowIndex + 1]) != drumFamily (p))
+            if (rowIndex + 1 < (int) owner.drumRows.size() && owner.drumFamilyOf (owner.drumRows[(size_t) rowIndex + 1]) != owner.drumFamilyOf (p))
             {
                 g.setColour (Theme::background);
                 g.fillRect (row.getX(), row.getBottom() - 2.0f, row.getWidth(), 2.0f);
@@ -96,19 +96,65 @@ void VelocityLane::paint (juce::Graphics& g)
     const auto base = track != nullptr ? Theme::parseColour (track->color) : Theme::accent;
     const float h = (float) getHeight() - 4.0f;
 
+    std::vector<const collab::Note*> notes;
+
     for (auto& n : clip->notes)
+        notes.push_back (&n);
+
+    std::sort (notes.begin(), notes.end(), [] (auto* a, auto* b) { return a->tick < b->tick; });
+
+    for (auto* n : notes)
     {
-        const float x = (float) axis.tickToX ((double) (clip->startTick + n.tick));
+        const float x = (float) axis.tickToX ((double) (clip->startTick + n->tick));
 
         if (x < -4 || x > (float) getWidth())
             continue;
 
-        const float bh = h * (float) n.velocity / 127.0f;
-        const bool selected = owner.selectedNotes.count (n.id) > 0;
-        g.setColour (selected ? Theme::selection : velocityColour (n.velocity, base));
+        const float bh = h * (float) n->velocity / 127.0f;
+        const bool selected = owner.selectedNotes.count (n->id) > 0;
+        g.setColour (selected ? Theme::selection : velocityColour (n->velocity, base));
         g.fillRect (juce::Rectangle<float> (x, (float) getHeight() - bh, 3.0f, bh));
         g.fillEllipse (x - 2.0f, (float) getHeight() - bh - 3.0f, 7.0f, 7.0f);
     }
+
+    // 数値: 選んでいるノートと、隣と重ならないノートに出す（同じ位置のノートは 1 つだけ）
+    g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+    float lastRight = -1000.0f;
+
+    for (auto* n : notes)
+    {
+        const float x = (float) axis.tickToX ((double) (clip->startTick + n->tick));
+        const bool selected = owner.selectedNotes.count (n->id) > 0;
+        const float left = x - 9.0f;
+
+        if (x < -4 || x > (float) getWidth() || (left < lastRight && ! selected))
+            continue;
+
+        const float bh = h * (float) n->velocity / 127.0f;
+        const float top = juce::jmax (1.0f, (float) getHeight() - bh - 16.0f);
+        g.setColour (selected ? Theme::selection : Theme::textDim);
+        g.drawText (juce::String (n->velocity), juce::Rectangle<float> (left + 1.5f, top, 20.0f, 12.0f), juce::Justification::centredLeft, false);
+        lastRight = left + 22.0f;
+    }
+}
+
+int VelocityLane::velocityAtY (float y) const
+{
+    return juce::jlimit (1, 127, (int) std::round ((1.0f - (y - 4.0f) / ((float) getHeight() - 4.0f)) * 127.0f));
+}
+
+bool VelocityLane::hitsSelectedNote (float x) const
+{
+    auto* clip = owner.getClip();
+
+    if (clip == nullptr || owner.selectedNotes.size() < 2)
+        return false;
+
+    for (auto& n : clip->notes)
+        if (owner.selectedNotes.count (n.id) > 0 && std::abs ((float) owner.axis().tickToX ((double) (clip->startTick + n.tick)) - x) <= 7.0f)
+            return true;
+
+    return false;
 }
 
 void VelocityLane::applyAt (float x1, float x2, float y)
@@ -125,7 +171,7 @@ void VelocityLane::applyAt (float x1, float x2, float y)
     x1 -= 7.0f;
     x2 += 7.0f;
 
-    const int vel = juce::jlimit (1, 127, (int) std::round ((1.0f - (y - 4.0f) / ((float) getHeight() - 4.0f)) * 127.0f));
+    const int vel = velocityAtY (y);
     const auto t1 = owner.axis().xToTick (x1) - (double) clip->startTick;
     const auto t2 = owner.axis().xToTick (x2) - (double) clip->startTick;
 
@@ -149,26 +195,58 @@ void VelocityLane::applyAt (float x1, float x2, float y)
     }, mergeId);
 }
 
-void VelocityLane::mouseMove (const juce::MouseEvent&)
+void VelocityLane::mouseMove (const juce::MouseEvent& e)
 {
+    const bool group = hitsSelectedNote (e.position.x);
     setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
+    setTooltip (group ? "ドラッグで、選んだノートのベロシティをまとめて上下"_ju : juce::String());
 }
 
 void VelocityLane::mouseDown (const juce::MouseEvent& e)
 {
     mergeId = juce::Uuid().toString();
     lastX = e.position.x;
+    relative = hitsSelectedNote (e.position.x);
+
+    if (relative)
+    {
+        downY = e.position.y;
+        originalVelocities.clear();
+
+        if (auto* clip = owner.getClip())
+            for (auto& n : clip->notes)
+                if (owner.selectedNotes.count (n.id) > 0)
+                    originalVelocities[n.id] = n.velocity;
+
+        return;
+    }
+
     applyAt (lastX, lastX, e.position.y);
 }
 
 void VelocityLane::mouseDrag (const juce::MouseEvent& e)
 {
+    if (relative)
+    {
+        const int delta = (int) std::round ((downY - e.position.y) / ((float) getHeight() - 4.0f) * 127.0f);
+        const auto orig = originalVelocities;
+
+        owner.editNotes ("ベロシティの変更"_ju, [orig, delta] (collab::MidiClip& c)
+        {
+            for (auto& n : c.notes)
+                if (auto it = orig.find (n.id); it != orig.end())
+                    n.velocity = juce::jlimit (1, 127, it->second + delta);
+        }, mergeId);
+        return;
+    }
+
     applyAt (lastX, e.position.x, e.position.y);
     lastX = e.position.x;
 }
 
 void VelocityLane::mouseUp (const juce::MouseEvent&)
 {
+    relative = false;
     owner.ctx.document.endMerge();
 }
 

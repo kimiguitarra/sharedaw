@@ -75,6 +75,13 @@ private:
     float lastX = 0;
     juce::String mergeId;
     void applyAt (float x1, float x2, float y);
+
+    // 選んだ複数のノートの棒をつかんだときは、全部を同じだけ上下させる（それぞれの差は保つ）
+    bool relative = false;
+    float downY = 0;
+    std::map<std::string, int> originalVelocities;
+    bool hitsSelectedNote (float x) const;
+    int velocityAtY (float y) const;
 };
 
 /** オーディオクリップを選んだときに下部パネルに出す拡大波形（グリッド線つき）。 */
@@ -119,6 +126,12 @@ public:
     void setTopStrip (TopStrip*);
     void selectAllNotes();
     void quantiseSelection();
+
+    /** 選択中のノートを nudgeTicks だけ左（-1）・右（+1）にずらす（グルーヴ用。グリッドには合わせない）。 */
+    void nudgeSelection (int direction);
+    /** 選択中のノートのベロシティを delta だけ変える。 */
+    void changeSelectedVelocity (int delta);
+    collab::Tick nudgeTicks = 10;
     void focusEditor();
 
     /** ノートを短く鳴らす（クリック・入力したときの確認用）。 */
@@ -156,6 +169,9 @@ public:
     bool isDrumTrack() const;
     /** ドラムのキットでこのノートに割り当てた音の名前（キットにない＝鳴らないなら空）。 */
     juce::String drumPieceName (int note) const;
+    /** 行の区切り線用の仲間（PianoRollDetail::drumFamily。別名のノートは鳴らすパーツの仲間）。 */
+    int drumFamilyOf (int note) const;
+    const collab::BuiltinInstrumentManifest* drumManifest() const;
 
     // ドラムのときは、キットの音だけを行にする（EZ Drummer のように、キック・スネア・ハイハット・タム・シンバルの順）
     std::vector<int> drumRows;            // 上からの行のピッチ（ドラム以外は空）
@@ -200,6 +216,8 @@ private:
     juce::ComboBox gridBox;
     juce::ToggleButton snapToggle { "スナップ"_ju };
     juce::TextButton quantiseButton { "クオンタイズ"_ju };
+    juce::TextButton nudgeLeftButton { juce::String::fromUTF8 ("\xe2\x97\x80") }, nudgeRightButton { juce::String::fromUTF8 ("\xe2\x96\xb6") };
+    juce::ComboBox nudgeBox;
 
     TopStrip* topStrip = nullptr;
     std::string shownClipId;

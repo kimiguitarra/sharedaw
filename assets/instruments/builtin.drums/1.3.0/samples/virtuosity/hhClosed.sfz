@@ -1,0 +1,22 @@
+// hhClosed: Virtuosity Drums（CC0）hh_closed のキック・スネア・オーバーヘッドのマイクを同じ音量でまとめたもの
+// ShareDAW 1.3.0: 強さによる音量を (ベロシティ/127)^0.8 に揃えた（tools/build-instruments/drums_1_3.py）
+<group> lovel=0 hivel=31 amp_veltrack=100 amp_velcurve_1=0.0641 amp_velcurve_31=1 group_volume=23.19
+<region> loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.2.0/audio/virtuosity/hhClosed/hh_closed_vl1_rr1.flac seq_length=4
+<region> loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.2.0/audio/virtuosity/hhClosed/hh_closed_vl1_rr2.flac seq_length=4 seq_position=2
+<region> loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.2.0/audio/virtuosity/hhClosed/hh_closed_vl1_rr3.flac seq_length=4 seq_position=3
+<region> loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.2.0/audio/virtuosity/hhClosed/hh_closed_vl1_rr4.flac seq_length=4 seq_position=4
+<group> lovel=32 hivel=63 amp_veltrack=100 amp_velcurve_32=0.5816 amp_velcurve_63=1 group_volume=17.90
+<region> loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.2.0/audio/virtuosity/hhClosed/hh_closed_vl2_rr1.flac seq_length=4
+<region> loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.2.0/audio/virtuosity/hhClosed/hh_closed_vl2_rr2.flac seq_length=4 seq_position=2
+<region> loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.2.0/audio/virtuosity/hhClosed/hh_closed_vl2_rr3.flac seq_length=4 seq_position=3
+<region> loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.2.0/audio/virtuosity/hhClosed/hh_closed_vl2_rr4.flac seq_length=4 seq_position=4
+<group> lovel=64 hivel=95 amp_veltrack=100 amp_velcurve_64=0.7291 amp_velcurve_95=1 group_volume=15.54
+<region> loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.2.0/audio/virtuosity/hhClosed/hh_closed_vl3_rr1.flac seq_length=4
+<region> loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.2.0/audio/virtuosity/hhClosed/hh_closed_vl3_rr2.flac seq_length=4 seq_position=2
+<region> loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.2.0/audio/virtuosity/hhClosed/hh_closed_vl3_rr3.flac seq_length=4 seq_position=3
+<region> loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.2.0/audio/virtuosity/hhClosed/hh_closed_vl3_rr4.flac seq_length=4 seq_position=4
+<group> lovel=96 hivel=127 amp_veltrack=100 amp_velcurve_96=0.7994 amp_velcurve_127=1 group_volume=7.00
+<region> loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.2.0/audio/virtuosity/hhClosed/hh_closed_vl4_rr1.flac seq_length=4
+<region> loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.2.0/audio/virtuosity/hhClosed/hh_closed_vl4_rr2.flac seq_length=4 seq_position=2
+<region> loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.2.0/audio/virtuosity/hhClosed/hh_closed_vl4_rr3.flac seq_length=4 seq_position=3
+<region> loop_mode=one_shot off_mode=normal ampeg_release=0.05 sample=../1.2.0/audio/virtuosity/hhClosed/hh_closed_vl4_rr4.flac seq_length=4 seq_position=4

@@ -1,0 +1,2 @@
+<region> sample=*square volume=2 transpose=40 amp_veltrack=90
+ ampeg_attack=0 ampeg_decay=0.03 ampeg_sustain=0 ampeg_release=0.03

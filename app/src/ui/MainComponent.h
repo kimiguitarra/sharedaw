@@ -14,6 +14,7 @@
 #include "sync/SyncManager.h"
 #include "audio/AudioFiles.h"
 #include "plugins/PluginHost.h"
+#include "ui/NumpadKeys.h"
 
 /** メインウィンドウの中身。メニュー、ショートカット（コマンド）、各ビューの配置を受け持つ。 */
 class MainComponent  : public juce::Component,
@@ -73,6 +74,7 @@ private:
     AppContext ctx { document, state, bridge, library, sync, audioCache, {}, {}, {}, {}, {}, {} };
 
     juce::ApplicationCommandManager commandManager;
+    NumpadKeys numpadKeys { *commandManager.getKeyMappings() };   // キー割り当ての入口（テンキーのキーを直してから渡す）
     ToolBar toolbar { ctx };
     TransportBar transport { ctx };
     TimelineView timeline { ctx };
