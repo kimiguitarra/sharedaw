@@ -513,6 +513,8 @@ private:
 
     LoopbackDeviceType* loopbackType = nullptr;
     struct MeasuredMidi { std::vector<collab::Tick> ticks; };
+    struct ClickSenders { std::atomic<bool> stopping { false }; std::atomic<int> running { 0 }; };
+    std::shared_ptr<ClickSenders> clickSenders = std::make_shared<ClickSenders>();
     std::shared_ptr<MeasuredMidi> measuredMidi;
 
     void installLoopbackIfRequested()
@@ -722,7 +724,17 @@ private:
 
     void recordTest (const juce::StringArray& args)
     {
-        auto finish = [this] (int code) { setApplicationReturnValue (code); quit(); };
+        auto finish = [this] (int code)
+        {
+            // MIDI を送っている途中のスレッドを止めて、終わるのを待つ（最大 1 秒）
+            clickSenders->stopping = true;
+
+            for (int i = 0; i < 1000 && clickSenders->running > 0; ++i)
+                juce::Thread::sleep (1);
+
+            setApplicationReturnValue (code);
+            quit();
+        };
 
         if (! loadForCommand (juce::File (args[1])))
             return finish (2);
@@ -787,21 +799,34 @@ private:
             bridge->setMidiTarget (midiTrack.id);
             std::cout << "virtual midi: " << (virtualMidi != nullptr ? "yes" : "no") << std::endl;
 
-            loopbackType->onClickHeard = [virtualMidi] (double heardAtMs)
+            loopbackType->onClickHeard = [virtualMidi, clickSenders = clickSenders] (double heardAtMs)
             {
                 if (virtualMidi == nullptr)
                     return;
 
                 // 本物の MIDI 機器と同じく、ドライバーの時刻（弾いた瞬間）を付けて送る。
                 // 時刻を付けないと届いた時刻になり、スレッドの起きる遅れ（混んだ CI の macOS で 20 ms 以上）がそのままずれに出る
-                std::thread ([virtualMidi, heardAtMs]
+                // 終わるとき（finish）は、送っている途中のスレッドを待ってから終える（消えた機器に送ると落ちる）
+                if (clickSenders->stopping)
+                    return;
+
+                ++clickSenders->running;
+
+                std::thread ([virtualMidi, heardAtMs, senders = clickSenders]
                 {
                     auto waitUntil = [] (double ms) { while (juce::Time::getMillisecondCounterHiRes() < ms) juce::Thread::sleep (0); };
                     auto stamped = [] (juce::MidiMessage m, double ms) { m.setTimeStamp (ms * 0.001); return m; };
                     waitUntil (heardAtMs);
-                    virtualMidi->handleIncomingMidiMessage (stamped (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), heardAtMs), virtualMidi->getMPESourceID());
+
+                    if (! senders->stopping)
+                        virtualMidi->handleIncomingMidiMessage (stamped (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), heardAtMs), virtualMidi->getMPESourceID());
+
                     waitUntil (heardAtMs + 60.0);
-                    virtualMidi->handleIncomingMidiMessage (stamped (juce::MidiMessage::noteOff (1, 60), heardAtMs + 60.0), virtualMidi->getMPESourceID());
+
+                    if (! senders->stopping)
+                        virtualMidi->handleIncomingMidiMessage (stamped (juce::MidiMessage::noteOff (1, 60), heardAtMs + 60.0), virtualMidi->getMPESourceID());
+
+                    --senders->running;
                 }).detach();
             };
 
