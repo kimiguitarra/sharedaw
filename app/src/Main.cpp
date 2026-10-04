@@ -654,9 +654,11 @@ private:
             return finish (3);
         }
 
+        // 機器の準備（とくに CI の macOS）が遅れることがあるので、選んだトラックが鳴るまで何回か弾き直す。
+        // 選んでいないトラックが鳴ったら、その場で失敗
         auto failures = std::make_shared<int> (0);
-        auto step = std::make_shared<std::function<void (size_t)>>();
-        *step = [this, virtualMidi, midiTracks, failures, step, finish] (size_t k)
+        auto step = std::make_shared<std::function<void (size_t, int)>>();
+        *step = [this, virtualMidi, midiTracks, failures, step, finish] (size_t k, int attempt)
         {
             if (k >= midiTracks.size())
             {
@@ -666,7 +668,7 @@ private:
 
             bridge->setMidiTarget (midiTracks[k].first);
 
-            juce::Timer::callAfterDelay (300, [this, virtualMidi, midiTracks, failures, step, k]
+            juce::Timer::callAfterDelay (300, [this, virtualMidi, midiTracks, failures, step, k, attempt]
             {
                 for (auto& [id, name] : midiTracks)
                     bridge->getTrackPeakDb (id);   // ここまでのピークを捨てる
@@ -674,19 +676,19 @@ private:
                 for (int pitch : { 36, 38, 42, 48, 60 })
                     virtualMidi->handleIncomingMidiMessage (juce::MidiMessage::noteOn (k == 0 ? 10 : 1, pitch, (juce::uint8) 120), virtualMidi->getMPESourceID());
 
-                juce::Timer::callAfterDelay (400, [this, virtualMidi, midiTracks, failures, step, k]
+                juce::Timer::callAfterDelay (400, [this, virtualMidi, midiTracks, failures, step, k, attempt]
                 {
-                    std::cout << "gate: target " << midiTracks[k].second << ":";
+                    std::cout << "gate: target " << midiTracks[k].second << " (try " << attempt + 1 << "):";
+                    bool targetSounded = false, otherSounded = false;
 
                     for (auto& [id, name] : midiTracks)
                     {
                         const auto p = bridge->getTrackPeakDb (id);
                         const float db = juce::jmax (p.left, p.right);
-                        const bool sounding = db > -60.0f;
                         std::cout << " " << name << "=" << db;
 
-                        if (sounding != (id == midiTracks[k].first))
-                            ++*failures;
+                        if (db > -60.0f)
+                            (id == midiTracks[k].first ? targetSounded : otherSounded) = true;
                     }
 
                     std::cout << std::endl;
@@ -694,12 +696,17 @@ private:
                     for (int ch : { 1, 10 })
                         virtualMidi->handleIncomingMidiMessage (juce::MidiMessage::allNotesOff (ch), virtualMidi->getMPESourceID());
 
-                    juce::Timer::callAfterDelay (600, [step, k] { (*step) (k + 1); });
+                    const bool retry = ! otherSounded && ! targetSounded && attempt < 5;
+
+                    if (! retry)
+                        *failures += otherSounded || ! targetSounded ? 1 : 0;
+
+                    juce::Timer::callAfterDelay (retry ? 1000 : 600, [step, k, attempt, retry] { (*step) (retry ? k : k + 1, retry ? attempt + 1 : 0); });
                 });
             });
         };
 
-        juce::Timer::callAfterDelay (500, [step] { (*step) (0); });
+        juce::Timer::callAfterDelay (1500, [step] { (*step) (0, 0); });
     }
 
     void recordTest (const juce::StringArray& args)
