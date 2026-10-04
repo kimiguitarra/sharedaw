@@ -64,7 +64,7 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
 
     switch (id)
     {
-        case cmdNew:        info.setInfo ("新しい曲（サーバーに作る）…"_ju, {}, "File", 0); info.addDefaultKeypress ('n', cmd); break;
+        case cmdNew:        info.setInfo ("新しい曲…"_ju, {}, "File", 0); info.addDefaultKeypress ('n', cmd); break;
         case cmdOpen:       info.setInfo ("楽曲を開く…"_ju, {}, "File", 0); info.addDefaultKeypress ('o', cmd); break;
         case cmdSave:       info.setInfo ("保存"_ju, {}, "File", 0); info.addDefaultKeypress ('s', cmd); break;
         case cmdUndo:
@@ -84,7 +84,7 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
             info.addDefaultKeypress (KP::backspaceKey, 0);
             break;
         case cmdSelectAll:  info.setInfo ("すべてのノートを選択"_ju, {}, "Edit", 0); info.addDefaultKeypress ('a', cmd); break;
-        case cmdDuplicate:  info.setInfo ("複製（クリップ・ノート）"_ju, {}, "Edit", 0); info.addDefaultKeypress ('d', cmd); break;
+        case cmdDuplicate:  info.setInfo ("複製"_ju, {}, "Edit", 0); info.addDefaultKeypress ('d', cmd); break;
         case cmdCopy:       info.setInfo ("コピー"_ju, {}, "Edit", 0); info.addDefaultKeypress ('c', cmd); break;
         case cmdCut:        info.setInfo ("切り取り"_ju, {}, "Edit", 0); info.addDefaultKeypress ('x', cmd); break;
         case cmdPaste:      info.setInfo ("貼り付け（再生位置へ）"_ju, {}, "Edit", 0); info.addDefaultKeypress ('v', cmd); break;
@@ -131,7 +131,7 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
             info.defaultKeypresses.add (state.behaviour().zoomOutKey);
             break;
         case cmdWaveBigger:
-            info.setInfo ("波形を大きく表示（音量は変えない）"_ju, {}, "View", 0);
+            info.setInfo ("波形を大きく表示"_ju, {}, "View", 0);
             info.addDefaultKeypress ('h', juce::ModifierKeys::shiftModifier);
             break;
         case cmdWaveSmaller:
@@ -174,7 +174,7 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
             break;
         }
         case cmdSnap:
-            info.setInfo ("スナップ（クオンタイズ値に合わせる）"_ju, {}, "Edit", 0);
+            info.setInfo ("スナップ"_ju, {}, "Edit", 0);
             info.defaultKeypresses.add (state.behaviour().snapKey);
             info.setTicked (state.snapEnabled());
             break;
@@ -229,7 +229,7 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
             info.setTicked (state.mode == OperationMode::cubase);
             break;
         case cmdModeStudioOne:
-            info.setInfo ("Studio One モード（いまは Cubase と同じ操作）"_ju, {}, "View", 0);
+            info.setInfo ("Studio One モード"_ju, {}, "View", 0);
             info.setTicked (state.mode == OperationMode::studioOne);
             break;
         case cmdMixer:
@@ -238,7 +238,7 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
             info.setTicked (mixerWindow != nullptr && mixerWindow->isVisible());
             break;
         case cmdMaster:
-            info.setInfo ("マスター（リミッター / ラウドネス）"_ju, {}, "View", 0);
+            info.setInfo ("マスター"_ju, {}, "View", 0);
             info.defaultKeypresses.add (juce::KeyPress (juce::KeyPress::F4Key));
             info.setTicked (masterWindow != nullptr && masterWindow->isVisible());
             break;
@@ -246,7 +246,7 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
             info.setInfo ("ループ範囲を選択範囲に合わせる"_ju, {}, "Transport", 0);
             info.defaultKeypresses.add (state.behaviour().loopToSelectionKey);
             break;
-        case cmdPlugins:       info.setInfo ("プラグイン（スキャン・一覧）…"_ju, {}, "Options", 0); break;
+        case cmdPlugins:       info.setInfo ("プラグイン…"_ju, {}, "Options", 0); break;
         case cmdAddAudioTrack: info.setInfo ("オーディオトラックを追加"_ju, {}, "Track", 0); break;
         case cmdImportAudio:   info.setInfo ("オーディオを読み込む…"_ju, {}, "File", 0); info.addDefaultKeypress ('i', cmd); break;
         case cmdImportMidi:    info.setInfo ("MIDI ファイルを読み込む…"_ju, {}, "File", 0); break;
@@ -274,7 +274,7 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
             info.setActive (ctx.selectedTrack() != nullptr);
             break;
         case cmdStretchSong:
-            info.setInfo ("曲全体の伸び縮み（テンポ・拍子の解釈を変える）…"_ju, {}, "Edit", 0);
+            info.setInfo ("曲全体の伸び縮み…"_ju, {}, "Edit", 0);
             break;
         case cmdAutoArm:
             info.setInfo ("選んだトラックを自動で録音待機にする"_ju, {}, "Transport", 0);
@@ -286,7 +286,7 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
             info.setActive (ctx.selectedTrack() != nullptr);
             break;
         case cmdTrackHeight:
-            info.setInfo ("選択中のトラックの高さ（最大 / 最小）"_ju, {}, "Track", 0);
+            info.setInfo ("選択中のトラックの高さを切り替え"_ju, {}, "Track", 0);
             info.addDefaultKeypress ('z', 0);
             info.setActive (ctx.selectedTrack() != nullptr);
             break;
@@ -294,11 +294,11 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdSyncSettings:  info.setInfo ("サーバー設定…"_ju, {}, "Sync", 0); break;
         case cmdSyncRegister:  info.setInfo ("このプロジェクトをサーバーに登録…"_ju, {}, "Sync", 0); info.setActive (! sync.isLinked()); break;
         case cmdSyncOpen:
-            info.setInfo ("楽曲を選ぶ（サーバー / この PC）…"_ju, {}, "File", 0);
+            info.setInfo ("楽曲を開く…"_ju, {}, "File", 0);
             info.addDefaultKeypress ('o', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
             break;
-        case cmdSyncPull:      info.setInfo ("ダウンロード（サーバーの新しい変更を取り込む）"_ju, {}, "Sync", 0); info.setActive (sync.isLinked()); break;
-        case cmdSyncPush:      info.setInfo ("アップ（同期パネルを開く）"_ju, {}, "Sync", 0); info.setActive (sync.isLinked()); break;
+        case cmdSyncPull:      info.setInfo ("ダウンロード"_ju, {}, "Sync", 0); info.setActive (sync.isLinked()); break;
+        case cmdSyncPush:      info.setInfo ("アップロード…"_ju, {}, "Sync", 0); info.setActive (sync.isLinked()); break;
         case cmdSyncHistory:   info.setInfo ("リビジョン履歴…"_ju, {}, "Sync", 0); info.setActive (sync.isLinked()); break;
         case cmdSyncPanel:
             info.setInfo ("同期パネル"_ju, {}, "Sync", 0);
@@ -585,8 +585,8 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdAbout:
             Dialogs::showInfo ("ShareDAW について"_ju,
                                "ShareDAW "_ju + (Updater::currentBuild() > 0 ? Updater::versionText (Updater::currentBuild())
-                                                                              : "（手元でビルドした開発版）"_ju)
-                                 + "\n共同制作用の軽量DAW（アイデア出し・ラフ録音用）"_ju);
+                                                                              : "（開発版）"_ju)
+                                 + "\n仲間と曲を作るための DAW"_ju);
             break;
         case cmdCheckUpdate: checkForUpdates (true); break;
         case cmdFont100: case cmdFont125: case cmdFont150: case cmdFont175: case cmdFont200:
@@ -769,7 +769,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             };
             const bool savedLight = Theme::light;
             looks.addItem ("ダーク"_ju, true, ! savedLight, [chooseLook] { chooseLook (false); });
-            looks.addItem ("ライト（白を基調にしたニューモーフィズム）"_ju, true, savedLight, [chooseLook] { chooseLook (true); });
+            looks.addItem ("ライト"_ju, true, savedLight, [chooseLook] { chooseLook (true); });
             m.addSubMenu ("外観"_ju, looks);
             break;
         }

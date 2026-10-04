@@ -110,7 +110,7 @@ juce::Result importFile (const juce::File& source, const juce::File& audioDir, I
     const auto hash = hashFile (temp.getFile());
 
     if (hash.empty())
-        return juce::Result::fail ("ハッシュを計算できません"_ju);
+        return juce::Result::fail ("オーディオファイルを読めません"_ju);
 
     auto target = audioDir.getChildFile (toJuce (hash) + ".wav");
 

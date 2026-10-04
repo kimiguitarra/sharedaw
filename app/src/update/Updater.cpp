@@ -201,7 +201,7 @@ juce::Result downloadAndInstall (const SyncClient& client, const Info& info, std
         return r;
 
     if (toJuce (collab::Sha256::hashHex (std::string_view ((const char*) manifestData.getData(), manifestData.getSize()))) != toJuce (info.manifest.hash))
-        return juce::Result::fail ("更新の一覧が壊れています（ハッシュが一致しません）"_ju);
+        return juce::Result::fail ("更新の情報が壊れています"_ju);
 
     std::vector<FileEntry> files;
 

@@ -1071,8 +1071,7 @@ juce::PopupMenu AppContext::crossfadeMenu (const std::string& trackId)
     m.addSectionHeader ("形"_ju);
 
     for (auto shape : { "equalPower", "linear", "sCurve" })
-        m.addItem (shapeName (shape) + (std::string (shape) == "equalPower" ? "（違う音をつなぐ普通のテイク）"_ju
-                                         : std::string (shape) == "linear" ? "（同じ音が続くとき）"_ju : juce::String()),
+        m.addItem (shapeName (shape),
                    true, t->crossfadeShape == shape,
                    [this, trackId, s = std::string (shape)] { editTrack (trackId, "クロスフェードの形"_ju, [s] (collab::Track& tr) { tr.crossfadeShape = s; }); });
 

@@ -432,7 +432,7 @@ void MasterPanel::paintLoudness (juce::Graphics& g)
     g.drawText ("LOUDNESS", r.removeFromTop (22), juce::Justification::centredLeft);
     g.setColour (cream.withAlpha (0.6f));
     g.setFont (juce::FontOptions (12.5f));
-    g.drawText ("目標 -14 LUFS（リミッターの後で測定）"_ju, loudnessArea.reduced (16, 10).withHeight (22).withTrimmedLeft (110),
+    g.drawText ("目標 -14 LUFS"_ju, loudnessArea.reduced (16, 10).withHeight (22).withTrimmedLeft (110),
                 juce::Justification::centredRight, true);
 
     // 数字

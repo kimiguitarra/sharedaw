@@ -369,7 +369,7 @@ void TrackHeader::showMenu()
         m.addSubMenu ("出力先・センド"_ju, ctx.routingMenu (trackId));
 
         if (t->type == collab::TrackType::audio)
-            m.addSubMenu ("テイクのつなぎ（クロスフェード）"_ju, ctx.crossfadeMenu (trackId));
+            m.addSubMenu ("クロスフェード"_ju, ctx.crossfadeMenu (trackId));
         m.addSubMenu ("エフェクト"_ju, fx);
 
         if (t->type == collab::TrackType::midi || ! t->effects.empty())

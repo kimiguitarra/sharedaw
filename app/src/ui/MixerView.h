@@ -27,7 +27,6 @@ private:
 
     AppContext& ctx;
     juce::TextButton addBusButton;
-    juce::Label hint;
     juce::Viewport viewport;
     juce::Component content;
     juce::OwnedArray<Strip> strips, fixedStrips;   // fixedStrips: 右端のメトロノームとマスター

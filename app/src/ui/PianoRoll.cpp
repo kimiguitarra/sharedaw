@@ -55,7 +55,7 @@ PianoRollView::PianoRollView (AppContext& c)
         addAndMakeVisible (button);
 
     staffButton.setClickingTogglesState (true);
-    staffButton.setTooltip ("五線譜で表示（もう一度押すとピアノロール。編集はピアノロールで）"_ju);
+    staffButton.setTooltip ("五線譜で表示"_ju);
     staffButton.onClick = [this]
     {
         staffMode = staffButton.getToggleState();

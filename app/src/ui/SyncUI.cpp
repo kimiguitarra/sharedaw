@@ -74,7 +74,7 @@ ServerSettings::ServerSettings (const juce::String& url, bool hasToken,
 
     status.setFont (juce::FontOptions (14.5f));
     status.setColour (juce::Label::textColourId, Theme::textDim);
-    status.setText ("トークンは OS の資格情報ストア（Windows 資格情報マネージャー / macOS キーチェーン）に保存されます。"_ju,
+    status.setText ("トークンはこの PC に安全に保存されます。"_ju,
                     juce::dontSendNotification);
 
     saveButton.setButtonText ("接続テストして保存"_ju);

@@ -550,7 +550,7 @@ juce::Result SyncManager::downloadRevision (const SyncClient& client, const std:
 
     // 途中で壊れた・別のものを受け取ったときは使わない
     if (collab::Sha256::hashHex (text) != rev.body.value ("projectJsonHash", std::string()))
-        return juce::Result::fail ("ダウンロードしたプロジェクトのハッシュが一致しません"_ju);
+        return juce::Result::fail ("ダウンロードしたプロジェクトが壊れています。もう一度ダウンロードしてください"_ju);
 
     try
     {
@@ -641,7 +641,7 @@ juce::Result SyncManager::runDownloadAudio (const collab::Project& p, const juce
         sha.update (data.getData(), data.getSize());
 
         if (sha.finishHex() != hash)
-            return juce::Result::fail ("ダウンロードしたオーディオのハッシュが一致しません"_ju);
+            return juce::Result::fail ("ダウンロードしたオーディオが壊れています。もう一度ダウンロードしてください"_ju);
 
         // 一時ファイルに書いてから置き換える（§9: 途中で失敗してもローカルを壊さない）
         if (auto r = AppPaths::writeFileAtomically (target, data.getData(), data.getSize()); r.failed())

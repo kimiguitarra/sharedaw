@@ -1370,10 +1370,6 @@ MixerView::MixerView (AppContext& c) : ctx (c)
     addBusButton.onClick = [this] { ctx.addBusTrack ("Bus"_ju); };
     addAndMakeVisible (addBusButton);
 
-    hint.setText ("INSERTS・SENDS の空き枠（+）で追加、右クリックでメニュー。音量の数字はクリック、パン・センドはダブルクリックで数値を入力"_ju, juce::dontSendNotification);
-    hint.setFont (juce::FontOptions (14.0f));
-    hint.setColour (juce::Label::textColourId, Theme::textDim);
-    addAndMakeVisible (hint);
 
     viewport.setViewedComponent (&content, false);
     viewport.setScrollBarsShown (false, true);
@@ -1413,7 +1409,7 @@ void MixerView::resized()
     auto top = area.removeFromTop (30).reduced (6, 4);
     addBusButton.setBounds (top.removeFromLeft (110));
     top.removeFromLeft (10);
-    hint.setBounds (top);
+
 
     // 左端に入力、右端にメトロノームとマスター（スクロールしても動かない）。間のトラックだけ横にスクロールする
     const int stripHeight = juce::jmax (640, area.getHeight() - viewport.getScrollBarThickness());

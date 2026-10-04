@@ -583,7 +583,7 @@ void TrackLanes::showClipMenu (const collab::Track& track, const std::string& cl
     m.addItem ("再生位置で分割"_ju, [this] { ctx.splitAtPlayhead(); });
 
     if (audio)
-        m.addSubMenu ("クロスフェード（くっついた・重なったクリップのつなぎ）"_ju, ctx.crossfadeMenu (trackId));
+        m.addSubMenu ("クロスフェード"_ju, ctx.crossfadeMenu (trackId));
 
     if (audio)
     {
@@ -638,7 +638,7 @@ void TrackLanes::showClipMenu (const collab::Track& track, const std::string& cl
             }
         }
 
-        m.addItem ("ノーマライズ（いちばん大きい所を -1 dB に）"_ju, [this, trackId, clipId] { normaliseClip (trackId, clipId); });
+        m.addItem ("ノーマライズ（-1 dB）"_ju, [this, trackId, clipId] { normaliseClip (trackId, clipId); });
         m.addItem ("クリップの音量…"_ju, [this, trackId, clipId]
         {
             double current = 0;

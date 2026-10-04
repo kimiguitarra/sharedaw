@@ -219,7 +219,7 @@ ToolBar::ToolBar (AppContext& c) : ctx (c)
     }
 
     // そのトラックのテイクのつなぎ（くっついた・重なったクリップのクロスフェードの長さと形）
-    crossfadeButton.setTooltip ("クロスフェード（くっついた・重なったクリップのつなぎ）"_ju);
+    crossfadeButton.setTooltip ("クロスフェード"_ju);
     crossfadeButton.setWantsKeyboardFocus (false);
     crossfadeButton.onClick = [this]
     {

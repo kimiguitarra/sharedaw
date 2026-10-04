@@ -267,7 +267,7 @@ void MainComponent::openMaster()
 void MainComponent::showShortcuts()
 {
     const juce::String text (
-        "■ ツール（Cubase と同じ番号。テンキーでも可）\n"_ju
+        "■ ツール（テンキーでも可）\n"_ju
         "  1 選択 / 2 鉛筆 / 3 はさみ\n"_ju
         "  空いている所を右クリックでツールの切り替え・貼り付け・トラックの追加\n"_ju
         "\n"_ju
@@ -331,7 +331,7 @@ void MainComponent::showPluginManager()
             scanButton.onClick = [this]
             {
                 PluginHost::ScanResult result;
-                SyncUI::runWithProgress ("プラグインをスキャンしています（別プロセス）"_ju, [&]
+                SyncUI::runWithProgress ("プラグインをスキャンしています"_ju, [&]
                 {
                     result = PluginHost::scan (engine, nullptr);
                     return juce::Result::ok();
@@ -346,7 +346,7 @@ void MainComponent::showPluginManager()
                 info.setText (text, juce::dontSendNotification);
             };
 
-            info.setText ("VST3（Windows / Mac）と AU（Mac）に対応しています。スキャンは別プロセスで行います。"_ju, juce::dontSendNotification);
+            info.setText ("VST3 と AU（Mac）のプラグインを使えます。"_ju, juce::dontSendNotification);
             info.setColour (juce::Label::textColourId, Theme::textDim);
             addAndMakeVisible (scanButton);
             addAndMakeVisible (info);
@@ -456,7 +456,7 @@ void MainComponent::showAudioSettings()
     {
         Latency (MainComponent& o) : owner (o)
         {
-            title.setText ("録音のレイテンシ補正（手動、サンプル）"_ju, juce::dontSendNotification);
+            title.setText ("録音位置の補正（サンプル）"_ju, juce::dontSendNotification);
             title.setFont (juce::FontOptions (14.5f));
             addAndMakeVisible (title);
 
@@ -488,7 +488,7 @@ void MainComponent::showAudioSettings()
             addAndMakeVisible (midiOffset);
 
             // もうクリップがある所に MIDI を録ったとき、そのクリップの続きに入れる（既定）か、別のクリップにするか
-            separateClips.setButtonText ("MIDI の録音は別のクリップにする（オフ: もうあるクリップの続きに入れる）"_ju);
+            separateClips.setButtonText ("MIDI の録音を別のクリップにする"_ju);
             separateClips.setToggleState (owner.settings.getBoolValue ("midiRecordSeparateClips", false), juce::dontSendNotification);
             separateClips.onClick = [this] { owner.settings.setValue ("midiRecordSeparateClips", separateClips.getToggleState()); };
             addAndMakeVisible (separateClips);
@@ -520,7 +520,7 @@ void MainComponent::showAudioSettings()
                 const double rate = juce::jmax (1.0, device->getCurrentSampleRate());
                 const int in = device->getInputLatencyInSamples(), out = device->getOutputLatencyInSamples();
                 info.setText ("録音は、オーディオインターフェースが報告する遅れ（入力 "_ju + juce::String (in) + " + 出力 "_ju + juce::String (out)
-                                + " サンプル = "_ju + juce::String ((in + out) * 1000.0 / rate, 1) + " ms）を引いて、聞こえていた位置に置きます（Cubase と同じ）。"_ju
+                                + " サンプル = "_ju + juce::String ((in + out) * 1000.0 / rate, 1) + " ms）を引いて、聞こえていた位置に置きます。"_ju
                                 + "ふつうは 0 のままで大丈夫です。インターフェースの報告が実際と違うときだけ調整してください（正の値で録音を前＝早くずらします）。"_ju,
                               juce::dontSendNotification);
             }

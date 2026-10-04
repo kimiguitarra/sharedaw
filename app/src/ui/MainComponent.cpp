@@ -192,7 +192,7 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     if (! library.getLoadErrors().isEmpty())
         Dialogs::showError ("内蔵音源の読み込みエラー"_ju, library.getLoadErrors().joinIntoString ("\n"));
     else if (library.getAll().empty())
-        Dialogs::showError ("内蔵音源が見つかりません"_ju, "内蔵音源（assets フォルダ）が見つかりません。音が鳴りません。"_ju);
+        Dialogs::showError ("内蔵音源が見つかりません"_ju, "内蔵音源が見つかりません。アプリを入れ直してください。"_ju);
 
     updateTitle();
     startTimerHz (30);
