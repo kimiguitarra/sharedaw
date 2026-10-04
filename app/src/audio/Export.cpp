@@ -27,7 +27,8 @@ juce::Result mixdownWav (EngineBridge& bridge, const ProjectDocument& doc, const
     return juce::Result::ok();
 }
 
-juce::Result mixdownMp3 (EngineBridge& bridge, const ProjectDocument& doc, const juce::File& mp3)
+juce::Result mixdownMp3 (EngineBridge& bridge, const ProjectDocument& doc, const juce::File& mp3,
+                         std::function<juce::Result (std::function<juce::Result()>)> runEncode)
 {
     // 44.1 kHz の 32 bit float WAV に書き出してから MP3 にする（途中で丸めない）
     juce::TemporaryFile temp (mp3.withFileExtension ("wav"));
@@ -35,7 +36,12 @@ juce::Result mixdownMp3 (EngineBridge& bridge, const ProjectDocument& doc, const
     if (! bridge.renderToFile (temp.getFile(), songEnd (doc), bridge.tailSecondsFor ({}), 32, 44100.0))
         return juce::Result::fail ("ミックスダウンを書き出せませんでした。"_ju);
 
-    return Mp3Export::encode (temp.getFile(), mp3, 320, toJuce (doc.getProject().name));
+    auto encode = [source = temp.getFile(), mp3, title = toJuce (doc.getProject().name)]
+    {
+        return Mp3Export::encode (source, mp3, 320, title);
+    };
+
+    return runEncode ? runEncode (encode) : encode();
 }
 
 juce::Result stems (EngineBridge& bridge, const ProjectDocument& doc, const juce::File& folder, juce::Array<juce::File>& written)

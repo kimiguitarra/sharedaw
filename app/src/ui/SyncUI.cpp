@@ -7,6 +7,10 @@ namespace SyncUI
 
 juce::Result runWithProgress (const juce::String& title, std::function<juce::Result()> work)
 {
+    // ディスプレイが分からないとき（テスト用の仮想画面など）は、進み具合の窓を出さずにそのまま行う
+    if (juce::Desktop::getInstance().getDisplays().displays.isEmpty())
+        return work();
+
     struct Task  : public juce::ThreadWithProgressWindow
     {
         Task (const juce::String& t, std::function<juce::Result()> w)

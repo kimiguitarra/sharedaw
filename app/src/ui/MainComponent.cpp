@@ -483,6 +483,18 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
             juce::PNGImageFormat().writeImageToStream (m.timeline.createComponentSnapshot (m.timeline.getLocalBounds()), out);
         }
     }, "timeline snapshot" });
+    steps->push_back ({ 300, [] (MainComponent& m)
+    {
+        // 書き出し（画面から: 進み具合のバーを出して、WAV と MP3 と MIDI をまとめて）
+        const auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("sharedaw-smoke-export");
+        dir.deleteRecursively();
+        juce::StringArray done, failed;
+        m.exportFiles (true, true, false, true, dir, "smoke", done, failed);
+        const bool ok = failed.isEmpty() && dir.getChildFile ("smoke.wav").getSize() > 1000
+                         && dir.getChildFile ("smoke.mp3").getSize() > 1000 && dir.getChildFile ("smoke.mid").existsAsFile();
+        std::cout << "export panel: " << (ok ? "ok" : "FAILED " + failed.joinIntoString ("; ")) << std::endl;
+        dir.deleteRecursively();
+    }, "export" });
 
     // 手順を順に、間を空けて実行する（画面が作り直されて this が消えたら止める。そのときは done を呼ばない＝CI は時間切れで失敗する）
     struct Runner
@@ -493,7 +505,17 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
             if (index >= steps->size())
                 return done();
 
+            // 手順は、待った後の 1 回きりのメッセージで行う（callAfterDelay のタイマーの中で行うと、手順の中で進み具合の窓（モーダル）を
+            // 出している間に、同じタイマーがもう一度呼ばれて消えてしまう）
             juce::Timer::callAfterDelay ((*steps)[index].delayMs, [safe, steps, index, done]
+            {
+                juce::MessageManager::callAsync ([safe, steps, index, done] { run (safe, steps, index, done); });
+            });
+        }
+
+        static void run (juce::Component::SafePointer<MainComponent> safe, std::shared_ptr<std::vector<Step>> steps,
+                         size_t index, std::function<void()> done)
+        {
             {
                 if (safe == nullptr)
                 {
@@ -504,7 +526,7 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
                 std::cout << "smoke: " << (*steps)[index].name << std::endl;
                 (*steps)[index].action (*safe);
                 next (safe, steps, index + 1, done);
-            });
+            }
         }
     };
 

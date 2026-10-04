@@ -124,8 +124,13 @@ private:
     const collab::Track* midiRecordTarget() const;
     std::unique_ptr<juce::DocumentWindow> eqWindow, compWindow;
     void openMaster();
-    enum class ExportKind { wav, mp3, stems, midi };
-    void exportMixdown (ExportKind);
+    /** 書き出し: パネルで形式（WAV・MP3・パラデータ・MIDI。いくつでも）と保存先・名前を選んで書き出す。 */
+    void showExportPanel();
+    void runExport (bool wav, bool mp3, bool stems, bool midi, const juce::File& folder, const juce::String& name);
+
+    /** 書き出しの本体。書いたもの（done）と失敗（failed）を返す。 */
+    void exportFiles (bool wav, bool mp3, bool stems, bool midi, const juce::File& folder, const juce::String& name,
+                      juce::StringArray& done, juce::StringArray& failed);
     std::unique_ptr<juce::DocumentWindow> masterWindow;
 
     // 録音（§3.5）

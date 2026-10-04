@@ -44,7 +44,7 @@ namespace
         bool canScanPluginsOutOfProcess() override    { return true; }
     };
 
-    /** Tracktion からの UI 要求。書き出しなどの重い処理は、いまは同期実行する（進捗表示は M2 で追加）。 */
+    /** Tracktion からの UI 要求。書き出しなどの重い処理は、画面があれば進み具合のバーを出して別スレッドで行う。 */
     struct CollabUIBehaviour  : public te::UIBehaviour
     {
         // Tracktion は MIDI 入力の行き先（録音中に弾いたノートの表示など）を「操作中の Edit」から調べる
@@ -52,10 +52,36 @@ namespace
         te::Edit* getCurrentlyFocusedEdit() override   { return edit; }
         te::Edit* getLastFocusedEdit() override        { return edit; }
 
+        bool showProgress = false;   // 画面を出しているとき（コマンドラインの操作ではバーを出さない）
+
         void runTaskWithProgressBar (te::ThreadPoolJobWithProgress& task) override
         {
-            while (task.runJob() == juce::ThreadPoolJob::jobNeedsRunningAgain)
-            {}
+            // 画面（ディスプレイ）が分からないとき（テスト用の仮想画面など）はバーを出せないので、そのまま行う
+            if (! showProgress || ! juce::MessageManager::getInstance()->isThisTheMessageThread()
+                 || juce::Desktop::getInstance().getDisplays().displays.isEmpty())
+            {
+                while (task.runJob() == juce::ThreadPoolJob::jobNeedsRunningAgain)
+                {}
+
+                return;
+            }
+
+            struct Window  : public juce::ThreadWithProgressWindow
+            {
+                explicit Window (te::ThreadPoolJobWithProgress& t)
+                    : ThreadWithProgressWindow ("書き出しています…"_ju, true, false), job (t) {}
+
+                void run() override
+                {
+                    while (! threadShouldExit() && job.runJob() == juce::ThreadPoolJob::jobNeedsRunningAgain)
+                        setProgress ((double) job.getCurrentTaskProgress());
+                }
+
+                te::ThreadPoolJobWithProgress& job;
+            };
+
+            Window window (task);
+            window.runThread();
         }
 
         void showWarningMessage (const juce::String& message) override
@@ -222,6 +248,9 @@ public:
             juce::Timer::callAfterDelay (1500, [this, args] { recordTest (args); });
             return;
         }
+
+        if (auto* ui = dynamic_cast<CollabUIBehaviour*> (&engine->getUIBehaviour()))
+            ui->showProgress = true;
 
         mainWindow = std::make_unique<MainWindow> (getApplicationName(), createMainComponent());
 

@@ -33,7 +33,7 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
                          cmdRecord, cmdCountIn0, cmdCountIn1, cmdCountIn2,
                          cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
                          cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory,
-                         cmdAddAudioTrack, cmdImportAudio, cmdImportMidi, cmdExportMixdown, cmdExportMp3, cmdExportStems, cmdExportMidi, cmdSplit, cmdMuteTrack, cmdSoloTrack, cmdPlugins, cmdArmTrack, cmdTrackHeight,
+                         cmdAddAudioTrack, cmdImportAudio, cmdImportMidi, cmdExportMixdown, cmdSplit, cmdMuteTrack, cmdSoloTrack, cmdPlugins, cmdArmTrack, cmdTrackHeight,
                          cmdToolSelect, cmdToolPencil, cmdModeCubase, cmdModeStudioOne, cmdMixer, cmdMaster, cmdLoopToSelection,
                          cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
                          cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9,
@@ -251,16 +251,8 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdImportAudio:   info.setInfo ("オーディオを読み込む…"_ju, {}, "File", 0); info.addDefaultKeypress ('i', cmd); break;
         case cmdImportMidi:    info.setInfo ("MIDI ファイルを読み込む…"_ju, {}, "File", 0); break;
         case cmdExportMixdown:
-            info.setInfo ("ミックスダウンを書き出す（WAV 48 kHz / 24 bit）…"_ju, {}, "File", 0);
-            break;
-        case cmdExportMp3:
-            info.setInfo ("ミックスダウンを書き出す（MP3 44.1 kHz / 320 kbps）…"_ju, {}, "File", 0);
-            break;
-        case cmdExportStems:
-            info.setInfo ("パラデータを書き出す（トラックごとの WAV）…"_ju, {}, "File", 0);
-            break;
-        case cmdExportMidi:
-            info.setInfo ("MIDI ファイルを書き出す…"_ju, {}, "File", 0);
+            info.setInfo ("書き出し…"_ju, {}, "File", 0);
+            info.addDefaultKeypress ('e', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
             break;
         case cmdSplit:         info.setInfo ("再生位置で分割"_ju, {}, "Edit", 0); info.addDefaultKeypress ('x', juce::ModifierKeys::altModifier); break;
         case cmdMuteTrack:
@@ -521,10 +513,7 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdPlugins:       showPluginManager(); break;
         case cmdImportAudio:   importAudio(); break;
         case cmdImportMidi:    importMidi(); break;
-        case cmdExportMixdown: exportMixdown (ExportKind::wav); break;
-        case cmdExportMp3:     exportMixdown (ExportKind::mp3); break;
-        case cmdExportStems:   exportMixdown (ExportKind::stems); break;
-        case cmdExportMidi:    exportMixdown (ExportKind::midi); break;
+        case cmdExportMixdown: showExportPanel(); break;
         case cmdSplit:         ctx.splitAtPlayhead(); break;
         case cmdMuteTrack:
         case cmdSoloTrack:
@@ -624,9 +613,6 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addCommandItem (cm, cmdImportAudio);
             m.addCommandItem (cm, cmdImportMidi);
             m.addCommandItem (cm, cmdExportMixdown);
-            m.addCommandItem (cm, cmdExportMp3);
-            m.addCommandItem (cm, cmdExportStems);
-            m.addCommandItem (cm, cmdExportMidi);
            #if ! JUCE_MAC
             m.addSeparator();
             m.addCommandItem (cm, juce::StandardApplicationCommandIDs::quit);

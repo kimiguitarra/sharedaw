@@ -15,7 +15,9 @@ namespace Export
     juce::Result mixdownWav (EngineBridge&, const ProjectDocument&, const juce::File& wav);
 
     /** ミックスダウン（44.1 kHz / 320 kbps MP3）。 */
-    juce::Result mixdownMp3 (EngineBridge&, const ProjectDocument&, const juce::File& mp3);
+    /** runEncode があれば、MP3 への変換をそれに渡して行う（画面では別スレッドで、進み具合を出して）。 */
+    juce::Result mixdownMp3 (EngineBridge&, const ProjectDocument&, const juce::File& mp3,
+                             std::function<juce::Result (std::function<juce::Result()>)> runEncode = {});
 
     /**
         パラデータ: トラックごとの WAV（48 kHz / 24 bit）を folder に書く。ミックスで聞こえるとおり（インサート・EQ・Comp・音量・パン）で、
