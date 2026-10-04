@@ -1019,7 +1019,7 @@ public:
                         juce::Justification::centredRight);
         }
 
-        // 下の名前（番号と色）
+        // 上の名前（番号と色）
         g.setColour (colour.withAlpha (0.85f));
         g.fillRoundedRectangle (nameArea.toFloat(), 3.0f);
         const auto textColour = colour.getPerceivedBrightness() > 0.55f ? juce::Colours::black : juce::Colours::white;
@@ -1048,6 +1048,10 @@ public:
         auto area = getLocalBounds().reduced (4, 0);
         area.removeFromTop (5);
 
+        // トラック名は一番上（画面が低くても必ず見える）
+        nameArea = area.removeFromTop (22);
+        area.removeFromTop (4);
+
         routingTitle.setBounds (area.removeFromTop (headerHeight));
         output.setBounds (area.removeFromTop (20).reduced (1, 1));
         area.removeFromTop (3);
@@ -1071,8 +1075,6 @@ public:
         pan.setBounds (area.removeFromTop (18));
         area.removeFromTop (5);
 
-        nameArea = area.removeFromBottom (22);
-        area.removeFromBottom (2);
         detailArea = area.removeFromBottom (14);
         area.removeFromBottom (3);
 

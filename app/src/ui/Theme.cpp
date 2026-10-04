@@ -5,13 +5,68 @@ namespace Theme
 
 namespace
 {
-    const juce::uint32 palette[] = { 0xffE57373, 0xff64B5F6, 0xff81C784, 0xffFFB74D, 0xffBA68C8,
-                                     0xff4DB6AC, 0xffF06292, 0xffAED581, 0xff9575CD, 0xffFFD54F };
+    // トラックの色（色相の順に 24 色。メニューもこの順に並べる）
+    struct Swatch { juce::uint32 argb; const char* name; };
+    const Swatch palette[] = {
+        { 0xffE8506E, "赤みのピンク" }, { 0xffE57373, "赤" },          { 0xffB23A3A, "暗い赤" },   // utf8-std
+        { 0xffF06292, "ピンク" },       { 0xffC8611E, "暗いオレンジ" }, { 0xffFF8A50, "オレンジ" },   // utf8-std
+        { 0xffF2A93B, "黄色みのオレンジ" }, { 0xffFFD54F, "黄色" },     { 0xffC9B037, "からし色" },   // utf8-std
+        { 0xffAED581, "黄緑" },         { 0xff81C784, "緑" },          { 0xff3E8E5A, "深緑" },   // utf8-std
+        { 0xff4DB6AC, "青緑" },         { 0xff26A69A, "暗い青緑" },     { 0xff5BB8E8, "水色" },   // utf8-std
+        { 0xff64B5F6, "空色" },         { 0xff4A7FD4, "青" },          { 0xff2F5DA8, "暗い青" },   // utf8-std
+        { 0xff7986CB, "藍" },           { 0xff9575CD, "紫" },          { 0xffBA68C8, "薄紫" },   // utf8-std
+        { 0xff8D6E63, "茶色" },         { 0xffA1887F, "薄茶" },        { 0xff90A4AE, "灰色" },   // utf8-std
+    };
+
+    // 新しいトラックに順に付ける色（隣のトラックと見分けやすい順）
+    const int defaultOrder[] = { 1, 15, 10, 5, 19, 12, 3, 9, 16, 7, 20, 13 };
+}
+
+int numTrackColours()     { return (int) std::size (palette); }
+
+juce::Colour paletteColour (int i)
+{
+    return juce::Colour (palette[(size_t) juce::jlimit (0, numTrackColours() - 1, i)].argb);
+}
+
+juce::String paletteColourName (int i)
+{
+    return juce::String::fromUTF8 (palette[(size_t) juce::jlimit (0, numTrackColours() - 1, i)].name);
 }
 
 juce::Colour trackColour (int index)
 {
-    return juce::Colour (palette[(size_t) juce::jmax (0, index) % std::size (palette)]);
+    return paletteColour (defaultOrder[(size_t) juce::jmax (0, index) % std::size (defaultOrder)]);
+}
+
+juce::String colourForNewTrack (const juce::String& name, const std::string& instrumentId, int index)
+{
+    // 楽器ごとの色: ギターは暗いオレンジ、ドラムは黄色みのオレンジ、ベースは暗い青、ピアノは水色、シンセ・メロディは赤みのピンク
+    const auto n = name.toLowerCase();
+    auto has = [&n] (std::initializer_list<const char*> words)
+    {
+        for (auto* w : words)
+            if (n.contains (juce::String::fromUTF8 (w)))
+                return true;
+
+        return false;
+    };
+
+    int swatch = -1;
+
+    if (instrumentId == "builtin.drums" || has ({ "drum", "ドラム", "kick", "snare", "perc" }))   // utf8-std
+        swatch = 6;
+    else if (instrumentId == "builtin.bass" || has ({ "bass", "ベース" }))   // utf8-std
+        swatch = 17;
+    else if (instrumentId == "builtin.piano" || instrumentId == "builtin.epiano" || has ({ "piano", "ピアノ", "keys", "rhodes", "organ", "オルガン" }))   // utf8-std
+        swatch = 14;
+    else if (has ({ "guitar", "gtr", "ギター" }))   // utf8-std
+        swatch = 4;
+    else if (has ({ "synth", "シンセ", "lead", "melody", "メロディ", "serum", "vital", "massive", "pigments" }))   // utf8-std
+        swatch = 0;
+
+    const auto c = swatch >= 0 ? paletteColour (swatch) : trackColour (index);
+    return "#" + c.toDisplayString (false).toUpperCase();
 }
 
 juce::String trackColourHex (int index)

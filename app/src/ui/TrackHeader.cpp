@@ -305,10 +305,12 @@ void TrackHeader::showMenu()
 
     juce::PopupMenu colours;
 
-    for (int i = 0; i < 10; ++i)
+    for (int i = 0; i < Theme::numTrackColours(); ++i)
     {
-        auto hex = Theme::trackColourHex (i);
-        colours.addColouredItem (100 + i, hex, Theme::trackColour (i), true, false, nullptr);
+        if (i > 0 && i % 6 == 0)
+            colours.addColumnBreak();
+
+        colours.addColouredItem (100 + i, Theme::paletteColourName (i), Theme::paletteColour (i), true, false, nullptr);
     }
 
     juce::PopupMenu m;
@@ -393,9 +395,9 @@ void TrackHeader::showMenu()
 
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [this] (int result)
     {
-        if (result >= 100 && result < 110)
+        if (result >= 100 && result < 100 + Theme::numTrackColours())
         {
-            auto hex = toStd (Theme::trackColourHex (result - 100));
+            auto hex = toStd ("#" + Theme::paletteColour (result - 100).toDisplayString (false).toUpperCase());
             editTrack ("トラックの色"_ju, [hex] (collab::Track& t) { t.color = hex; });
         }
     });

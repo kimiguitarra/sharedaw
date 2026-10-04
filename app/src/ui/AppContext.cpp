@@ -39,7 +39,8 @@ std::string AppContext::addMidiTrack (const collab::Instrument& inst, const juce
     t.id = collab::generateUuid();
     t.type = collab::TrackType::midi;
     t.name = toStd (name);
-    t.color = toStd (Theme::trackColourHex ((int) document.getProject().tracks.size()));
+    t.color = toStd (Theme::colourForNewTrack (name, inst.kind == collab::Instrument::Kind::builtin ? inst.id : std::string(),
+                                               (int) document.getProject().tracks.size()));
     t.instrument = inst;
 
     // 選択中のトラックの下に追加する
@@ -70,7 +71,7 @@ std::string AppContext::addAudioTrack (const juce::String& name)
     t.id = collab::generateUuid();
     t.type = collab::TrackType::audio;
     t.name = toStd (name);
-    t.color = toStd (Theme::trackColourHex ((int) document.getProject().tracks.size()));
+    t.color = toStd (Theme::colourForNewTrack (name, {}, (int) document.getProject().tracks.size()));
 
     const auto afterId = state.selectedTrackId;
 
@@ -471,9 +472,8 @@ void AppContext::importMidiFiles (const juce::Array<juce::File>& files, std::str
             t.id = collab::generateUuid();
             t.type = collab::TrackType::midi;
             t.name = part.name;
-            t.color = toStd (Theme::trackColourHex (colourIndex++));
-
             const auto instrumentId = part.builtinInstrument();
+            t.color = toStd (Theme::colourForNewTrack (toJuce (part.name), instrumentId, colourIndex++));
             auto* manifest = library.findLatest (instrumentId);
             collab::Instrument inst;
             inst.kind = collab::Instrument::Kind::builtin;

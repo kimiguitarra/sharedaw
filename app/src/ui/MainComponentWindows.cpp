@@ -123,6 +123,15 @@ void MainComponent::toggleMixer()
                 window->setBounds (display->userArea);
 
         mixerWindow = std::move (window);
+        mixerWindow->setVisible (true);
+
+        // OS のタイトルバーの分を引いて、下が画面からはみ出さないようにする（はみ出すとトラック名が見えなかった）
+        if (auto* peer = mixerWindow->getPeer())
+            if (auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect (mixerWindow->getScreenBounds()))
+                mixerWindow->setBounds (peer->getFrameSize().subtractedFrom (display->userArea));
+
+        mixerWindow->toFront (true);
+        return;
     }
 
     mixerWindow->setVisible (! mixerWindow->isVisible());

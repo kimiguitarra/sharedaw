@@ -72,6 +72,14 @@ namespace Theme
 
     /** トラックの既定の色（追加順に使う）。 */
     juce::Colour trackColour (int index);
+
+    /** トラックの色の一覧（24 色）と、その名前。 */
+    int numTrackColours();
+    juce::Colour paletteColour (int i);
+    juce::String paletteColourName (int i);
+
+    /** 新しいトラックの色（"#RRGGBB"）。名前・音源から楽器が分かればその色、分からなければ index 番目の色。 */
+    juce::String colourForNewTrack (const juce::String& name, const std::string& instrumentId, int index);
     juce::String trackColourHex (int index);
 
     juce::Colour parseColour (const std::string& hex, juce::Colour fallback = juce::Colours::grey);
