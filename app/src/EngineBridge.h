@@ -102,6 +102,7 @@ public:
 
     /** 動作確認用: エンジン（Edit）のトラックの MIDI クリップにあるノートの数。プロジェクトのノートと同じはず。 */
     int countEngineNotes (const std::string& trackId) const;
+    int countEngineClips (const std::string& trackId) const;
 
     /** メトロノーム・マスターのピーク。マスターはマスター音量をかけた後の値。 */
     StereoPeak getMetronomePeakDb();

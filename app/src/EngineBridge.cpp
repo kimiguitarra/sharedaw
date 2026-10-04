@@ -21,6 +21,15 @@ using namespace EngineBridgeDetail;
 
 namespace
 {
+    /** トラックのクリップを全部消す。getClips() は消すたびに縮むので、写しを取ってから回す。 */
+    void removeAllClips (te::ClipTrack& track)
+    {
+        const juce::Array<te::Clip*> clips (track.getClips());
+
+        for (auto* c : clips)
+            c->removeFromParent();
+    }
+
     std::string makeTempoKey (const collab::Project& p)
     {
         std::ostringstream s;
@@ -448,8 +457,9 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
     b.clipsKey = key;
     b.clipsRebuiltAt = juce::Time::getMillisecondCounter();
 
-    for (auto c : track.getClips())
-        c->removeFromParent();
+    // getClips() は消すと縮む本物の一覧なので、写しを取ってから消す（そのまま回すと 1 つおきに消し残し、
+    // 画面にない古いクリップが鳴っていた）
+    removeAllClips (track);
 
     const auto& map = document.getTempoMap();
     b.missingAudio = 0;
@@ -1142,8 +1152,7 @@ void EngineBridge::syncChordTrack (bool tempoChanged)
 
     chordKey = key;
 
-    for (auto c : chordTrack->getClips())
-        c->removeFromParent();
+    removeAllClips (*chordTrack);
 
     if (notes.empty())
         return;
@@ -1203,8 +1212,7 @@ void EngineBridge::syncMetronome (bool tempoChanged)
 
     metronomeKey = key;
 
-    for (auto c : metronomeTrack->getClips())
-        c->removeFromParent();
+    removeAllClips (*metronomeTrack);
 
     const double end = map.tickToSeconds ((double) map.barToTick (lastBar + 1));
     auto clip = metronomeTrack->insertMIDIClip ("click", te::TimeRange (secondsToTime (0), secondsToTime (end)), nullptr);
@@ -1464,4 +1472,10 @@ int EngineBridge::countEngineNotes (const std::string& trackId) const
             count += midi->getSequence().getNotes().size();
 
     return count;
+}
+
+int EngineBridge::countEngineClips (const std::string& trackId) const
+{
+    auto it = bindings.find (trackId);
+    return it == bindings.end() || it->second.track == nullptr ? 0 : it->second.track->getClips().size();
 }

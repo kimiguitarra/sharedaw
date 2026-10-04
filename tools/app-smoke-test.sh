@@ -118,6 +118,16 @@ PY
 done
 echo "recording timing ok"
 
+# クリップを動かす・元に戻す・やり直すたびに、エンジンのクリップとノートが画面（プロジェクト）と同じ
+# （エンジンのクリップを作り直すとき 1 つおきに消し残し、画面にない古い場所の音が鳴っていた）
+echo "== engine follows edits and undo"
+rm -rf "$work/edit"
+cp -r "$work/demo" "$work/edit"
+status=0
+HOME="$work/home" run_with_timeout 120 ${SMOKE_WRAPPER:-} "$exe" --edit-test "$work/edit" > "$work/edit.log" 2>&1 || status=$?
+grep -E "^edit" "$work/edit.log" || true
+[ "$status" -eq 0 ] && grep -q "^edit test: ok" "$work/edit.log" || { echo "edit test failed (exit status $status)"; exit 1; }
+
 # MIDI キーボードの音は、選んだ MIDI トラックの音源だけで鳴る（入力はすべての MIDI トラックにつないだまま、門で選ぶ。
 # 入力先を変えて再生の処理を作り直すと、再生中に選択トラックを切り替えたときに音が途切れていた）
 echo "== keyboard plays only the selected track"

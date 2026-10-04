@@ -377,6 +377,7 @@ private:
         if (name == "--export" && args.size() >= 4)                              return exportCommand (args[1], juce::File (args[2]), juce::File (args[3]));
         if (name == "--import-audio" && args.size() >= 3)                        return importAudioCommand (args);
         if (name == "--midi-info" && args.size() >= 2)                           return midiInfoCommand (juce::File (args[1]));
+        if (name == "--edit-test" && args.size() >= 2)                          return editTestCommand (juce::File (args[1]));
         if (name == "--transients" && args.size() >= 3)                          return transientsCommand (juce::File (args[1]), args[2]);
         if (name == "--scan-plugins")                                            return scanPluginsCommand();
         if ((name == "--bounce" || name == "--render-status") && args.size() >= 2) return bounceCommand (args);
@@ -486,6 +487,74 @@ private:
 
         document->perform ("import", [track] (collab::Project& p) { p.tracks.push_back (track); });
         return document->save().wasOk() ? 0 : 4;
+    }
+
+    /**
+        動作確認用: MIDI クリップを増やし、動かし、元に戻す・やり直すたびに、エンジン（Edit）のクリップとノートが
+        プロジェクト（画面）と同じかを確かめる。画面にないクリップが残って鳴っていないこと。
+    */
+    int editTestCommand (const juce::File& folder)
+    {
+        if (! loadForCommand (folder))
+            return 2;
+
+        bridge->sync();
+        int failures = 0;
+
+        auto check = [&] (const char* step)
+        {
+            bridge->sync();
+
+            for (auto& t : document->getProject().tracks)
+            {
+                if (t.type != collab::TrackType::midi)
+                    continue;
+
+                int notes = 0;
+
+                for (auto& c : t.midiClips)
+                    notes += (int) c.notes.size();
+
+                const int engineClips = bridge->countEngineClips (t.id), engineNotes = bridge->countEngineNotes (t.id);
+                const bool ok = engineClips == (int) t.midiClips.size() && engineNotes == notes;
+                failures += ok ? 0 : 1;
+                std::cout << "edit " << step << " " << t.name << ": project " << t.midiClips.size() << " clips " << notes << " notes, engine "
+                          << engineClips << " clips " << engineNotes << " notes" << (ok ? "" : "  <-- MISMATCH") << std::endl;
+            }
+        };
+
+        // 各 MIDI トラックに、最初のクリップの写しを 3 つ足す（クリップが複数あるトラック）
+        document->perform ("add clips", [] (collab::Project& p)
+        {
+            for (auto& t : p.tracks)
+                if (t.type == collab::TrackType::midi && ! t.midiClips.empty())
+                    for (int i = 1; i <= 3; ++i)
+                    {
+                        auto c = t.midiClips.front();
+                        c.id = collab::generateUuid();
+                        c.startTick += collab::kPpq * 4 * 8 * i;
+                        t.midiClips.push_back (c);
+                    }
+        });
+        check ("added");
+
+        document->perform ("move", [] (collab::Project& p)
+        {
+            for (auto& t : p.tracks)
+                for (auto& c : t.midiClips)
+                    c.startTick += collab::kPpq * 4 * 2;
+        });
+        check ("moved");
+
+        document->undo();
+        check ("undo");
+        document->redo();
+        check ("redo");
+        document->undo();
+        check ("undo again");
+
+        std::cout << "edit test: " << (failures == 0 ? "ok" : "FAILED") << std::endl;
+        return failures == 0 ? 0 : 6;
     }
 
     /** 動作確認用: 曲のフォルダの audio/<hash>.wav の立ち上がり（鳴り始めとピーク）を出す。 */
