@@ -5,6 +5,7 @@
 #include "audio/Mp3Export.h"
 #include "collab/ChordPlayback.h"
 #include "collab/MasterDsp.h"
+#include "collab/Render.h"
 #include "collab/MidiExport.h"
 
 namespace Export
@@ -54,7 +55,7 @@ juce::Result stems (EngineBridge& bridge, const ProjectDocument& doc, const juce
 
     for (auto& t : project.tracks)
     {
-        if (t.type == collab::TrackType::bus || t.mute)
+        if (t.type == collab::TrackType::bus || t.mute || collab::isHiddenBounceTrack (project, t))
             continue;
 
         auto file = fileFor (toJuce (t.name));

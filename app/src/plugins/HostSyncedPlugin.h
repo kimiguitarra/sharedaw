@@ -4,6 +4,7 @@
 
 #include "Common.h"
 #include "collab/TempoMap.h"
+#include "audio/LiveMidiGate.h"
 
 /**
     外部プラグインに知らせる曲のテンポ・拍子（Follow Host 用）。
@@ -48,6 +49,8 @@ public:
     void setHostTempo (std::shared_ptr<const HostTempo>);
 
     void applyToBuffer (const te::PluginRenderContext&) override;
+
+    LiveMidiGate liveGate;   // MIDI キーボードの音を通すか（選択中のトラックだけ）
 
 private:
     class PlayHead;

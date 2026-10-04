@@ -45,11 +45,20 @@ add_subdirectory(external/tracktion_engine/modules)
 # ASIO（Windows）: Steinberg の ASIO SDK のパスを渡したときだけ有効にする（§3.5, M2）
 set(COLLAB_ASIO_SDK_DIR "" CACHE PATH "Path to the Steinberg ASIO SDK (contains common/iasiodrv.h)")
 
+set(SHAREDAW_BUILD_NUMBER 0 CACHE STRING "Build number used by the in-app updater")
+
+# CI のビルドはバージョンの末尾をビルド番号にする（V0.1.123。アプリの「ShareDAW について」・更新の表示と同じ）
+if(SHAREDAW_BUILD_NUMBER GREATER 0)
+    set(SHAREDAW_APP_VERSION "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${SHAREDAW_BUILD_NUMBER}")
+else()
+    set(SHAREDAW_APP_VERSION "${PROJECT_VERSION}")
+endif()
+
 juce_add_gui_app(ShareDAW
     PRODUCT_NAME "ShareDAW"
     COMPANY_NAME "ShareDAW"
     BUNDLE_ID "local.sharedaw.app"
-    VERSION ${PROJECT_VERSION}
+    VERSION ${SHAREDAW_APP_VERSION}
     MICROPHONE_PERMISSION_ENABLED TRUE
     MICROPHONE_PERMISSION_TEXT "録音のためにマイク（オーディオ入力）を使用します。"
     HARDENED_RUNTIME_ENABLED TRUE
@@ -140,7 +149,6 @@ target_compile_definitions(ShareDAW PRIVATE
     TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH=1)
 
 # アプリの更新（§ アップデート）: CI が実行番号を渡す。手元のビルドは 0。再コンパイルを最小にするため Updater.cpp だけに渡す
-set(SHAREDAW_BUILD_NUMBER 0 CACHE STRING "Build number used by the in-app updater")
 set_source_files_properties(src/update/Updater.cpp PROPERTIES COMPILE_DEFINITIONS "SHAREDAW_BUILD_NUMBER=${SHAREDAW_BUILD_NUMBER}")
 
 if(COLLAB_ASIO_SDK_DIR)

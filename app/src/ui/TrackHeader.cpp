@@ -365,6 +365,9 @@ void TrackHeader::showMenu()
         m.addItem ("Compressor…"_ju, [this] { if (ctx.openChannelStrip) ctx.openChannelStrip (trackId, true); });
 
         m.addSubMenu ("出力先・センド"_ju, ctx.routingMenu (trackId));
+
+        if (t->type == collab::TrackType::audio)
+            m.addSubMenu ("テイクのつなぎ（クロスフェード）"_ju, ctx.crossfadeMenu (trackId));
         m.addSubMenu ("エフェクト"_ju, fx);
 
         if (t->type == collab::TrackType::midi || ! t->effects.empty())

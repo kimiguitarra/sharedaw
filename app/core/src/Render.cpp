@@ -96,6 +96,69 @@ const Track* findBounceSource (const Project& p, const Track& audioTrack)
     return nullptr;
 }
 
+namespace
+{
+    std::function<bool (const Track&)>& ownedCheck()
+    {
+        static std::function<bool (const Track&)> check;
+        return check;
+    }
+
+    void copyMixer (const Track& from, Track& to)
+    {
+        to.name = from.name + "（バウンス）";
+        to.color = from.color;
+        to.volumeDb = from.volumeDb;
+        to.pan = from.pan;
+        to.mute = from.mute;
+        to.strip = from.strip;
+        to.output = from.output;
+        to.sends = from.sends;
+        to.outputChannels = from.outputChannels;
+    }
+}
+
+void setOwnedPluginTrackCheck (std::function<bool (const Track&)> check)
+{
+    ownedCheck() = std::move (check);
+}
+
+bool isOwnedPluginTrack (const Track& t)
+{
+    return usesExternalPlugin (t) && ownedCheck() && ownedCheck() (t);
+}
+
+bool isHiddenBounceTrack (const Project& p, const Track& t)
+{
+    if (t.type != TrackType::audio)
+        return false;
+
+    auto* source = findBounceSource (p, t);
+    return source != nullptr && isOwnedPluginTrack (*source);
+}
+
+bool mirrorBounceMixers (Project& p)
+{
+    bool changed = false;
+
+    for (auto& t : p.tracks)
+    {
+        if (! isHiddenBounceTrack (p, t))
+            continue;
+
+        auto copy = t;
+        copyMixer (*findBounceSource (p, t), copy);
+
+        if (! (copy == t))
+        {
+            t = copy;
+            changed = true;
+        }
+    }
+
+    return changed;
+}
+
 std::string applyBounce (Project& p, const std::string& sourceId, const Render& render, SampleCount lengthSamples,
                          const std::string& newTrackId, const std::string& newClipId)
 {
@@ -110,7 +173,11 @@ std::string applyBounce (Project& p, const std::string& sourceId, const Render& 
         targetId = existing->id;
 
     source->render = render;
-    source->mute = true;
+
+    // 外部プラグインのトラックは、持ち主はそのまま鳴らす（バウンスしたトラックは隠して鳴らさない）
+    if (! usesExternalPlugin (*source))
+        source->mute = true;
+
     const Track original = *source;
 
     AudioClip clip;
@@ -123,23 +190,19 @@ std::string applyBounce (Project& p, const std::string& sourceId, const Render& 
     if (auto* target = p.findTrack (targetId))
     {
         target->audioClips = { clip };
+        mirrorBounceMixers (p);
         return targetId;
     }
 
     Track t;
     t.id = newTrackId;
     t.type = TrackType::audio;
-    t.name = original.name + "（バウンス）";
-    t.color = original.color;
-    t.volumeDb = original.volumeDb;
-    t.pan = original.pan;
-    t.strip = original.strip;
-    t.output = original.output;
-    t.sends = original.sends;
-    t.outputChannels = original.outputChannels;
+    copyMixer (original, t);
+    t.mute = false;
     t.audioClips = { clip };
 
     p.tracks.insert (p.tracks.begin() + p.indexOfTrack (sourceId) + 1, t);
+    mirrorBounceMixers (p);
     return newTrackId;
 }
 

@@ -1,6 +1,7 @@
 // MainComponent の同期まわり（仕様書 §4）。
 
 #include "MainComponent.h"
+#include "collab/Render.h"
 
 #include "Dialogs.h"
 #include "ProjectPicker.h"
@@ -365,6 +366,47 @@ void MainComponent::uploadFromPanel (const std::set<std::string>& excluded, cons
     if (! ensureSyncReady (true))
         return;
 
+    // 外部プラグインのトラック（この PC だけ）は、バウンスした音をアップする。
+    // まだバウンスしていない・バウンスの後に変えたものがあれば、その場でバウンスしてからアップできるようにする
+    const auto toBounce = ctx.tracksToBounceBeforeUpload (sync.getBase());
+
+    if (toBounce.empty())
+        return uploadAfterBounce (excluded, message, choices);
+
+    auto options = juce::MessageBoxOptions()
+                     .withIconType (juce::MessageBoxIconType::QuestionIcon)
+                     .withTitle ("バウンスしてアップしますか？"_ju)
+                     .withMessage ("外部プラグインのトラックはアップせず、バウンスした音をアップします。\n\n"_ju
+                                   + "「"_ju + joinNames (sync, toBounce) + "」はまだバウンスしていないか、バウンスした後に変更されています。"_ju)
+                     .withButton ("バウンスしてアップ"_ju)
+                     .withButton ("バウンスせずにアップ"_ju)
+                     .withButton ("キャンセル"_ju)
+                     .withAssociatedComponent (this);
+
+    juce::Component::SafePointer<MainComponent> safe (this);
+
+    juce::AlertWindow::showAsync (options, [safe, toBounce, excluded, message, choices] (int result)
+    {
+        // 結果は 1, 2, …、最後のボタン（キャンセル）は 0
+        if (safe == nullptr || result == 0)
+            return;
+
+        if (result == 1)
+            for (auto& id : toBounce)
+                if (auto r = safe->ctx.bounceTrackNow (id); r.failed())
+                    return Dialogs::showError ("バウンスできませんでした"_ju, r.getErrorMessage());
+
+        safe->uploadAfterBounce (excluded, message, choices);
+    });
+}
+
+void MainComponent::uploadAfterBounce (const std::set<std::string>& excluded, const juce::String& message,
+                                       const std::map<std::string, collab::Resolution>& choices)
+{
+    // 隠しているバウンスしたトラックの音量・パンなどを、元のトラック（持ち主がミックスしている方）に合わせてからアップする
+    if (auto mirrored = document.getProject(); collab::mirrorBounceMixers (mirrored))
+        document.perform ("バウンスしたトラックの音量などを合わせる"_ju, [mirrored] (collab::Project& p) { p = mirrored; });
+
     // サーバーに新しい版があれば、先に選んだとおりにダウンロードする
     if (sync.headPreview() != nullptr && ! downloadWithChoices (choices, false))
         return;
@@ -432,14 +474,7 @@ void MainComponent::uploadFromPanel (const std::set<std::string>& excluded, cons
         setStatus ("アップしました（"_ju + joinNames (sync, plan->diff.changedScopeIds) + "）"_ju);
     };
 
-    // バウンスした後に元のトラック（ノート・プラグインの設定など）を変えている
-    if (! plan->staleBounces.empty())
-        return Dialogs::confirm ("バウンスが古くなっています"_ju,
-                                 "「"_ju + joinNames (sync, plan->staleBounces) + "」はバウンスした後に変更されています。"_ju
-                                     + "\n今の内容をアップするには、トラックを右クリックして「バウンス」し直してください。"_ju
-                                     + "\n\n前にバウンスした音のままアップしますか？"_ju,
-                                 "このままアップ"_ju, upload);
-
+    // バウンスし直すかどうかは、アップを押したときに聞いている（uploadFromPanel）
     upload();
 }
 

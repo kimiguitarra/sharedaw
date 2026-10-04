@@ -181,6 +181,14 @@ public:
 
         library = std::make_unique<InstrumentLibrary> (AppPaths::getAssetsDir());
         document = std::make_unique<ProjectDocument>();
+
+        // 外部プラグインのトラックの持ち主か（状態ファイルがこの PC にある）。持ち主の PC ではそのトラックをアップせず、
+        // バウンスしたトラックを隠す（§3.7）
+        collab::setOwnedPluginTrackCheck ([doc = document.get()] (const collab::Track& t)
+        {
+            return doc->hasLocation() && ! PluginHost::hasMissingState (t, doc->getProjectDir());
+        });
+
         bridge = std::make_unique<EngineBridge> (*engine, *document, *library);
 
         if (auto* ui = dynamic_cast<CollabUIBehaviour*> (&engine->getUIBehaviour()))
@@ -193,6 +201,14 @@ public:
         {
             setApplicationReturnValue (*code);
             quit();
+            return;
+        }
+
+        // --switch-test <プロジェクトフォルダ> <秒>（動作確認用: 再生しながら選択トラックを切り替える。SHAREDAW_LOOPBACK_CAPTURE で出力を書き出す）
+        if (auto args = getCommandLineParameterArray(); args.size() >= 3 && args[0] == "--switch-test")
+        {
+            installLoopbackIfRequested();
+            juce::Timer::callAfterDelay (1500, [this, args] { switchTest (args); });
             return;
         }
 
@@ -215,6 +231,7 @@ public:
         // --smoke-test [曲のフォルダ]（CI 用）: ふつうに起動して一通り操作し、外観の切り替えもしてから終わる
         if (auto args = getCommandLineParameterArray(); ! args.isEmpty() && args[0] == "--smoke-test")
         {
+            installLoopbackIfRequested();   // SHAREDAW_LOOPBACK があれば、処理の重さ（途切れ）を測れる仮想の機器で
             runSmokeTest (args.size() >= 2 ? juce::File (args[1]) : juce::File());
             return;
         }
@@ -258,6 +275,8 @@ public:
     {
         if (childProcessMode)
             return;
+
+        collab::setOwnedPluginTrackCheck ({});   // document を参照しているので、消す前に外す
 
         if (document != nullptr)
             document->writeAutosave();
@@ -534,6 +553,131 @@ private:
                   << " max " << offsets.back() << " (" << offsets.size() << ")" << std::endl;
     }
 
+    /** 再生しながら、MIDI の入力先と録音待機を 0.5 秒ごとにトラックからトラックへ移す（選択トラックを切り替えたときと同じ）。 */
+    void switchTest (const juce::StringArray& args)
+    {
+        auto finish = [this] (int code) { setApplicationReturnValue (code); quit(); };
+
+        if (! loadForCommand (juce::File (args[1])))
+            return finish (2);
+
+        std::vector<std::string> ids;
+
+        for (auto& t : document->getProject().tracks)
+            if (t.type != collab::TrackType::bus)
+                ids.push_back (t.id);
+
+        // SHAREDAW_SWITCH=midi: キーボード（仮想 MIDI）で弾いた音が、選んだ MIDI トラックの音源だけで鳴るか確かめる
+        if (juce::SystemStats::getEnvironmentVariable ("SHAREDAW_SWITCH", "1") == "midi")
+            return gateTest (finish);
+
+        const bool doSwitch = juce::SystemStats::getEnvironmentVariable ("SHAREDAW_SWITCH", "1") != "0";
+        const auto inputs = bridge->getAudioInputs();
+        bridge->setPositionTick (0);
+        bridge->play();
+        std::cout << "playing, switching: " << (doSwitch ? "yes" : "no") << std::endl;
+
+        auto step = std::make_shared<int> (0);
+        auto tick = std::make_shared<std::function<void()>>();
+        *tick = [this, ids, inputs, doSwitch, step, tick]
+        {
+            if (doSwitch && ! ids.empty())
+            {
+                const auto& id = ids[(size_t) (*step % (int) ids.size())];
+                const auto& previous = ids[(size_t) ((*step + (int) ids.size() - 1) % (int) ids.size())];
+                bridge->setMidiTarget (id);
+
+                if (! inputs.isEmpty())
+                {
+                    bridge->setTrackInput (previous, {});
+                    bridge->setTrackInput (id, { inputs[0], {}, true, false });
+                }
+            }
+
+            ++*step;
+            juce::Timer::callAfterDelay (500, [t = *tick] { t(); });
+        };
+        juce::Timer::callAfterDelay (500, [t = *tick] { t(); });
+
+        juce::Timer::callAfterDelay ((int) (args[2].getDoubleValue() * 1000.0), [this, finish, step]
+        {
+            std::cout << "switched " << *step << " times" << std::endl;
+            bridge->stop();
+            finish (0);
+        });
+    }
+
+    void gateTest (std::function<void (int)> finish)
+    {
+        te::MidiInputDevice* virtualMidi = nullptr;
+
+        for (auto& d : engine->getDeviceManager().getMidiInDevices())
+            if (d != nullptr && d->getName() == EngineBridge::loopbackMidiName)
+            {
+                d->setEnabled (true);
+                virtualMidi = d.get();
+            }
+
+        std::vector<std::pair<std::string, std::string>> midiTracks;
+
+        for (auto& t : document->getProject().tracks)
+            if (t.type == collab::TrackType::midi)
+                midiTracks.emplace_back (t.id, t.name);
+
+        if (virtualMidi == nullptr || midiTracks.empty())
+        {
+            std::cerr << "gate: no virtual midi or no midi tracks" << std::endl;
+            return finish (3);
+        }
+
+        auto failures = std::make_shared<int> (0);
+        auto step = std::make_shared<std::function<void (size_t)>>();
+        *step = [this, virtualMidi, midiTracks, failures, step, finish] (size_t k)
+        {
+            if (k >= midiTracks.size())
+            {
+                std::cout << "gate: " << (*failures == 0 ? "ok" : "FAILED") << std::endl;
+                return finish (*failures == 0 ? 0 : 6);
+            }
+
+            bridge->setMidiTarget (midiTracks[k].first);
+
+            juce::Timer::callAfterDelay (300, [this, virtualMidi, midiTracks, failures, step, k]
+            {
+                for (auto& [id, name] : midiTracks)
+                    bridge->getTrackPeakDb (id);   // ここまでのピークを捨てる
+
+                for (int pitch : { 36, 38, 42, 48, 60 })
+                    virtualMidi->handleIncomingMidiMessage (juce::MidiMessage::noteOn (k == 0 ? 10 : 1, pitch, (juce::uint8) 120), virtualMidi->getMPESourceID());
+
+                juce::Timer::callAfterDelay (400, [this, virtualMidi, midiTracks, failures, step, k]
+                {
+                    std::cout << "gate: target " << midiTracks[k].second << ":";
+
+                    for (auto& [id, name] : midiTracks)
+                    {
+                        const auto p = bridge->getTrackPeakDb (id);
+                        const float db = juce::jmax (p.left, p.right);
+                        const bool sounding = db > -60.0f;
+                        std::cout << " " << name << "=" << db;
+
+                        if (sounding != (id == midiTracks[k].first))
+                            ++*failures;
+                    }
+
+                    std::cout << std::endl;
+
+                    for (int ch : { 1, 10 })
+                        virtualMidi->handleIncomingMidiMessage (juce::MidiMessage::allNotesOff (ch), virtualMidi->getMPESourceID());
+
+                    juce::Timer::callAfterDelay (600, [step, k] { (*step) (k + 1); });
+                });
+            });
+        };
+
+        juce::Timer::callAfterDelay (500, [step] { (*step) (0); });
+    }
+
     void recordTest (const juce::StringArray& args)
     {
         auto finish = [this] (int code) { setApplicationReturnValue (code); quit(); };
@@ -608,9 +752,9 @@ private:
                     auto waitUntil = [] (double ms) { while (juce::Time::getMillisecondCounterHiRes() < ms) juce::Thread::sleep (0); };
                     auto stamped = [] (juce::MidiMessage m, double ms) { m.setTimeStamp (ms * 0.001); return m; };
                     waitUntil (heardAtMs);
-                    virtualMidi->handleIncomingMidiMessage (stamped (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), heardAtMs), {});
+                    virtualMidi->handleIncomingMidiMessage (stamped (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), heardAtMs), virtualMidi->getMPESourceID());
                     waitUntil (heardAtMs + 60.0);
-                    virtualMidi->handleIncomingMidiMessage (stamped (juce::MidiMessage::noteOff (1, 60), heardAtMs + 60.0), {});
+                    virtualMidi->handleIncomingMidiMessage (stamped (juce::MidiMessage::noteOff (1, 60), heardAtMs + 60.0), virtualMidi->getMPESourceID());
                 }).detach();
             };
 

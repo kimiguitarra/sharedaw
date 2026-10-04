@@ -1,4 +1,5 @@
 #include "MainComponent.h"
+#include "collab/Render.h"
 #include "MainComponentCommands.h"
 
 #include <iostream>
@@ -370,6 +371,26 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
         }
     }, "waveform display zoom back" });
     steps->push_back ({ 800, [] (MainComponent& m) { m.commandManager.invokeDirectly (cmdPlay, false); }, "play" });
+    steps->push_back ({ 300, [] (MainComponent& m)
+    {
+        // 再生しながら選択トラックを切り替える（録音待機・MIDI の入力先も付いて移る。音が途切れないこと）
+        juce::Component::SafePointer<MainComponent> safe (&m);
+
+        for (int i = 0; i < 6; ++i)
+            juce::Timer::callAfterDelay (250 * i, [safe, i]
+            {
+                if (safe == nullptr)
+                    return;
+
+                const auto& tracks = safe->document.getProject().tracks;
+
+                if (! tracks.empty())
+                {
+                    safe->state.selectedTrackId = tracks[(size_t) i % tracks.size()].id;
+                    safe->state.changed();
+                }
+            });
+    }, "switch the selected track while playing" });
     steps->push_back ({ 2000, [] (MainComponent& m) { m.commandManager.invokeDirectly (cmdPlay, false); m.bridge.stop(); }, "stop" });
     steps->push_back ({ 300, [] (MainComponent& m)
     {
@@ -457,6 +478,24 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
 
         updateTitle();
         commandManager.commandStatusChanged();
+
+        // 外部プラグインのトラックをバウンスしたトラックは、持ち主の PC では表示しない（元のトラックで編集・再生する）
+        std::set<std::string> hidden;
+
+        for (auto& t : document.getProject().tracks)
+            if (collab::isHiddenBounceTrack (document.getProject(), t))
+                hidden.insert (t.id);
+
+        if (hidden != state.hiddenTracks)
+        {
+            state.hiddenTracks = hidden;
+
+            if (state.isHidden (state.selectedTrackId))
+                state.selectedTrackId = {};
+
+            state.changed();
+            resized();
+        }
 
         // 削除されたトラック・クリップの選択を外す
         if (ctx.selectedTrack() == nullptr && ! state.selectedTrackId.empty())

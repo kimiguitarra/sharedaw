@@ -1428,7 +1428,8 @@ void MixerView::rebuild()
     std::vector<std::string> ids { std::string() };   // 先頭はコードトラック
 
     for (auto& t : ctx.document.getProject().tracks)
-        ids.push_back (t.id);
+        if (! ctx.state.isHidden (t.id))
+            ids.push_back (t.id);
 
     if (fixedStrips.isEmpty())
     {

@@ -1,6 +1,7 @@
 // EngineBridge の録音: 入力（オーディオ・MIDI）、入力レベル、録音の開始・終了と取り込み
 
 #include "EngineBridge.h"
+#include "plugins/HostSyncedPlugin.h"
 #include "EngineBridgeDetail.h"
 
 #include <tracktion_graph/tracktion_graph.h>
@@ -144,6 +145,8 @@ void EngineBridge::setTrackInput (const std::string& trackId, const TrackInput& 
 
 void EngineBridge::applyInputs()
 {
+    updateLiveMidiGates();
+
     // 録音中は入力の割り当てを変えない（変えると、その入力の録音が止まる）。録音が終わってから行う
     if (edit->getTransport().isRecording())
     {
@@ -157,32 +160,32 @@ void EngineBridge::applyInputs()
     {
         // MIDI キーボード: 選択中の MIDI トラックの音源で鳴らし、録音もそのトラックへ
         // （録音のタイミングの確認用の仮想 MIDI 入力も同じに扱う: --record-test）
-        if (in->getInputDevice().getDeviceType() == te::InputDevice::physicalMidiDevice
-             || (in->getInputDevice().getDeviceType() == te::InputDevice::virtualMidiDevice && in->getInputDevice().getName() == loopbackMidiName))
+        if (isLiveMidiInput (*in))
         {
-            te::AudioTrack* target = nullptr;
+            // すべての MIDI トラックにつないだままにする（入力先を変えると Tracktion が再生の処理を作り直し、音が途切れるため）。
+            // どのトラックの音源で鳴らすかは LiveMidiGate で、録音するのは選択中のトラックだけ
+            std::vector<te::AudioTrack*> midiTracks;
 
-            if (auto b = bindings.find (midiTargetId); b != bindings.end() && b->second.track != nullptr && ! b->second.renderMode)
-            {
-                // トラックで入力を選んでいれば、その機器だけ
-                const auto choice = getTrackMidiInput (midiTargetId);
-
-                if (choice.isEmpty() || choice == in->getInputDevice().getName())
-                    target = b->second.track.get();
-            }
+            for (auto& [id, b] : bindings)
+                if (b.track != nullptr && ! b.renderMode && (b.synth != nullptr || b.externalInstrument != nullptr))
+                    midiTracks.push_back (b.track.get());
 
             for (auto id : in->getTargets())
-                if (target == nullptr || id != target->itemID)
+                if (std::none_of (midiTracks.begin(), midiTracks.end(), [id] (auto* t) { return t->itemID == id; }))
                     [[maybe_unused]] auto r = in->removeTarget (id, nullptr);
 
             in->getInputDevice().setMonitorMode (te::InputDevice::MonitorMode::on);
 
-            if (target != nullptr)
-            {
-                if (! in->getTargets().contains (target->itemID))
-                    [[maybe_unused]] auto r = in->setTarget (target->itemID, true, nullptr);
+            const auto choice = getTrackMidiInput (midiTargetId);
+            const bool deviceChosen = choice.isEmpty() || choice == in->getInputDevice().getName();
 
-                in->setRecordingEnabled (target->itemID, true);
+            for (auto* t : midiTracks)
+            {
+                if (! in->getTargets().contains (t->itemID))
+                    [[maybe_unused]] auto r = in->setTarget (t->itemID, false, nullptr);
+
+                auto b = bindings.find (midiTargetId);
+                in->setRecordingEnabled (t->itemID, deviceChosen && b != bindings.end() && b->second.track.get() == t);
             }
 
             continue;
@@ -220,6 +223,47 @@ void EngineBridge::applyInputs()
 
             in->setRecordingEnabled (target->itemID, setting.armed);
         }
+    }
+}
+
+bool EngineBridge::isLiveMidiInput (te::InputDeviceInstance& in)
+{
+    // 録音のタイミングの確認用の仮想 MIDI 入力（--record-test）も、キーボードと同じに扱う
+    auto& d = in.getInputDevice();
+    return d.getDeviceType() == te::InputDevice::physicalMidiDevice
+            || (d.getDeviceType() == te::InputDevice::virtualMidiDevice && d.getName() == loopbackMidiName);
+}
+
+void EngineBridge::updateLiveMidiGates()
+{
+    // キーボードの送り元（入力機器ごと）を登録し、選択中のトラックの音源だけ門を開ける
+    std::vector<te::MPESourceID> sources;
+    te::MPESourceID chosen = LiveMidiGate::noSource;
+    const auto choice = getTrackMidiInput (midiTargetId);
+
+    for (auto* in : edit->getAllInputDevices())
+        if (isLiveMidiInput (*in))
+            if (auto* midi = dynamic_cast<te::MidiInputDevice*> (&in->getInputDevice()))
+            {
+                sources.push_back (midi->getMPESourceID());
+
+                if (midi->getName() == choice)
+                    chosen = midi->getMPESourceID();
+            }
+
+    LiveMidiGate::setLiveSources (sources);
+
+    for (auto& [id, b] : bindings)
+    {
+        const auto allowed = id != midiTargetId ? LiveMidiGate::noSource
+                           : choice.isEmpty()   ? LiveMidiGate::allSources
+                                                : chosen;   // 選んだ機器だけ（「なし」なら通さない）
+
+        if (b.synth != nullptr)
+            b.synth->liveGate.setAllowed (allowed);
+
+        if (auto* ext = dynamic_cast<HostSyncedExternalPlugin*> (b.externalInstrument.get()))
+            ext->liveGate.setAllowed (allowed);
     }
 }
 
@@ -629,7 +673,8 @@ void EngineBridge::midiKeyStateChanged (te::AudioTrack* track, const juce::Array
 
     const double now = getPositionSeconds();
 
-    if (trackId.empty() || now < punchInSeconds)
+    // キーボードは全部の MIDI トラックにつないでいるので、録音している（選択中の）トラックの分だけ描く
+    if (trackId.empty() || trackId != midiTargetId || now < punchInSeconds)
         return;
 
     auto& live = liveRecordings[trackId];

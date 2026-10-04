@@ -354,6 +354,22 @@ void EngineBridge::sync()
 
     syncRouting (project);
 
+    // MIDI キーボードは全部の MIDI トラックにつなぐので、MIDI トラック（音源）が増減・変わったらつなぎ直す
+    {
+        juce::String key;
+
+        for (auto& [id, b] : bindings)
+            if (b.track != nullptr && ! b.renderMode && (b.synth != nullptr || b.externalInstrument != nullptr))
+                key << juce::String (id) << ":" << juce::String::toHexString ((juce::pointer_sized_int) b.track.get())
+                    << ":" << juce::String::toHexString ((juce::pointer_sized_int) (b.synth != nullptr ? (void*) b.synth : (void*) b.externalInstrument.get())) << ";";
+
+        if (key != liveMidiTracksKey)
+        {
+            liveMidiTracksKey = key;
+            applyInputs();
+        }
+    }
+
     if (masterLimiter != nullptr)
         masterLimiter->setLimiter (project.master.limiter);
     syncChordTrack (tempoChanged);
@@ -384,8 +400,9 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
             vol->setPan ((float) t.pan);
     }
 
-    if (track.isMuted (false) != t.mute)
-        track.setMute (t.mute);
+    // 外部プラグインのトラックをバウンスしたトラックは、持ち主の PC では鳴らさない（元のトラックをそのまま鳴らす）
+    if (const bool mute = t.mute || collab::isHiddenBounceTrack (document.getProject(), t); track.isMuted (false) != mute)
+        track.setMute (mute);
 
     if (track.isSolo (false) != t.solo)
         track.setSolo (t.solo);

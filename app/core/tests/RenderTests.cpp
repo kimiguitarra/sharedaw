@@ -66,8 +66,9 @@ TEST_CASE ("fingerprint changes with content and plugin state, not with mixer se
     state = "state-v1";
 }
 
-TEST_CASE ("bouncing makes an audio track below the source and mutes the source; bouncing again replaces its clip")
+TEST_CASE ("bouncing makes an audio track below the source; plugin tracks keep playing and the bounce is hidden on the owner's PC")
 {
+    setOwnedPluginTrackCheck ([] (const Track&) { return true; });
     auto p = parseProject (fixture ("full.project.json"));
     const auto sourceId = p.tracks[1].id;
     p.tracks[1].volumeDb = -4;
@@ -86,14 +87,20 @@ TEST_CASE ("bouncing makes an audio track below the source and mutes the source;
     CHECK (bounced->audioClips[0].audioHash == r.audioHash);
     CHECK (bounced->audioClips[0].startTick == 0);
     CHECK (bounced->audioClips[0].lengthSamples == 480000);
-    CHECK (p.findTrack (sourceId)->mute);
+    CHECK_FALSE (p.findTrack (sourceId)->mute);   // 外部プラグインのトラックは、持ち主はそのまま鳴らす
     CHECK (p.findTrack (sourceId)->render == r);
     CHECK (findBounceTrack (p, *p.findTrack (sourceId)) == bounced);
     CHECK (findBounceSource (p, *bounced) == p.findTrack (sourceId));
+    CHECK (isHiddenBounceTrack (p, *bounced));
+    CHECK_FALSE (isHiddenBounceTrack (p, p.tracks[0]));
 
-    // バウンスし直し: 同じトラックのクリップを差し替える（音量などはそのまま）
-    bounced->volumeDb = -10;
-    p.findTrack (sourceId)->mute = false;
+    // 隠したトラックの音量などは元のトラックに合わせる（持ち主は元のトラックでミックスする）
+    p.findTrack (sourceId)->volumeDb = -10;
+    CHECK (mirrorBounceMixers (p));
+    CHECK (p.findTrack (id)->volumeDb == -10);
+    CHECK_FALSE (mirrorBounceMixers (p));
+
+    // バウンスし直し: 同じトラックのクリップを差し替える
     const auto count = p.tracks.size();
     Render r2 { std::string (64, 'b'), "2026-01-02T00:00:00Z", std::string (64, '2'), 2.0 };
     CHECK (applyBounce (p, sourceId, r2, 48000, "00000000-0000-4000-8000-0000000000b2", "00000000-0000-4000-8000-0000000000c2") == id);
@@ -101,13 +108,24 @@ TEST_CASE ("bouncing makes an audio track below the source and mutes the source;
     CHECK (p.findTrack (id)->volumeDb == -10);
     CHECK (p.findTrack (id)->audioClips.size() == 1);
     CHECK (p.findTrack (id)->audioClips[0].audioHash == r2.audioHash);
-    CHECK (p.findTrack (sourceId)->mute);
+
+    // 持ち主でない PC（プラグインの状態がない）では隠さない
+    setOwnedPluginTrackCheck ({});
+    CHECK_FALSE (isHiddenBounceTrack (p, *p.findTrack (id)));
+
+    // 内蔵音源のトラックをバウンスすると、元のトラックはミュートする（二重に鳴らないように）
+    const auto builtinId = p.tracks[0].id;
+    const auto b2 = applyBounce (p, builtinId, Render { std::string (64, 'c'), "2026-01-02T00:00:00Z", std::string (64, '3'), 2.0 },
+                                 48000, "00000000-0000-4000-8000-0000000000b3", "00000000-0000-4000-8000-0000000000c3");
+    CHECK (p.findTrack (builtinId)->mute);
+    CHECK_FALSE (isHiddenBounceTrack (p, *p.findTrack (b2)));
 
     CHECK (parseProject (serialiseProject (p)) == p);
 }
 
 TEST_CASE ("external plugin tracks stay on this PC: the bounced audio track is uploaded instead")
 {
+    setOwnedPluginTrackCheck ([] (const Track&) { return true; });
     auto base = parseProject (fixture ("full.project.json"));
     base.tracks.erase (base.tracks.begin() + 1);   // 外部プラグインのトラックはまだサーバーにない
 
@@ -139,8 +157,19 @@ TEST_CASE ("external plugin tracks stay on this PC: the bounced audio track is u
     CHECK (*merged.findTrack (externalId) == *local.findTrack (externalId));
     CHECK (merged.tracks[0].volumeDb == -12);
 
-    // 以前の版でアップ済み（ベースにある）外部プラグインのトラックはこれまでどおり
+    // 以前の版でアップ済み（ベースにある）外部プラグインのトラック: 持ち主の PC ではこの PC だけにして、アップでサーバーから消す
+    CHECK (isLocalOnlyTrack (local, local, externalId));
+    CHECK (uploadSnapshot (local, local, { bounceId }).findTrack (externalId) == nullptr);
+
+    // 持ち主でない PC にある古いトラックはふつうに扱う（持ち主が消したら、ダウンロードで消える）
+    setOwnedPluginTrackCheck ({});
     CHECK_FALSE (isLocalOnlyTrack (local, local, externalId));
+    const auto removedOnServer = uploadSnapshot (local, local, { bounceId });
+    CHECK (resolvePull (local, local, removedOnServer, {}).findTrack (externalId) != nullptr);   // サーバーで消えていない
+    auto headWithout = local;
+    std::erase_if (headWithout.tracks, [&] (const Track& t) { return t.id == externalId; });
+    CHECK (resolvePull (local, local, headWithout, {}).findTrack (externalId) == nullptr);
+    setOwnedPluginTrackCheck ({});
 }
 
 TEST_CASE ("registering a new song leaves external plugin tracks on this PC")

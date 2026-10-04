@@ -48,6 +48,16 @@ juce::String executableName()
     return name;
 }
 
+juce::String versionText (int build)
+{
+    if (build <= 0)
+        return "開発版"_ju;
+
+    // JUCE のバージョン（CMake の project VERSION）の「メジャー.マイナー」に、ビルド番号を付ける
+    const auto parts = juce::StringArray::fromTokens (JUCE_APPLICATION_VERSION_STRING, ".", {});
+    return "V" + parts[0] + "." + (parts.size() > 1 ? parts[1] : juce::String ("0")) + "." + juce::String (build);
+}
+
 int currentBuild()
 {
     return SHAREDAW_BUILD_NUMBER;

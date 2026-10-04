@@ -77,7 +77,8 @@ struct ScopeSyncState
     サーバーにアップしない、この PC だけのトラックか。
     外部プラグイン（Superior Drummer など）のトラックは他の人の PC では鳴らせないので、アップせずにこの PC に残し、
     代わりにバウンスしたオーディオトラックをアップする（§3.7）。
-    ベースにある（以前の版でアップ済みの）トラックはこれまでどおり扱う。
+    ベースにある（以前の版でアップ済みの）トラックも、持ち主の PC（isOwnedPluginTrack）ではこの PC だけにして、
+    次のアップでサーバーから消す。
 */
 bool isLocalOnlyTrack (const Project& base, const Project& local, const std::string& trackId);
 

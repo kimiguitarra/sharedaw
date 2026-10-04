@@ -9,7 +9,49 @@
 // MIDI も同じく、出力のクリックが「聞こえた」瞬間（出力のレイテンシの後）に onClickHeard を呼ぶ（MIDI を送る用）。
 
 #include "Common.h"
+#include <atomic>
 #include <iostream>
+
+#if JUCE_LINUX
+ #include <csignal>
+ #include <execinfo.h>
+ #include <pthread.h>
+ #include <unistd.h>
+ #include <sys/syscall.h>
+ #include <dirent.h>
+
+// SHAREDAW_LOOPBACK_STACKS があれば、処理が 8 ms を超えたときに全スレッドのスタックを出す（重い所を探す用）
+namespace LoopbackStacks
+{
+    inline std::atomic_flag busy = ATOMIC_FLAG_INIT;
+
+    inline void onSignal (int)
+    {
+        while (busy.test_and_set()) {}
+
+        void* frames[64];
+        const int n = backtrace (frames, 64);
+        char header[96];
+        const int len = snprintf (header, sizeof (header), "---- thread %ld stack ----\n", (long) syscall (SYS_gettid));
+        [[maybe_unused]] auto w = write (2, header, (size_t) len);
+        backtrace_symbols_fd (frames, n, 2);
+        busy.clear();
+    }
+
+    /** プロセスのすべてのスレッドのスタックを出す。 */
+    inline void dumpAllThreads()
+    {
+        if (auto* dir = opendir ("/proc/self/task"))
+        {
+            while (auto* e = readdir (dir))
+                if (e->d_name[0] != '.')
+                    syscall (SYS_tgkill, getpid(), atoi (e->d_name), SIGPROF);
+
+            closedir (dir);
+        }
+    }
+}
+#endif
 
 class LoopbackDevice  : public juce::AudioIODevice,
                         private juce::Thread
@@ -53,6 +95,15 @@ public:
         startThread (juce::Thread::Priority::highest);
     }
 
+    /** オーディオの処理（コールバック）にかかった時間。バッファの長さを超えると、本物の機器では音が途切れる（プツっと鳴る）。 */
+    struct Timing
+    {
+        std::atomic<int> callbacks { 0 }, overBudget { 0 };
+        std::atomic<double> slowestMs { 0.0 };
+    };
+
+    static Timing& timing()   { static Timing t; return t; }
+
     void stop() override
     {
         stopThread (2000);
@@ -78,6 +129,7 @@ private:
     juce::BigInteger activeIns, activeOuts;
     bool opened = false;
     juce::AudioIODeviceCallback* callback = nullptr;
+    std::atomic<double> callbackStartMs { 0.0 };
 
     void run() override
     {
@@ -90,6 +142,51 @@ private:
         juce::int64 block = 0;
         float previous = 0.0f;
         int quiet = blockSize * 100;
+
+       #if JUCE_LINUX
+        std::unique_ptr<std::thread> watchdog;
+        std::atomic<bool> stopWatchdog { false };
+
+        if (juce::SystemStats::getEnvironmentVariable ("SHAREDAW_LOOPBACK_STACKS", {}).isNotEmpty())
+        {
+            std::signal (SIGPROF, LoopbackStacks::onSignal);
+            std::cerr << "loopback: maps " << juce::File ("/proc/self/maps").loadFileAsString().upToFirstOccurrenceOf ("\n", false, false) << std::endl;
+            watchdog = std::make_unique<std::thread> ([this, &stopWatchdog]
+            {
+                double reported = 0.0;
+
+                while (! stopWatchdog)
+                {
+                    std::this_thread::sleep_for (std::chrono::milliseconds (3));
+                    const double started = callbackStartMs.load();
+
+                    if (started > 0.0 && started != reported && juce::Time::getMillisecondCounterHiRes() - started > 8.0)
+                    {
+                        reported = started;
+                        std::cerr << "---- overrun: all threads ----" << std::endl;
+                        LoopbackStacks::dumpAllThreads();
+                    }
+                }
+            });
+        }
+
+        const juce::ScopeGuard joinWatchdog { [&] { stopWatchdog = true; if (watchdog) watchdog->join(); } };
+       #endif
+
+        // SHAREDAW_LOOPBACK_CAPTURE=<wav> なら、出力をそのまま書き出す（再生中のノイズの確認用: --switch-test）
+        std::unique_ptr<juce::AudioFormatWriter> capture;
+
+        if (auto path = juce::SystemStats::getEnvironmentVariable ("SHAREDAW_LOOPBACK_CAPTURE", {}); path.isNotEmpty())
+        {
+            juce::File file (path);
+            file.deleteFile();
+
+            if (auto stream = file.createOutputStream())
+            {
+                juce::WavAudioFormat wav;
+                capture.reset (wav.createWriterFor (stream.release(), rate, (unsigned int) juce::jmax (1, numOuts), 32, {}, 0));
+            }
+        }
 
         while (! threadShouldExit())
         {
@@ -105,8 +202,30 @@ private:
 
             out.clear();
             const double blockTime = juce::Time::getMillisecondCounterHiRes();
+            callbackStartMs = blockTime;
             juce::AudioIODeviceCallbackContext context;
             callback->audioDeviceIOCallbackWithContext (in.getArrayOfReadPointers(), numIns, out.getArrayOfWritePointers(), numOuts, blockSize, context);
+
+            callbackStartMs = 0.0;
+
+            {
+                const double took = juce::Time::getMillisecondCounterHiRes() - blockTime;
+                const double budget = blockSize * 1000.0 / rate;
+                auto& t = timing();
+                ++t.callbacks;
+
+                if (took > t.slowestMs.load())
+                    t.slowestMs = took;
+
+                if (took > budget)
+                {
+                    ++t.overBudget;
+                    std::cerr << "loopback: callback took " << took << " ms (budget " << budget << " ms) at block " << block << std::endl;
+                }
+            }
+
+            if (capture != nullptr)
+                capture->writeFromAudioSampleBuffer (out, 0, blockSize);
 
             for (int i = 0; i < blockSize; ++i)
             {

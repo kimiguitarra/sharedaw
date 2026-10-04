@@ -112,3 +112,21 @@ assert re.search(r"live: \S+ peaks \d+ notes ([1-9]\d*)", text), text
 PY
 done
 echo "recording timing ok"
+
+# MIDI キーボードの音は、選んだ MIDI トラックの音源だけで鳴る（入力はすべての MIDI トラックにつないだまま、門で選ぶ。
+# 入力先を変えて再生の処理を作り直すと、再生中に選択トラックを切り替えたときに音が途切れていた）
+echo "== keyboard plays only the selected track"
+rm -rf "$work/gate"
+cp -r "$work/demo" "$work/gate"
+python3 - "$work/gate/project.json" <<'PY'
+import json, sys
+p = json.load(open(sys.argv[1]))
+for t in p["tracks"]:
+    t["clips"] = []
+p["chordTrack"]["events"] = []
+json.dump(p, open(sys.argv[1], "w"), ensure_ascii=False)
+PY
+status=0
+SHAREDAW_LOOPBACK=256,256,256 SHAREDAW_LOOPBACK_NOMETRO=1 SHAREDAW_SWITCH=midi HOME="$work/home" run_with_timeout 120 ${SMOKE_WRAPPER:-} "$exe" --switch-test "$work/gate" 1 > "$work/gate.log" 2>&1 || status=$?
+grep -E "^gate" "$work/gate.log" || true
+[ "$status" -eq 0 ] && grep -q "^gate: ok" "$work/gate.log" || { echo "keyboard gate failed (exit status $status)"; exit 1; }

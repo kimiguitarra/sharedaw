@@ -41,10 +41,30 @@ const Track* findBounceTrack (const Project&, const Track& source);
 const Track* findBounceSource (const Project&, const Track& audioTrack);
 
 /**
+    外部プラグインのトラックが、この PC のものか（プラグインの状態ファイルがこの PC にある＝持ち主）。
+    アプリが設定する（設定しなければ、持ち主ではないとみなす）。
+*/
+void setOwnedPluginTrackCheck (std::function<bool (const Track&)>);
+bool isOwnedPluginTrack (const Track&);
+
+/**
+    持ち主の PC で隠すバウンスしたトラックか（外部プラグインのトラックをバウンスしたもの）。
+    持ち主は元のトラック（プラグイン）をそのまま鳴らして編集し、バウンスしたトラックは表示も再生もしない。
+    他の人の PC には元のトラックがないので、ふつうのオーディオトラックとして見える。
+*/
+bool isHiddenBounceTrack (const Project&, const Track&);
+
+/**
+    隠すバウンスしたトラックの音量・パン・ミュート・EQ・コンプ・出力先・センド・名前を、元のトラックに合わせる
+    （持ち主は元のトラックでミックスするので、その設定がそのまま他の人に届くように）。変わったら true。
+*/
+bool mirrorBounceMixers (Project&);
+
+/**
     バウンスの結果をプロジェクトに入れる（Cubase の「インプレイスレンダリング」と同じ）:
-    - 元のトラックの render を更新してミュートする（バウンスしたトラックと二重に鳴らないように）
-    - バウンスしたオーディオトラックがあればクリップを差し替え（音量などの設定はそのまま）、
-      なければ元のトラックのすぐ下に作る（名前は「元の名前（バウンス）」、音量・パン・EQ・コンプ・出力先・センドは元と同じ）
+    - 元のトラックの render を更新する。外部プラグインでなければ、元のトラックはミュートする（二重に鳴らないように）
+    - バウンスしたオーディオトラックがあればクリップを差し替え、なければ元のトラックのすぐ下に作る
+      （名前は「元の名前（バウンス）」、音量・パン・EQ・コンプ・出力先・センドは元と同じ）
     バウンスしたオーディオトラックの ID を返す。
 */
 std::string applyBounce (Project&, const std::string& sourceId, const Render&, SampleCount lengthSamples,

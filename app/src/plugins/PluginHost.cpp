@@ -73,6 +73,20 @@ juce::File stateFile (const juce::File& projectDir, const std::string& stateRef)
     return projectDir.getChildFile (ref);
 }
 
+bool hasMissingState (const collab::Track& t, const juce::File& dir)
+{
+    auto missing = [&] (const std::string& ref) { return ! ref.empty() && ! stateFile (dir, ref).existsAsFile(); };
+
+    if (t.instrument && t.instrument->kind == collab::Instrument::Kind::external && missing (t.instrument->stateRef))
+        return true;
+
+    for (auto& e : t.effects)
+        if (missing (e.stateRef))
+            return true;
+
+    return false;
+}
+
 std::string stateHash (const juce::File& projectDir, const std::string& stateRef)
 {
     juce::MemoryBlock data;
@@ -165,11 +179,10 @@ void PluginWindows::show (te::Plugin& plugin, const juce::String& title)
     auto w = std::make_unique<Window> (title, *this, &plugin);
     w->setUsingNativeTitleBar (true);
 
-   #if JUCE_WINDOWS
     startTimer (15);
-   #else
-    if (keyListener != nullptr)
-        w->addKeyListener (keyListener);
+
+   #if ! JUCE_WINDOWS
+    w->addKeyListener (&filteredKeys);
    #endif
 
     w->setContentOwned (editor, true);
@@ -193,14 +206,37 @@ void PluginWindows::closeAll()
     stopTimer();
 }
 
+bool PluginWindows::forwardsKey (const juce::KeyPress& key)
+{
+    const auto code = key.getKeyCode();
+    const auto mods = key.getModifiers();
+
+    if (mods.isCommandDown() || mods.isCtrlDown() || mods.isAltDown())
+        return false;
+
+    if (code == juce::KeyPress::spaceKey || code == juce::KeyPress::numberPadMultiply || code == '*')
+        return true;
+
+    // Shift + 数字（マーカーへ移動）。キー配列によっては記号で届く
+    return mods.isShiftDown() && ((code >= '1' && code <= '9') || juce::String ("!@#$%^&*(\"'()").containsChar ((juce::juce_wchar) code));
+}
+
 void PluginWindows::timerCallback()
 {
+    // ShareDAW を使っている間は、プラグインの画面を DAW の画面の上に浮かせておく（Cubase と同じ）。
+    // ルーラーなど DAW の画面をクリックしてもプラグインの画面が後ろに隠れない。他のアプリに切り替えたら浮かせない
+    const bool appInFront = juce::Process::isForegroundProcess();
+
+    for (auto& [plugin, w] : windows)
+        if (w->isAlwaysOnTop() != appInFront)
+            w->setAlwaysOnTop (appInFront);
+
+   #if JUCE_WINDOWS
     // プラグインの画面が前にあるときだけ（DAW の画面ではふつうにキーが届く）
     const bool pluginInFront = std::any_of (windows.begin(), windows.end(), [] (auto& w) { return w.second->isActiveWindow(); });
 
-    static const int keys[] = { juce::KeyPress::spaceKey, juce::KeyPress::numberPad0, juce::KeyPress::numberPad1, juce::KeyPress::numberPad2,
-                                juce::KeyPress::numberPadDecimalPoint, juce::KeyPress::numberPadMultiply, juce::KeyPress::numberPadDivide,
-                                juce::KeyPress::numberPadAdd, juce::KeyPress::numberPadSubtract,
+    // プラグインの画面で数値を打つこともあるので、テンキーの数字・「.」・「+」「-」「/」は DAW に送らない
+    static const int keys[] = { juce::KeyPress::spaceKey, juce::KeyPress::numberPadMultiply,
                                 '1', '2', '3', '4', '5', '6', '7', '8', '9' };   // 数字は Shift と一緒のときだけ（マーカーへ移動）
 
     const auto mods = juce::ModifierKeys::getCurrentModifiersRealtime();
@@ -217,4 +253,5 @@ void PluginWindows::timerCallback()
 
         keysDown[key] = down;
     }
+   #endif
 }

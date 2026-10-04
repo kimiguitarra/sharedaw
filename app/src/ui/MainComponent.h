@@ -180,6 +180,8 @@ private:
     bool downloadWithChoices (const std::map<std::string, collab::Resolution>& choices, bool quiet);
     void uploadFromPanel (const std::set<std::string>& excluded, const juce::String& message,
                           const std::map<std::string, collab::Resolution>& choices);
+    void uploadAfterBounce (const std::set<std::string>& excluded, const juce::String& message,
+                            const std::map<std::string, collab::Resolution>& choices);
     void onIncomingRevisions (const std::vector<SyncManager::RevisionInfo>&);
     void createProjectOnServer();
     bool autoPullRunning = false;

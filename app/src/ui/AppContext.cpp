@@ -361,6 +361,15 @@ void AppContext::bounceTrack (const std::string& trackId)
     if (! document.hasLocation())
         return Dialogs::showInfo ("バウンス"_ju, "バウンスした音はプロジェクトのフォルダに保存するので、先にプロジェクトを保存してください。"_ju);
 
+    if (auto r = bounceTrackNow (trackId); r.failed())
+        Dialogs::showError ("バウンスできませんでした"_ju, r.getErrorMessage());
+}
+
+juce::Result AppContext::bounceTrackNow (const std::string& trackId)
+{
+    if (! document.hasLocation())
+        return juce::Result::fail ("先にプロジェクトを保存してください"_ju);
+
     engine.flushPluginStates();
 
     collab::Render render;
@@ -368,13 +377,36 @@ void AppContext::bounceTrack (const std::string& trackId)
     auto r = SyncUI::runWithProgress ("バウンスしています"_ju, [&] { return engine.bounceTrack (trackId, render, length); });
 
     if (r.failed())
-        return Dialogs::showError ("バウンスできませんでした"_ju, r.getErrorMessage());
+        return r;
 
     // Cubase のインプレイスレンダリングと同じく、すぐ下にオーディオトラックを作って元のトラックはミュートする
     document.perform ("バウンス"_ju, [&] (collab::Project& p)
     {
         collab::applyBounce (p, trackId, render, length, collab::generateUuid(), collab::generateUuid());
     });
+
+    return juce::Result::ok();
+}
+
+std::vector<std::string> AppContext::tracksToBounceBeforeUpload (const collab::Project* base) const
+{
+    std::vector<std::string> ids;
+    const auto& p = document.getProject();
+    const collab::Project empty;
+
+    for (auto& t : p.tracks)
+    {
+        if (! collab::isLocalOnlyTrack (base != nullptr ? *base : empty, p, t.id) || engine.isPlayingRender (t.id))
+            continue;
+
+        const auto status = collab::renderStatus (t, engine.trackFingerprint (t));
+
+        if (status == collab::RenderStatus::missing || status == collab::RenderStatus::stale
+             || collab::findBounceTrack (p, t) == nullptr)
+            ids.push_back (t.id);
+    }
+
+    return ids;
 }
 
 //==============================================================================
@@ -1005,6 +1037,37 @@ juce::PopupMenu AppContext::stretchMenu (std::function<void (double)> apply)
 
     for (auto& [factor, label] : choices)
         m.addItem (label, [apply, factor = factor] { apply (factor); });
+
+    return m;
+}
+
+//==============================================================================
+juce::PopupMenu AppContext::crossfadeMenu (const std::string& trackId)
+{
+    juce::PopupMenu m;
+    auto* t = document.getProject().findTrack (trackId);
+
+    if (t == nullptr)
+        return m;
+
+    auto shapeName = [] (const std::string& shape)
+    {
+        return shape == "linear" ? "直線"_ju : shape == "sCurve" ? "S 字"_ju : "等パワー"_ju;
+    };
+
+    m.addSectionHeader ("長さ"_ju);
+
+    for (double ms : { 0.0, 5.0, 10.0, 20.0, 50.0, 100.0, 250.0 })
+        m.addItem (juce::String ((int) ms) + " ms", true, std::abs (t->crossfadeMs - ms) < 0.01,
+                   [this, trackId, ms] { editTrack (trackId, "クロスフェードの長さ"_ju, [ms] (collab::Track& tr) { tr.crossfadeMs = ms; }); });
+
+    m.addSectionHeader ("形"_ju);
+
+    for (auto shape : { "equalPower", "linear", "sCurve" })
+        m.addItem (shapeName (shape) + (std::string (shape) == "equalPower" ? "（違う音をつなぐ普通のテイク）"_ju
+                                         : std::string (shape) == "linear" ? "（同じ音が続くとき）"_ju : juce::String()),
+                   true, t->crossfadeShape == shape,
+                   [this, trackId, s = std::string (shape)] { editTrack (trackId, "クロスフェードの形"_ju, [s] (collab::Track& tr) { tr.crossfadeShape = s; }); });
 
     return m;
 }

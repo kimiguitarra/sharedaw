@@ -5,6 +5,7 @@
 #include "ui/AppContext.h"
 #include "ui/Ruler.h"
 #include "ui/StaffView.h"
+#include "ui/Theme.h"
 
 class PianoRollView;
 
@@ -133,7 +134,7 @@ public:
     void stretchSelection (double factor);
     /** 選択中のノートのベロシティを delta だけ変える。 */
     void changeSelectedVelocity (int delta);
-    collab::Tick nudgeTicks = 10;
+    static constexpr collab::Tick nudgeTicks = 5;   // 1 回でずらす量（1 拍 = 960 tick。大きく動かすときは何回か押す）
     void focusEditor();
 
     /** ノートを短く鳴らす（クリック・入力したときの確認用）。 */
@@ -218,10 +219,9 @@ private:
 
     juce::Label titleLabel;
     juce::ComboBox gridBox;
-    juce::ToggleButton snapToggle { "スナップ"_ju };
+    Theme::IconButton snapToggle { "snap" };
     juce::TextButton quantiseButton { "クオンタイズ"_ju };
     juce::TextButton nudgeLeftButton { juce::String::fromUTF8 ("\xe2\x97\x80") }, nudgeRightButton { juce::String::fromUTF8 ("\xe2\x96\xb6") };
-    juce::ComboBox nudgeBox;
     juce::TextButton staffButton { juce::String::fromUTF8 ("\xe2\x99\xaa") };   // ♪: 五線譜とピアノロールの切り替え
     StaffView staff { *this };
     juce::TextButton bassClefButton { juce::String::fromUTF8 ("\xf0\x9d\x84\xa2") };   // 𝄢: ヘ音記号の段を出す・出さない

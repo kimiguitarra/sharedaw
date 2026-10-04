@@ -52,7 +52,7 @@ void MainComponent::checkForUpdates (bool interactive)
                 if (interactive)
                     Dialogs::showInfo ("アップデート"_ju,
                                        ! info ? "配信されている更新はまだありません。"_ju
-                                              : "最新のバージョンです（build "_ju + juce::String (current) + "）。"_ju);
+                                              : "最新のバージョンです（"_ju + Updater::versionText (current) + "）。"_ju);
                 return;
             }
 
@@ -69,8 +69,8 @@ void MainComponent::offerUpdate (const Updater::Info& info, bool interactive)
 {
     const int current = Updater::currentBuild();
     auto message = "新しいバージョンがあります。\n\n"_ju
-                   + "今: "_ju + (current > 0 ? "build " + juce::String (current) : "開発版"_ju) + "\n"
-                   + "新: build "_ju + juce::String (info.build) + (info.version.isNotEmpty() ? " (" + info.version + ")" : juce::String()) + "\n";
+                   + "今: "_ju + Updater::versionText (current) + "\n"
+                   + "新: "_ju + Updater::versionText (info.build) + "\n";
 
     if (info.notes.isNotEmpty())
         message << "\n" << info.notes << "\n";
@@ -143,7 +143,7 @@ void MainComponent::installUpdate (const Updater::Info& info)
     settings.removeValue ("skippedUpdateBuild");
 
     Dialogs::confirm ("アップデート"_ju,
-                      "build "_ju + juce::String (info.build) + " に更新しました。\n再起動すると新しいバージョンになります。今すぐ再起動しますか？"_ju,
+                      Updater::versionText (info.build) + " に更新しました。\n再起動すると新しいバージョンになります。今すぐ再起動しますか？"_ju,
                       "再起動"_ju,
                       []
                       {

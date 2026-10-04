@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Common.h"
+#include "audio/LiveMidiGate.h"
 
 namespace sfz { class Sfizz; }
 
@@ -14,6 +15,8 @@ class SfizzPlugin  : public te::Plugin
 public:
     SfizzPlugin (te::PluginCreationInfo);
     ~SfizzPlugin() override;
+
+    LiveMidiGate liveGate;   // MIDI キーボードの音を通すか（選択中のトラックだけ）
 
     static const char* getPluginName()                          { return "CollabSfizz"; }
     static const char* xmlTypeName;

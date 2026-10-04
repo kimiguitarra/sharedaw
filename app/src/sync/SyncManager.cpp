@@ -714,19 +714,7 @@ collab::ScopeSyncState SyncManager::scopeState (const std::string& scopeId) cons
 }
 
 //==============================================================================
-static bool hasMissingPluginState (const collab::Track& t, const juce::File& dir)
-{
-    auto missing = [&] (const std::string& ref) { return ! ref.empty() && ! PluginHost::stateFile (dir, ref).existsAsFile(); };
-
-    if (t.instrument && t.instrument->kind == collab::Instrument::Kind::external && missing (t.instrument->stateRef))
-        return true;
-
-    for (auto& e : t.effects)
-        if (missing (e.stateRef))
-            return true;
-
-    return false;
-}
+static bool hasMissingPluginState (const collab::Track& t, const juce::File& dir)   { return PluginHost::hasMissingState (t, dir); }
 
 juce::Result SyncManager::fetchUploadPlan (const collab::Project& local, const std::set<std::string>& scopeIds, UploadPlan& plan)
 {
@@ -768,12 +756,6 @@ juce::Result SyncManager::fetchUploadPlan (const collab::Project& local, const s
             plan.staleRenders.push_back (t.id);
     }
 
-    // バウンスしたトラックをアップするのに、元のトラックがバウンスの後に変わっている
-    for (auto& t : plan.snapshot.tracks)
-        if (plan.diff.touches (t.id))
-            if (auto* source = collab::findBounceSource (local, t))
-                if (source->render->sourceFingerprint != collab::trackSourceFingerprint (*source, [dir] (const std::string& ref) { return PluginHost::stateHash (dir, ref); }))
-                    plan.staleBounces.push_back (source->id);
 
     return juce::Result::ok();
 }

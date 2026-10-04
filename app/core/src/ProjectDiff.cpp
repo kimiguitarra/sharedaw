@@ -697,8 +697,10 @@ std::vector<ScopeSyncState> syncStates (const Project& base, const Project& loca
 
 bool isLocalOnlyTrack (const Project& base, const Project& local, const std::string& trackId)
 {
+    // 以前の版でアップ済み（ベースにある）ものも、持ち主の PC ではこの PC だけにする（次のアップでサーバーから消える）。
+    // 他の人の PC にある、その古いトラックはふつうに扱う（持ち主が消したら、ダウンロードで消える）
     auto* t = local.findTrack (trackId);
-    return t != nullptr && usesExternalPlugin (*t) && base.findTrack (trackId) == nullptr;
+    return t != nullptr && usesExternalPlugin (*t) && (base.findTrack (trackId) == nullptr || isOwnedPluginTrack (*t));
 }
 
 Project withoutLocalOnlyTracks (const Project& local)
@@ -716,7 +718,11 @@ Project uploadSnapshot (const Project& base, const Project& local, const std::se
         if (! isLocalOnlyTrack (base, local, id))
             ids.insert (id);
 
-    return replaceScopes (base, local, ids);
+    auto result = replaceScopes (base, local, ids);
+
+    // この PC だけのトラックがサーバーにあれば（以前の版でアップしたもの）消す
+    std::erase_if (result.tracks, [&] (const Track& t) { return isLocalOnlyTrack (base, local, t.id); });
+    return result;
 }
 
 Project replaceScopes (const Project& from, const Project& source, const std::set<std::string>& scopeIds)

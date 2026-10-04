@@ -473,7 +473,16 @@ bool MainComponent::perform (const InvocationInfo& info)
                 break;
 
             int index = document.getProject().indexOfTrack (state.selectedTrackId);
-            index = index < 0 ? 0 : juce::jlimit (0, (int) tracks.size() - 1, index + (info.commandID == cmdTrackUp ? -1 : 1));
+            const int step = info.commandID == cmdTrackUp ? -1 : 1;
+            index = index < 0 ? 0 : juce::jlimit (0, (int) tracks.size() - 1, index + step);
+
+            // 表示していないトラック（バウンスしたもの）は飛ばす
+            while (state.isHidden (tracks[(size_t) index].id) && index + step >= 0 && index + step < (int) tracks.size())
+                index += step;
+
+            if (state.isHidden (tracks[(size_t) index].id))
+                break;
+
             state.selectedTrackId = tracks[(size_t) index].id;
             state.selectClip ({});
             state.changed();
@@ -563,9 +572,8 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdCredits:    showCredits(); break;
         case cmdAbout:
             Dialogs::showInfo ("ShareDAW について"_ju,
-                               "ShareDAW "_ju + juce::String (JUCE_APPLICATION_VERSION_STRING)
-                                 + (Updater::currentBuild() > 0 ? " (build "_ju + juce::String (Updater::currentBuild()) + ")"
-                                                                : "（手元でビルドした開発版）"_ju)
+                               "ShareDAW "_ju + (Updater::currentBuild() > 0 ? Updater::versionText (Updater::currentBuild())
+                                                                              : "（手元でビルドした開発版）"_ju)
                                  + "\n共同制作用の軽量DAW（アイデア出し・ラフ録音用）"_ju);
             break;
         case cmdCheckUpdate: checkForUpdates (true); break;

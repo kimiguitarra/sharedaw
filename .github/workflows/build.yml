@@ -287,9 +287,10 @@ jobs:
           SHAREDAW_SERVER_URL: ${{ secrets.SHAREDAW_SERVER_URL }}
           SHAREDAW_RELEASE_KEY: ${{ secrets.SHAREDAW_RELEASE_KEY }}
         run: |
-          version="$(sed -n 's/^project(ShareDAW VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)"
-          export SHAREDAW_RELEASE_NOTES="$(git log -1 --format=%s)"
+          # 表示するバージョンは V<メジャー>.<マイナー>.<ビルド番号>（アプリの Updater::versionText と同じ）
           build=${{ github.run_number }}
+          version="$(sed -n 's/^project(ShareDAW VERSION \([0-9]*\.[0-9]*\).*/\1/p' CMakeLists.txt).$build"
+          export SHAREDAW_RELEASE_NOTES="$(git log -1 --format=%s)"
           ls artifacts
           if [ -d artifacts/ShareDAW-windows ]; then
             node tools/publish-release.mjs windows artifacts/ShareDAW-windows "$build" "$version"

@@ -196,8 +196,15 @@ struct EditorState  : public juce::ChangeBroadcaster
     static constexpr int trackHeightSteps[] = { 36, 54, 72, 108, 144, 180 };   // 高さは段階式
     std::map<std::string, int> trackHeights;
 
+    /** 表示しないトラック（持ち主の PC での、外部プラグインのトラックをバウンスしたもの）。高さ 0 で並べる。 */
+    std::set<std::string> hiddenTracks;
+    bool isHidden (const std::string& trackId) const   { return hiddenTracks.count (trackId) > 0; }
+
     int trackHeight (const std::string& trackId) const
     {
+        if (isHidden (trackId))
+            return 0;
+
         auto it = trackHeights.find (trackId);
         return it != trackHeights.end() ? juce::jlimit (minTrackHeight, maxTrackHeight, it->second) : defaultTrackHeight;
     }

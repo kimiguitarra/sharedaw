@@ -36,27 +36,22 @@ PianoRollView::PianoRollView (AppContext& c)
     addAndMakeVisible (gridBox);
 
     snapToggle.setToggleState (true, juce::dontSendNotification);
+    snapToggle.setClickingTogglesState (false);
     snapToggle.setTooltip ("スナップ（J）"_ju);
-    snapToggle.onClick = [this] { ctx.state.setSnapEnabled (snapToggle.getToggleState()); };
+    snapToggle.onClick = [this] { ctx.state.setSnapEnabled (! ctx.state.snapEnabled()); };
     addAndMakeVisible (snapToggle);
 
     quantiseButton.setTooltip ("クオンタイズ（Q）"_ju);
     quantiseButton.onClick = [this] { quantiseSelection(); };
     addAndMakeVisible (quantiseButton);
 
-    // ナッジ（Superior Drummer と同じく tick 単位。1 拍 = 960 tick）
-    for (int ticks : { 1, 5, 10, 20, 40, 80 })
-        nudgeBox.addItem (juce::String (ticks) + " tick", ticks);
-
-    nudgeBox.setSelectedId ((int) nudgeTicks, juce::dontSendNotification);
-    nudgeBox.setTooltip ("ナッジでずらす量（1 拍 = 960 tick）"_ju);
-    nudgeBox.onChange = [this] { nudgeTicks = nudgeBox.getSelectedId(); };
+    // ナッジ（Superior Drummer と同じく、少しずつずらす。量は決まっていて、大きく動かすときは何回か押す）
     nudgeLeftButton.setTooltip ("ナッジ: 選んだノートを少し前へ（Ctrl+Alt+←）"_ju);
     nudgeRightButton.setTooltip ("ナッジ: 選んだノートを少し後ろへ（Ctrl+Alt+→）"_ju);
     nudgeLeftButton.onClick = [this] { nudgeSelection (-1); };
     nudgeRightButton.onClick = [this] { nudgeSelection (1); };
 
-    for (auto* button : std::initializer_list<juce::Component*> { &nudgeLeftButton, &nudgeBox, &nudgeRightButton })
+    for (auto* button : std::initializer_list<juce::Component*> { &nudgeLeftButton, &nudgeRightButton })
         addAndMakeVisible (button);
 
     staffButton.setClickingTogglesState (true);
@@ -247,7 +242,7 @@ void PianoRollView::resized()
     shownAsAudio = getAudioClip() != nullptr;
 
     for (auto* c : std::initializer_list<juce::Component*> { &keyboard, &grid, &velocity, &vScroll, &snapToggle, &quantiseButton,
-                                                             &nudgeLeftButton, &nudgeBox, &nudgeRightButton })
+                                                             &nudgeLeftButton, &nudgeRightButton })
         c->setVisible (! shownAsAudio);
     audioGrid.setVisible (shownAsAudio);
 
@@ -274,11 +269,12 @@ void PianoRollView::resized()
     titleLabel.setBounds (toolbar.removeFromLeft (220));
     gridBox.setBounds (toolbar.removeFromLeft (110));
     toolbar.removeFromLeft (6);
-    snapToggle.setBounds (toolbar.removeFromLeft (90));
+    snapToggle.setBounds (toolbar.removeFromLeft (40));
+    toolbar.removeFromLeft (6);
     quantiseButton.setBounds (toolbar.removeFromLeft (100));
     toolbar.removeFromLeft (10);
     nudgeLeftButton.setBounds (toolbar.removeFromLeft (26));
-    nudgeBox.setBounds (toolbar.removeFromLeft (88));
+    toolbar.removeFromLeft (2);
     nudgeRightButton.setBounds (toolbar.removeFromLeft (26));
     toolbar.removeFromLeft (10);
 

@@ -433,6 +433,11 @@ private:
     void syncChordTrack (bool tempoChanged);
     void applyLoop();
     void applyInputs();
+
+    /** MIDI キーボードの音を、選択中のトラックの音源だけに通す（LiveMidiGate。再生の処理は作り直さない）。 */
+    void updateLiveMidiGates();
+    juce::String liveMidiTracksKey;   // MIDI キーボードをつないでいる MIDI トラック
+    bool isLiveMidiInput (te::InputDeviceInstance&);
     void configureInputs();
     void restoreAfterRecording();
 

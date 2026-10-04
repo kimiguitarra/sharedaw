@@ -172,6 +172,8 @@ void SfizzPlugin::applyToBuffer (const te::PluginRenderContext& fc)
     // MIDI をサンプル位置に変換（タイムスタンプはブロック先頭からの秒。届く順は時刻順）
     if (auto* midi = fc.bufferForMidiMessages)
     {
+        liveGate.filter (*midi);   // キーボードの音は、選択中のトラックだけ
+
         if (midi->isAllNotesOff)
             synth->allSoundOff();
 

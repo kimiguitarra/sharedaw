@@ -32,6 +32,12 @@ namespace Updater
     /** このアプリのビルド番号（CI のビルド。手元でビルドしたものは 0）。 */
     int currentBuild();
 
+    /**
+        バージョンの表示（V0.1.123 のように。末尾が CI のビルド番号）。build が 0 なら「開発版」。
+        更新の比較はビルド番号で行う。
+    */
+    juce::String versionText (int build);
+
     /** "windows" / "mac" / "linux" */
     juce::String platformName();
 

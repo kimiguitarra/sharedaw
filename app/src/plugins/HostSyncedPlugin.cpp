@@ -114,5 +114,8 @@ void HostSyncedExternalPlugin::applyToBuffer (const te::PluginRenderContext& fc)
         }
     }
 
+    if (fc.bufferForMidiMessages != nullptr)
+        liveGate.filter (*fc.bufferForMidiMessages);   // キーボードの音は、選択中のトラックだけ
+
     te::ExternalPlugin::applyToBuffer (fc);
 }

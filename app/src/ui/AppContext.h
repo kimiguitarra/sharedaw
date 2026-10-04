@@ -60,6 +60,9 @@ struct AppContext
 
     /** 出力先とセンドのメニュー（トラックヘッダー・ミキサー共通）。 */
     juce::PopupMenu routingMenu (const std::string& trackId);
+
+    /** 重なったテイクのつなぎ（クロスフェードの長さ・形）。オーディオトラックの右クリックメニュー用。 */
+    juce::PopupMenu crossfadeMenu (const std::string& trackId);
     juce::PopupMenu outputMenu (const std::string& trackId);
     juce::PopupMenu sendMenu (const std::string& trackId);
 
@@ -123,6 +126,15 @@ struct AppContext
     void removeEffect (const std::string& trackId, const std::string& effectId);
     void toggleEffectBypass (const std::string& trackId, const std::string& effectId);
     void bounceTrack (const std::string& trackId);
+
+    /** バウンスする（進み具合を出す。エラーのダイアログは出さない）。アップの前にまとめてバウンスするとき用。 */
+    juce::Result bounceTrackNow (const std::string& trackId);
+
+    /**
+        アップの前にバウンスした方がよい、この PC だけのトラック（外部プラグイン）。
+        まだバウンスしていないもの・バウンスした後に変わったもの。この環境で鳴らせないものは除く。
+    */
+    std::vector<std::string> tracksToBounceBeforeUpload (const collab::Project* base) const;
 
     /** 現在の内容のフィンガープリント（plugins-state の内容を含む）。 */
     std::string fingerprint (const collab::Track&) const;

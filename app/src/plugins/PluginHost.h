@@ -25,6 +25,9 @@ namespace PluginHost
     juce::File stateFile (const juce::File& projectDir, const std::string& stateRef);
     std::string stateHash (const juce::File& projectDir, const std::string& stateRef);
 
+    /** トラックの外部プラグインの状態ファイルがこの PC にないか（他の人のプラグインのトラック）。 */
+    bool hasMissingState (const collab::Track&, const juce::File& projectDir);
+
     struct ScanResult
     {
         int found = 0;
@@ -44,7 +47,7 @@ public:
     void closeFor (te::Plugin*);
 
     /**
-        プラグインの画面の上でも DAW のキー（Space で再生・停止、テンキーのトランスポートなど）が効くようにする。
+        プラグインの画面の上でも DAW のキー（Space で再生・停止、テンキーの「*」で録音、Shift + 数字でマーカー）が効くようにする。
         Mac はプラグインが使わなかったキーがウィンドウに届くので keyListener で受ける。
         Windows はプラグインの画面（別のウィンドウ）がキーを持っていってしまうので、プラグインの画面が前にある間、
         キーが押されたかを見て onKey を呼ぶ。
@@ -52,9 +55,26 @@ public:
     juce::KeyListener* keyListener = nullptr;
     std::function<void (const juce::KeyPress&)> onKey;
 
+    /** プラグインの画面から DAW に送るキーか（数値の入力に使うテンキーの数字・「.」などは送らない）。 */
+    static bool forwardsKey (const juce::KeyPress&);
+
 private:
     std::map<te::Plugin*, std::unique_ptr<juce::DocumentWindow>> windows;
     std::map<int, bool> keysDown;
+
+    struct FilteredKeys  : public juce::KeyListener
+    {
+        explicit FilteredKeys (PluginWindows& o) : owner (o) {}
+
+        bool keyPressed (const juce::KeyPress& key, juce::Component* origin) override
+        {
+            return owner.keyListener != nullptr && forwardsKey (key) && owner.keyListener->keyPressed (key, origin);
+        }
+
+        PluginWindows& owner;
+    };
+
+    FilteredKeys filteredKeys { *this };
 
     void timerCallback() override;
 };
