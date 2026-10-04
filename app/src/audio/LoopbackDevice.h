@@ -139,6 +139,8 @@ private:
         const int numIns = activeIns.countNumberOfSetBits(), numOuts = activeOuts.countNumberOfSetBits();
         juce::AudioBuffer<float> in (juce::jmax (1, numIns), blockSize), out (juce::jmax (1, numOuts), blockSize);
         const double start = juce::Time::getMillisecondCounterHiRes();
+        const double blockMs = blockSize * 1000.0 / rate;
+        double due = start;
         juce::int64 block = 0;
         float previous = 0.0f;
         int quiet = blockSize * 100;
@@ -248,12 +250,21 @@ private:
             written += blockSize;
             ++block;
 
-            // 実時間で進める（MIDI の時刻は実時間なので）
-            const double next = start + (double) block * blockSize * 1000.0 / rate;
-            const double wait = next - juce::Time::getMillisecondCounterHiRes();
+            // 実時間で、本物の機器と同じく等間隔に進める（MIDI の時刻は実時間なので）。
+            // 遅れたときに続けて処理して追いつくと、Tracktion が MIDI の時刻を位置に直すときの基準（コールバックごとの
+            // 実時間と再生位置の差）が数 ms ずつ跳び、録った MIDI がずれる（混んだ CI の macOS で 20 ms 以上）。
+            // 遅れた分は取り戻さず、そこから等間隔に続ける。待つのは少し手前まで眠ってから、細かく待つ
+            due += blockMs;
+            const double now = juce::Time::getMillisecondCounterHiRes();
 
-            if (wait > 0)
-                juce::Thread::sleep ((int) wait);
+            if (due < now)
+                due = now;
+
+            if (due - now > 2.0)
+                juce::Thread::sleep ((int) (due - now - 1.5));
+
+            while (juce::Time::getMillisecondCounterHiRes() < due)
+                juce::Thread::yield();
         }
     }
 };
