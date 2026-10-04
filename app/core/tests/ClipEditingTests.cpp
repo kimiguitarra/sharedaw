@@ -221,3 +221,33 @@ TEST_CASE ("pitch bends: value at a position, drawing a range, and split / trim 
     CHECK (pitchBendAt (stretched.pitchBends, 480) == 8191);
     CHECK (pitchBendAt (stretched.pitchBends, 960) == -8192);
 }
+
+TEST_CASE ("recorded MIDI continues an existing clip")
+{
+    auto note = [] (std::string id, Tick t) { return Note { id, t, 480, 60, 100 }; };
+    std::vector<MidiClip> clips { { "a", 3840, 3840, { note ("1", 0) }, {} } };
+
+    // 重なる所に録ると、既存のクリップに足して、録音した範囲まで伸ばす
+    MidiClip rec { "r", 3840 * 2, 3840, { note ("2", 960) }, { { 960, 4000 }, { 1440, 0 } } };
+    CHECK (addRecordedMidi (clips, rec, true) == "a");
+    REQUIRE (clips.size() == 1);
+    CHECK (clips[0].startTick == 3840);
+    CHECK (clips[0].lengthTick == 3840 * 2);
+    REQUIRE (clips[0].notes.size() == 2);
+    CHECK (clips[0].notes[1].tick == 3840 + 960);
+    CHECK (pitchBendAt (clips[0].pitchBends, 3840 + 1000) == 4000);
+    CHECK (pitchBendAt (clips[0].pitchBends, 3840 + 1500) == 0);
+
+    // 前に伸ばすときは元のノートの位置を保つ
+    MidiClip before { "b", 0, 3840, { note ("3", 0) }, {} };
+    CHECK (addRecordedMidi (clips, before, true) == "a");
+    CHECK (clips[0].startTick == 0);
+    CHECK (std::any_of (clips[0].notes.begin(), clips[0].notes.end(), [] (auto& n) { return n.id == "1" && n.tick == 3840; }));
+
+    // 離れた所、または別のクリップにするモードでは新しいクリップ
+    MidiClip far { "c", 3840 * 8, 3840, { note ("4", 0) }, {} };
+    CHECK (addRecordedMidi (clips, far, true) == "c");
+    MidiClip separate { "d", 0, 3840, { note ("5", 0) }, {} };
+    CHECK (addRecordedMidi (clips, separate, false) == "d");
+    CHECK (clips.size() == 3);
+}

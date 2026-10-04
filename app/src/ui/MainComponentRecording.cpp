@@ -128,26 +128,23 @@ void MainComponent::importMidiRecording (std::vector<EngineBridge::RecordedMidi>
             clip.notes.push_back (n);
         }
 
-        // ピッチベンド（同じ値が続くものは省き、最後は中央に戻す）
-        std::vector<collab::PitchBend> bends;
-
         for (auto b : rec.pitchBends)
-            bends.push_back ({ b.tick - clip.startTick, b.value });
+            clip.pitchBends.push_back ({ b.tick - clip.startTick, b.value });
 
-        std::stable_sort (bends.begin(), bends.end(), [] (auto& a, auto& b) { return a.tick < b.tick; });
+        std::stable_sort (clip.pitchBends.begin(), clip.pitchBends.end(), [] (auto& a, auto& b) { return a.tick < b.tick; });
 
-        if (! bends.empty())
-            collab::replacePitchBends (clip.pitchBends, 0, clip.lengthTick - 1, bends);
-
+        // 既定では、もうクリップがある所に録ると、そのクリップの続きに入れる（設定で別のクリップにもできる）
+        const bool merge = ! settings.getBoolValue ("midiRecordSeparateClips", false);
         const auto trackId = rec.trackId;
-        document.perform ("MIDI の録音"_ju, [trackId, clip] (collab::Project& p)
+        auto targetId = std::make_shared<std::string> (clip.id);
+        document.perform ("MIDI の録音"_ju, [trackId, clip, merge, targetId] (collab::Project& p)
         {
             if (auto* t = p.findTrack (trackId))
-                t->midiClips.push_back (clip);
+                *targetId = collab::addRecordedMidi (t->midiClips, clip, merge);
         });
 
         lastTrack = trackId;
-        lastClip = clip.id;
+        lastClip = *targetId;
         setStatus ("MIDI を録音しました（ノート "_ju + juce::String ((int) clip.notes.size()) + " 個）"_ju);
     }
 

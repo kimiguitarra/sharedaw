@@ -478,6 +478,12 @@ void MainComponent::showAudioSettings()
             };
             addAndMakeVisible (midiOffset);
 
+            // もうクリップがある所に MIDI を録ったとき、そのクリップの続きに入れる（既定）か、別のクリップにするか
+            separateClips.setButtonText ("MIDI の録音は別のクリップにする（オフ: もうあるクリップの続きに入れる）"_ju);
+            separateClips.setToggleState (owner.settings.getBoolValue ("midiRecordSeparateClips", false), juce::dontSendNotification);
+            separateClips.onClick = [this] { owner.settings.setValue ("midiRecordSeparateClips", separateClips.getToggleState()); };
+            addAndMakeVisible (separateClips);
+
             info.setFont (juce::FontOptions (15.0f));
             info.setColour (juce::Label::textColourId, Theme::textDim);
             addAndMakeVisible (info);
@@ -520,6 +526,7 @@ void MainComponent::showAudioSettings()
             auto midiRow = area.removeFromTop (26);
             midiTitle.setBounds (midiRow.removeFromLeft (260));
             midiOffset.setBounds (midiRow);
+            separateClips.setBounds (area.removeFromTop (26));
             info.setBounds (area);
         }
 
@@ -527,12 +534,13 @@ void MainComponent::showAudioSettings()
         juce::Label title, info, midiTitle;
         juce::Slider offset { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
         juce::Slider midiOffset { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
+        juce::ToggleButton separateClips;
     };
 
     auto latency = std::make_unique<Latency> (*this);
     auto masterOut = std::make_unique<MasterOut> (engine.getDeviceManager());
     masterOut->setBounds (0, 552, 560, 32);
-    latency->setBounds (0, 590, 560, 110);
+    latency->setBounds (0, 590, 560, 136);
 
     struct Holder : juce::Component
     {
@@ -551,9 +559,9 @@ void MainComponent::showAudioSettings()
 
     const int midiHeight = 60 + juce::jmax (1, (int) bridge.getMidiInputs().size()) * 26 + 26;
     holder->d = std::make_unique<MidiInputPanel> (bridge);
-    holder->d->setBounds (0, 706, 560, midiHeight);
+    holder->d->setBounds (0, 732, 560, midiHeight);
     holder->addAndMakeVisible (*holder->d);
-    holder->setSize (560, 706 + midiHeight);
+    holder->setSize (560, 732 + midiHeight);
 
     juce::DialogWindow::LaunchOptions o;
     o.content.setOwned (holder.release());

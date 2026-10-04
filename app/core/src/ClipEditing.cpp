@@ -189,6 +189,64 @@ MidiClip glueMidiClips (const MidiClip& a, const MidiClip& b)
     return r;
 }
 
+std::string addRecordedMidi (std::vector<MidiClip>& clips, MidiClip recorded, bool mergeIntoExisting)
+{
+    const auto bends = recorded.pitchBends;
+    recorded.pitchBends.clear();
+
+    MidiClip* target = nullptr;
+
+    if (mergeIntoExisting)
+        for (auto& c : clips)
+            if (c.startTick <= recorded.endTick() && c.endTick() >= recorded.startTick
+                 && (target == nullptr || c.startTick < target->startTick))
+                target = &c;
+
+    if (target == nullptr)
+    {
+        if (! bends.empty())
+            replacePitchBends (recorded.pitchBends, 0, recorded.lengthTick - 1, bends);
+
+        clips.push_back (recorded);
+        return recorded.id;
+    }
+
+    // 録音した範囲まで伸ばす（前へ伸ばすときは、元のノートの位置（クリップ先頭から）をずらす）
+    const Tick start = std::min (target->startTick, recorded.startTick);
+    const Tick end = std::max (target->endTick(), recorded.endTick());
+    const Tick shift = target->startTick - start, recordedShift = recorded.startTick - start;
+
+    for (auto& n : target->notes)
+        n.tick += shift;
+
+    for (auto& b : target->pitchBends)
+        b.tick += shift;
+
+    target->startTick = start;
+    target->lengthTick = end - start;
+
+    for (auto n : recorded.notes)
+    {
+        n.tick += recordedShift;
+        target->notes.push_back (n);
+    }
+
+    std::stable_sort (target->notes.begin(), target->notes.end(), [] (auto& a, auto& b) { return a.tick < b.tick; });
+
+    // ピッチベンドは、録ったイベントのある範囲だけ置き換える（その後は元の値に戻る）
+    if (! bends.empty())
+    {
+        std::vector<PitchBend> moved;
+
+        for (auto b : bends)
+            moved.push_back ({ b.tick + recordedShift, b.value });
+
+        replacePitchBends (target->pitchBends, moved.front().tick, moved.back().tick, moved);
+    }
+
+    return target->id;
+}
+
 std::optional<AudioClip> glueAudioClips (const AudioClip& a, const AudioClip& b, const TempoMap& map)
 {
     const auto& first = a.startTick <= b.startTick ? a : b;

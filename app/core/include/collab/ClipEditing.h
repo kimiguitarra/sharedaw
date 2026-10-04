@@ -47,6 +47,14 @@ MidiClip trimMidiClipStart (const MidiClip&, Tick newStart, Tick minLength);
 /** 2 つの MIDI クリップを 1 つにする（a の先頭から b の終わりまで。b のノートは a の中へ移す）。 */
 MidiClip glueMidiClips (const MidiClip& a, const MidiClip& b);
 
+/**
+    録った MIDI をトラックのクリップへ入れる。recorded は録音した範囲（小節単位）の新しいクリップで、
+    pitchBends は録ったままのもの（tick の順）。mergeIntoExisting なら、録音した範囲に重なる（接する）一番前のクリップに
+    ノートとピッチベンドを足し、そのクリップを録音した範囲まで伸ばす。なければ（または mergeIntoExisting でなければ）
+    新しいクリップとして加える。返り値は録音が入ったクリップの id。
+*/
+std::string addRecordedMidi (std::vector<MidiClip>& clips, MidiClip recorded, bool mergeIntoExisting);
+
 /** その位置（クリップ先頭からの tick）でのピッチベンドの値（直前のイベントの値。なければ 0 = 中央）。 */
 int pitchBendAt (const std::vector<PitchBend>&, Tick);
 
