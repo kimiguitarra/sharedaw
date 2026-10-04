@@ -85,6 +85,12 @@ namespace Theme
 
     juce::Path splitToolIcon (juce::Rectangle<float> area);
 
+    /** オーディオクリップのフェードのつまみの上のカーソル（フェードの線と左右の矢印）。 */
+    const juce::MouseCursor& fadeCursor (bool fadeIn);
+
+    /** くっついた 2 つのクリップのつなぎ目の上のカーソル（中央の縦線と左右の矢印）。 */
+    const juce::MouseCursor& jointCursor();
+
     /** ツールごとのマウスカーソル（選択ツールは普通の矢印）。 */
     const juce::MouseCursor& toolCursor (EditTool);
 

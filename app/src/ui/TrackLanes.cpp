@@ -91,6 +91,29 @@ TrackLanes::Hit TrackLanes::findHit (juce::Point<float> p) const
         }
     }
 
+    // くっついた 2 つのオーディオクリップのつなぎ目（上の縁のフェードのつまみの所は除く）
+    if (p.y - rowTopY >= 10.0f)
+        for (auto& right : track.audioClips)
+        {
+            const double joint = map.tickToSeconds ((double) right.startTick);
+            const float jx = (float) axis.tickToX ((double) right.startTick);
+
+            if (std::abs (p.x - jx) > 5.0f)
+                continue;
+
+            for (auto& left : track.audioClips)
+                if (&left != &right
+                     && std::abs (map.tickToSeconds ((double) left.startTick) + (double) left.lengthSamples / (double) collab::kSampleRate - joint)
+                          <= collab::joinToleranceSeconds + 0.0006)
+                {
+                    hit.clipId = right.id;
+                    hit.leftClipId = left.id;
+                    hit.audio = true;
+                    hit.zone = Zone::joint;
+                    return hit;
+                }
+        }
+
     for (auto it = track.audioClips.rbegin(); it != track.audioClips.rend(); ++it)
     {
         const float x1 = (float) axis.tickToX ((double) it->startTick);
@@ -132,6 +155,49 @@ collab::Tick TrackLanes::snap (double tick, const juce::ModifierKeys& mods) cons
 {
     const auto t = (collab::Tick) std::llround (juce::jmax (0.0, tick));
     return mods.isAltDown() ? t : ctx.state.grid.snap (t, ctx.document.getTempoMap());
+}
+
+std::optional<collab::Tick> TrackLanes::magnet (const std::string& trackId, const std::string& clipId, double startTick, double seconds,
+                                                int trimEdge, const juce::ModifierKeys& mods) const
+{
+    const auto* track = ctx.document.getProject().findTrack (trackId);
+
+    if (track == nullptr || mods.isAltDown())
+        return std::nullopt;
+
+    const auto& map = ctx.document.getTempoMap();
+    const auto& axis = ctx.state.timeline;
+    const double startX = axis.tickToX (startTick);
+    const double endX = axis.tickToX (map.secondsToTick (map.tickToSeconds (startTick) + seconds));
+    double best = 10.0;   // ピクセル
+    std::optional<collab::Tick> result;
+
+    for (auto& o : track->audioClips)
+    {
+        if (o.id == clipId)
+            continue;
+
+        const auto oStart = o.startTick, oEnd = collab::audioClipEndTick (o, map);
+
+        // 自分の頭を相手の終わりへ
+        if (trimEdge <= 0)
+            if (const double d = std::abs (startX - axis.tickToX ((double) oEnd)); d < best)
+            {
+                best = d;
+                result = oEnd;
+            }
+
+        // 自分の終わりを相手の頭へ（移動なら、終わりがそこに来る開始位置）
+        if (trimEdge >= 0)
+            if (const double d = std::abs ((trimEdge > 0 ? startX : endX) - axis.tickToX ((double) oStart)); d < best)
+            {
+                best = d;
+                result = trimEdge > 0 ? oStart
+                                      : (collab::Tick) std::llround (map.secondsToTick (map.tickToSeconds ((double) oStart) - seconds));
+            }
+    }
+
+    return result;
 }
 
 void TrackLanes::paint (juce::Graphics& g)
@@ -477,8 +543,9 @@ void TrackLanes::mouseMove (const juce::MouseEvent& e)
     {
         case Zone::leftEdge:
         case Zone::rightEdge:  setMouseCursor (juce::MouseCursor::LeftRightResizeCursor); break;
-        case Zone::fadeIn:
-        case Zone::fadeOut:    setMouseCursor (juce::MouseCursor::CrosshairCursor); break;
+        case Zone::fadeIn:     setMouseCursor (Theme::fadeCursor (true)); break;
+        case Zone::fadeOut:    setMouseCursor (Theme::fadeCursor (false)); break;
+        case Zone::joint:      setMouseCursor (Theme::jointCursor()); break;
         case Zone::gain:       setMouseCursor (juce::MouseCursor::UpDownResizeCursor); break;
         case Zone::none:       setMouseCursor (ctx.state.pencil() ? Theme::pencilCursor() : juce::MouseCursor::NormalCursor); break;
         case Zone::body:       setMouseCursor (juce::MouseCursor::NormalCursor); break;
@@ -514,6 +581,9 @@ void TrackLanes::showClipMenu (const collab::Track& track, const std::string& cl
         m.addItem ("ピアノロールで開く"_ju, [this] { if (onOpenClip) onOpenClip(); });
 
     m.addItem ("再生位置で分割"_ju, [this] { ctx.splitAtPlayhead(); });
+
+    if (audio)
+        m.addSubMenu ("クロスフェード（くっついた・重なったクリップのつなぎ）"_ju, ctx.crossfadeMenu (trackId));
 
     if (audio)
     {
@@ -744,6 +814,14 @@ void TrackLanes::mouseDown (const juce::MouseEvent& e)
             case Zone::fadeIn:    dragMode = DragMode::fadeIn; break;
             case Zone::fadeOut:   dragMode = DragMode::fadeOut; break;
             case Zone::gain:      dragMode = DragMode::gain; break;
+            case Zone::joint:
+                dragMode = DragMode::joint;
+
+                for (auto& c : track.audioClips)
+                    if (c.id == hit.leftClipId)
+                        dragOrigLeft = c;
+
+                break;
             case Zone::none:
             case Zone::body:      dragMode = DragMode::move; break;
         }
@@ -885,14 +963,19 @@ void TrackLanes::mouseDrag (const juce::MouseEvent& e)
         switch (dragMode)
         {
             case DragMode::trimStart:
-                updated = collab::trimAudioClipStart (orig, snap ((double) orig.startTick + delta, e.mods), map);
+            {
+                const double raw = juce::jmax (0.0, (double) orig.startTick + delta);
+                const auto at = magnet (dragTrackId, orig.id, raw, 0.0, -1, e.mods).value_or (snap (raw, e.mods));
+                updated = collab::trimAudioClipStart (orig, at, map);
                 break;
+            }
 
             case DragMode::trimEnd:
             {
                 const auto sourceLength = ctx.audioCache.getLengthSamples (ctx.document.getProjectDir(), orig.audioHash);
-                updated = collab::trimAudioClipEnd (orig, snap ((double) collab::audioClipEndTick (orig, map) + delta, e.mods),
-                                                    sourceLength, map);
+                const double raw = (double) collab::audioClipEndTick (orig, map) + delta;
+                const auto at = magnet (dragTrackId, orig.id, raw, 0.0, 1, e.mods).value_or (snap (raw, e.mods));
+                updated = collab::trimAudioClipEnd (orig, at, sourceLength, map);
                 break;
             }
 
@@ -916,6 +999,36 @@ void TrackLanes::mouseDrag (const juce::MouseEvent& e)
                 const double perPixel = e.mods.isShiftDown() ? 0.05 : 0.25;
                 updated.gainDb = juce::jlimit (-60.0, 24.0, std::round ((orig.gainDb - perPixel * e.getDistanceFromDragStartY()) * 10.0) / 10.0);
                 break;
+            }
+
+            case DragMode::joint:
+            {
+                // つなぎ目: 左のクリップの終わりと右のクリップの頭を、くっついたまま一緒に動かす
+                const auto sourceLength = ctx.audioCache.getLengthSamples (ctx.document.getProjectDir(), dragOrigLeft.audioHash);
+                const auto origJoint = orig.startTick;
+                auto at = snap ((double) origJoint + delta, e.mods);
+                auto left = collab::trimAudioClipEnd (dragOrigLeft, at, sourceLength, map);
+                updated = collab::trimAudioClipStart (orig, at, map);
+
+                // どちらかが元ファイルの端まで来たら、そこで止める（離れないように）
+                const auto leftEnd = collab::audioClipEndTick (left, map);
+
+                if (leftEnd != at || updated.startTick != at)
+                {
+                    at = at > origJoint ? juce::jmin (leftEnd, updated.startTick) : juce::jmax (leftEnd, updated.startTick);
+                    left = collab::trimAudioClipEnd (dragOrigLeft, at, sourceLength, map);
+                    updated = collab::trimAudioClipStart (orig, at, map);
+                }
+
+                editClip ("つなぎ目の移動"_ju, [updated, left] (collab::Track& t)
+                {
+                    for (auto& c : t.audioClips)
+                        if (c.id == updated.id)
+                            c = updated;
+                        else if (c.id == left.id)
+                            c = left;
+                }, mergeId);
+                return;
             }
 
             case DragMode::none:
@@ -970,10 +1083,18 @@ void TrackLanes::mouseDrag (const juce::MouseEvent& e)
         if (project.tracks[(size_t) row].type == wantType)
             targetTrackId = project.tracks[(size_t) row].id;
 
+    // オーディオは、同じトラックの別のクリップの端の近くに来たらぴったりくっつける（スナップがオフでも）
+    auto moveStart = newStart;
+
+    if (dragAudio)
+        if (auto m = magnet (targetTrackId, clipId, juce::jmax (0.0, (double) dragOrigStart + delta),
+                             (double) dragOrigAudio.lengthSamples / (double) collab::kSampleRate, 0, e.mods))
+            moveStart = juce::jmax<collab::Tick> (0, *m);
+
     const auto fromId = dragTrackId;
     const bool audio = dragAudio;
 
-    ctx.document.perform ("クリップの移動"_ju, [fromId, targetTrackId, clipId, newStart, audio] (collab::Project& p)
+    ctx.document.perform ("クリップの移動"_ju, [fromId, targetTrackId, clipId, newStart = moveStart, audio] (collab::Project& p)
     {
         auto* from = p.findTrack (fromId);
         auto* to = p.findTrack (targetTrackId);

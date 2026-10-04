@@ -83,6 +83,12 @@ struct AudibleSegment
 
 inline constexpr double defaultCrossfadeSeconds = 0.010;
 
+/**
+    ぴったりくっついた（間が joinToleranceSeconds 以内の）2 つのクリップは、つなぎ目をはさんで crossfadeSeconds/2 ずつ
+    互いに延ばして重ね、クロスフェードでつなぐ（プツッと鳴らないように）。どちらかに自分のフェードがあれば、それを使う。
+*/
+inline constexpr double joinToleranceSeconds = 0.002;
+
 std::vector<AudibleSegment> audibleSegments (const std::vector<AudioClip>&, const TempoMap&,
                                             double crossfadeSeconds = defaultCrossfadeSeconds);
 

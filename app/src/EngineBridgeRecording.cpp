@@ -141,6 +141,9 @@ void EngineBridge::setTrackInput (const std::string& trackId, const TrackInput& 
 
     trackInputs[trackId] = input;
     applyInputs();
+
+    if (onTrackInputsChanged)
+        onTrackInputsChanged();
 }
 
 void EngineBridge::applyInputs()

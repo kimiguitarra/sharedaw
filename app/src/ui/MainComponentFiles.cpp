@@ -51,6 +51,7 @@ void MainComponent::openProjectFolder (const juce::File& folder)
         state.timeline.scrollTick = 0;
         state.changed();
         bridge.returnToStart();
+        restoreTrackInputs();
         settings.setValue ("lastProjectDir", folder.getFullPathName());
         ProjectPicker::remember (settings, folder);
         setStatus ("開きました: "_ju + folder.getFullPathName());
@@ -59,6 +60,50 @@ void MainComponent::openProjectFolder (const juce::File& folder)
     {
         Dialogs::showError ("プロジェクトを開けません"_ju, juce::String::fromUTF8 (e.what()));
     }
+}
+
+static juce::String trackInputsKey (const collab::Project& p)
+{
+    return p.projectId.empty() ? juce::String() : "trackInputs_" + toJuce (p.projectId);
+}
+
+void MainComponent::saveTrackInputs()
+{
+    const auto& project = document.getProject();
+    const auto key = trackInputsKey (project);
+
+    if (restoringInputs || key.isEmpty())
+        return;
+
+    // 曲のトラックの入力だけ（録音待機は保存しない。開いたときに勝手に録音待機にならないように）
+    auto* obj = new juce::DynamicObject();
+
+    for (auto& [trackId, in] : bridge.getTrackInputs())
+        if (in.device.isNotEmpty() && project.findTrack (trackId) != nullptr)
+            obj->setProperty (toJuce (trackId), juce::Array<juce::var> { in.device, in.deviceRight, in.monitor });
+
+    settings.setValue (key, juce::JSON::toString (juce::var (obj), true));
+}
+
+void MainComponent::restoreTrackInputs()
+{
+    const auto key = trackInputsKey (document.getProject());
+
+    if (key.isEmpty())
+        return;
+
+    const auto saved = juce::JSON::parse (settings.getValue (key));
+
+    if (auto* obj = saved.getDynamicObject())
+    {
+        const juce::ScopedValueSetter<bool> svs (restoringInputs, true);
+
+        for (auto& prop : obj->getProperties())
+            if (auto* a = prop.value.getArray(); a != nullptr && a->size() >= 3 && document.getProject().findTrack (prop.name.toString().toStdString()) != nullptr)
+                bridge.setTrackInput (prop.name.toString().toStdString(), { (*a)[0].toString(), (*a)[1].toString(), false, (bool) (*a)[2] });
+    }
+
+    state.changed();
 }
 
 void MainComponent::saveProject (std::function<void (bool)> onDone)

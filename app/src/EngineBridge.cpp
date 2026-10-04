@@ -510,13 +510,22 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
     const auto shape = t.crossfadeShape == "linear" ? te::AudioFadeCurve::linear
                      : t.crossfadeShape == "sCurve" ? te::AudioFadeCurve::sCurve : te::AudioFadeCurve::convex;
 
-    for (auto& seg : collab::audibleSegments (t.audioClips, map, juce::jlimit (0.0, 1.0, t.crossfadeMs / 1000.0)))
+    for (auto seg : collab::audibleSegments (t.audioClips, map, juce::jlimit (0.0, 1.0, t.crossfadeMs / 1000.0)))
     {
         auto& c = t.audioClips[seg.clipIndex];
         auto file = AudioFiles::fileForHash (document.getProjectDir(), c.audioHash);
 
         if (! document.hasLocation() || ! file.existsAsFile())
             continue;
+
+        // くっついたクリップのクロスフェードで延ばした分が、元ファイルの終わりを超えるときは切る
+        if (const double fileSeconds = te::AudioFile (engine, file).getLength(); fileSeconds > 0.0
+             && seg.offsetSeconds + seg.lengthSeconds > fileSeconds)
+        {
+            const double over = seg.offsetSeconds + seg.lengthSeconds - fileSeconds;
+            seg.lengthSeconds = juce::jmax (0.001, seg.lengthSeconds - over);
+            seg.fadeOutSeconds = juce::jmax (0.0, juce::jmin (seg.fadeOutSeconds - over, seg.lengthSeconds - seg.fadeInSeconds));
+        }
 
         const te::ClipPosition pos { te::TimeRange (secondsToTime (seg.startSeconds), te::TimeDuration::fromSeconds (seg.lengthSeconds)),
                                      te::TimeDuration::fromSeconds (seg.offsetSeconds) };

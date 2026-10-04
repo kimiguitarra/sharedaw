@@ -109,6 +109,11 @@ private:
     juce::Slider metronomeVolume { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     ValueLabel bpmLabel, meterLabel;
     juce::Label keyLabel;
+
+    // 選んでいるオーディオクリップの音量・フェード（Cubase の情報ライン）と、そのトラックのクロスフェード
+    juce::Label clipTitle;
+    ValueLabel clipGainLabel, fadeInLabel, fadeOutLabel;
+    juce::TextButton crossfadeButton;
     juce::String wheelMergeId;
     juce::uint32 lastWheelTime = 0;
     collab::Tick lastTick = -1;
@@ -117,6 +122,12 @@ private:
     void setTempoAtPlayhead (double bpm, const juce::String& mergeId = {});
     void setMeterAtPlayhead (int numerator, int denominator);
     void refreshTempo();
+
+    /** 選んでいるオーディオクリップ（トラックの ID とクリップ）。なければ std::nullopt。 */
+    std::optional<std::pair<std::string, collab::AudioClip>> selectedAudioClip() const;
+    void refreshClip();
+    void editSelectedClip (const juce::String& description, std::function<void (collab::AudioClip&)> fn, const juce::String& mergeId = {});
+    juce::String nextWheelMergeId();
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
 };

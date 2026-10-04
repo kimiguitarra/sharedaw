@@ -140,6 +140,11 @@ private:
     void importAudio();
     void importMidi();
     void importMidiRecording (std::vector<EngineBridge::RecordedMidi>);
+
+    /** オーディオトラックの入力の割り当て（この PC の設定。曲ごと）を保存する・曲を開いたときに戻す。 */
+    void saveTrackInputs();
+    void restoreTrackInputs();
+    bool restoringInputs = false;
     void showPluginManager();
     PluginWindows pluginWindows;
 

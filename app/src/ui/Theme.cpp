@@ -714,6 +714,71 @@ const juce::MouseCursor& splitCursor()
     return cursor;
 }
 
+static juce::MouseCursor makeOutlinedCursor (const juce::Path& path, int hotX, int hotY)
+{
+    constexpr int size = 24;
+    juce::Image image (juce::Image::ARGB, size, size, true);
+    juce::Graphics g (image);
+    g.setColour (juce::Colours::black);
+    g.strokePath (path, juce::PathStrokeType (3.2f, juce::PathStrokeType::mitered, juce::PathStrokeType::square));
+    g.setColour (juce::Colours::white);
+    g.strokePath (path, juce::PathStrokeType (1.4f, juce::PathStrokeType::mitered, juce::PathStrokeType::square));
+    return juce::MouseCursor (image, hotX, hotY);
+}
+
+/** 左右の矢印（y の高さ、x1〜x2）。 */
+static void addLeftRightArrow (juce::Path& p, float x1, float x2, float y)
+{
+    p.startNewSubPath (x1, y);
+    p.lineTo (x2, y);
+    p.startNewSubPath (x1 + 3.5f, y - 3.5f);
+    p.lineTo (x1, y);
+    p.lineTo (x1 + 3.5f, y + 3.5f);
+    p.startNewSubPath (x2 - 3.5f, y - 3.5f);
+    p.lineTo (x2, y);
+    p.lineTo (x2 - 3.5f, y + 3.5f);
+}
+
+const juce::MouseCursor& fadeCursor (bool fadeIn)
+{
+    auto make = [] (bool in)
+    {
+        juce::Path p;
+        // フェードの線（フェードインは左下から右上、アウトは左上から右下）
+        p.startNewSubPath (3.0f, in ? 13.0f : 3.0f);
+        p.lineTo (21.0f, in ? 3.0f : 13.0f);
+        addLeftRightArrow (p, 4.0f, 20.0f, 19.0f);
+        return makeOutlinedCursor (p, 12, 12);
+    };
+
+    static const juce::MouseCursor in = make (true), out = make (false);
+    return fadeIn ? in : out;
+}
+
+const juce::MouseCursor& jointCursor()
+{
+    static const juce::MouseCursor cursor = []
+    {
+        juce::Path p;
+        p.startNewSubPath (12.0f, 2.0f);
+        p.lineTo (12.0f, 22.0f);
+        // 左に向いた矢印と右に向いた矢印
+        p.startNewSubPath (9.0f, 12.0f);
+        p.lineTo (2.0f, 12.0f);
+        p.startNewSubPath (5.5f, 8.5f);
+        p.lineTo (2.0f, 12.0f);
+        p.lineTo (5.5f, 15.5f);
+        p.startNewSubPath (15.0f, 12.0f);
+        p.lineTo (22.0f, 12.0f);
+        p.startNewSubPath (18.5f, 8.5f);
+        p.lineTo (22.0f, 12.0f);
+        p.lineTo (18.5f, 15.5f);
+        return makeOutlinedCursor (p, 12, 12);
+    }();
+
+    return cursor;
+}
+
 const juce::MouseCursor& toolCursor (EditTool tool)
 {
     static const juce::MouseCursor normal;

@@ -184,6 +184,7 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     ctx.openMaster = [this] { openMaster(); };
     bridge.onRecordingFinished = [this] (std::vector<EngineBridge::RecordedTake> takes) { importTakes (std::move (takes)); };
     bridge.onMidiRecorded = [this] (std::vector<EngineBridge::RecordedMidi> recs) { importMidiRecording (std::move (recs)); };
+    bridge.onTrackInputsChanged = [this] { saveTrackInputs(); };
     engine.getDeviceManager().deviceManager.addChangeListener (this);
     applyLatencyOffset();
 

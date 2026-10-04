@@ -251,3 +251,31 @@ TEST_CASE ("recorded MIDI continues an existing clip")
     CHECK (addRecordedMidi (clips, separate, false) == "d");
     CHECK (clips.size() == 3);
 }
+
+TEST_CASE ("audio clips that touch are joined with a short crossfade across the seam")
+{
+    const TempoMap map;   // 120BPM: 1 拍 = 0.5 秒
+    AudioClip a { "a", 0, std::string (64, 'a'), "take", 48000, 48000, 0.0, 0, 0 };     // 0〜1 秒、読み始め 1 秒
+    AudioClip b { "b", 1920, std::string (64, 'a'), "take", 96000, 48000, 0.0, 0, 0 };  // 1〜2 秒、読み始め 2 秒
+    const double xf = 0.01;
+    const auto segs = audibleSegments ({ a, b }, map, xf);
+    REQUIRE (segs.size() == 2);
+
+    CHECK (segs[0].startSeconds == doctest::Approx (0.0));
+    CHECK (segs[0].lengthSeconds == doctest::Approx (1.0 + xf / 2));
+    CHECK (segs[0].fadeOutSeconds == doctest::Approx (xf));
+    CHECK (segs[0].crossfadeOut);
+    CHECK_FALSE (segs[0].crossfadeIn);
+
+    CHECK (segs[1].startSeconds == doctest::Approx (1.0 - xf / 2));
+    CHECK (segs[1].offsetSeconds == doctest::Approx (2.0 - xf / 2));
+    CHECK (segs[1].fadeInSeconds == doctest::Approx (xf));
+    CHECK (segs[1].crossfadeIn);
+    CHECK (segs[1].fadeOutSeconds == doctest::Approx (0.0));
+
+    // 離れていればクロスフェードしない
+    b.startTick = 1920 + 96;
+    const auto apart = audibleSegments ({ a, b }, map, xf);
+    CHECK_FALSE (apart[0].crossfadeOut);
+    CHECK_FALSE (apart[1].crossfadeIn);
+}

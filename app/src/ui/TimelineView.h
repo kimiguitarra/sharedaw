@@ -45,8 +45,8 @@ public:
 private:
     AppContext& ctx;
 
-    enum class Zone { none, body, leftEdge, rightEdge, fadeIn, fadeOut, gain };
-    enum class DragMode { none, move, resizeMidi, trimMidiStart, trimStart, trimEnd, fadeIn, fadeOut, gain, rubberBand };
+    enum class Zone { none, body, leftEdge, rightEdge, fadeIn, fadeOut, gain, joint };   // joint: くっついた 2 つのクリップのつなぎ目
+    enum class DragMode { none, move, resizeMidi, trimMidiStart, trimStart, trimEnd, fadeIn, fadeOut, gain, joint, rubberBand };
 
     struct Hit
     {
@@ -54,13 +54,14 @@ private:
         std::string clipId;
         bool audio = false;
         Zone zone = Zone::none;
+        std::string leftClipId;   // joint: つなぎ目の左のクリップ（clipId は右のクリップ）
     };
 
     DragMode dragMode = DragMode::none;
     std::string dragTrackId, dragClipId;
     bool dragAudio = false;
     collab::Tick dragOrigStart = 0, dragOrigLength = 0;
-    collab::AudioClip dragOrigAudio;
+    collab::AudioClip dragOrigAudio, dragOrigLeft;   // dragOrigLeft: つなぎ目を動かすときの左のクリップ
     collab::MidiClip dragOrigMidi;
     std::map<std::string, collab::Tick> dragOrigStarts;   // まとめて動かすクリップの元の位置
     juce::Rectangle<float> band;                          // 範囲選択の枠
@@ -76,6 +77,14 @@ private:
 
     Hit findHit (juce::Point<float>) const;
     collab::Tick snap (double tick, const juce::ModifierKeys&) const;
+
+    /**
+        オーディオクリップの端を、同じトラックの別のクリップの端へ吸い付ける（スナップがオフでも、近く（10 ピクセル以内）なら）。
+        start〜start+seconds のクリップについて、吸い付いた開始位置を返す。なければ std::nullopt。Alt で吸い付けない。
+        trimEdge: 0 = 移動（両端）、-1 = 左端だけ、1 = 右端だけ。
+    */
+    std::optional<collab::Tick> magnet (const std::string& trackId, const std::string& clipId, double startTick, double seconds,
+                                        int trimEdge, const juce::ModifierKeys&) const;
     void paintMidiClip (juce::Graphics&, const collab::MidiClip&, juce::Rectangle<float>, juce::Colour, bool selected) const;
     void paintAudioClip (juce::Graphics&, const collab::AudioClip&, juce::Rectangle<float>, juce::Colour, bool selected);
     void normaliseClip (const std::string& trackId, const std::string& clipId);

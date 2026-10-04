@@ -149,6 +149,10 @@ public:
 
     TrackInput getTrackInput (const std::string& trackId) const;
     void setTrackInput (const std::string& trackId, const TrackInput&);
+    const std::map<std::string, TrackInput>& getTrackInputs() const noexcept   { return trackInputs; }
+
+    /** 入力の割り当てが変わったとき（この PC の設定として保存するため）。 */
+    std::function<void()> onTrackInputsChanged;
 
     /** 録音を始める。停止中なら再生位置から countInBars 小節のカウントインのあとに録音する。 */
     juce::Result startRecording (int countInBars);

@@ -285,6 +285,17 @@ std::vector<AudibleSegment> audibleSegments (const std::vector<AudioClip>& clips
         return false;
     };
 
+    // ぴったりくっついている（間が joinToleranceSeconds 以内の）別のクリップがあるか
+    auto joinedAt = [&] (size_t index, double time, bool atEnd)
+    {
+        for (size_t k = 0; k < clips.size(); ++k)
+            if (k != index && std::abs ((atEnd ? ranges[k].first : ranges[k].second) - time) <= joinToleranceSeconds
+                 && ranges[k].second - ranges[k].first > 2.0 * joinToleranceSeconds)
+                return true;
+
+        return false;
+    };
+
     std::vector<AudibleSegment> result;
 
     for (size_t i = 0; i < clips.size(); ++i)
@@ -340,6 +351,13 @@ std::vector<AudibleSegment> audibleSegments (const std::vector<AudioClip>& clips
                 seg.fadeInSeconds = std::max (userFadeIn, xf);
                 seg.crossfadeIn = userFadeIn < xf;
             }
+            else if (userFadeIn < xf && joinedAt (i, vs, false))
+            {
+                // くっついた前のクリップと、つなぎ目をはさんで xf/2 ずつ重ねてクロスフェード（元ファイルの頭より前は読めない）
+                start = vs - std::min (xf * 0.5, (double) c.sourceOffsetSamples / rate);
+                seg.fadeInSeconds = (vs - start) + xf * 0.5;
+                seg.crossfadeIn = true;
+            }
             else
             {
                 seg.fadeInSeconds = userFadeIn;
@@ -355,6 +373,13 @@ std::vector<AudibleSegment> audibleSegments (const std::vector<AudioClip>& clips
             {
                 seg.fadeOutSeconds = std::max (userFadeOut, xf);
                 seg.crossfadeOut = userFadeOut < xf;
+            }
+            else if (userFadeOut < xf && joinedAt (i, ve, true))
+            {
+                // くっついた後ろのクリップと重ねる（元ファイルの終わりを超える分は、鳴らす側で切る）
+                end = ve + xf * 0.5;
+                seg.fadeOutSeconds = xf;
+                seg.crossfadeOut = true;
             }
             else
             {

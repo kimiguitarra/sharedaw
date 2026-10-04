@@ -157,6 +157,77 @@ ToolBar::ToolBar (AppContext& c) : ctx (c)
         setMeterAtPlayhead (juce::jlimit (1, 64, sig.numerator + dir), sig.denominator);
     };
 
+    // 選んでいるオーディオクリップ: 音量（dB）・フェードイン・アウト（ms）を数値で入力（ホイールで増減、Shift で細かく）
+    clipTitle.setText ("クリップ"_ju, juce::dontSendNotification);
+    clipTitle.setFont (juce::FontOptions (14.0f));
+    clipTitle.setColour (juce::Label::textColourId, Theme::textDim);
+    addChildComponent (clipTitle);
+
+    struct Field { ValueLabel* label; juce::String tip; double min, max, step; std::function<double (const collab::AudioClip&)> get; std::function<void (collab::AudioClip&, double)> set; };
+    const Field fields[] = {
+        { &clipGainLabel, "クリップの音量（dB）"_ju, -60.0, 24.0, 0.5,
+          [] (const collab::AudioClip& clip) { return clip.gainDb; },
+          [] (collab::AudioClip& clip, double v) { clip.gainDb = v; } },
+        { &fadeInLabel, "フェードイン（ms）"_ju, 0.0, 60000.0, 5.0,
+          [] (const collab::AudioClip& clip) { return (double) clip.fadeInSamples * 1000.0 / collab::kSampleRate; },
+          [] (collab::AudioClip& clip, double v) { clip.fadeInSamples = juce::jlimit<collab::SampleCount> (0, clip.lengthSamples - clip.fadeOutSamples, (collab::SampleCount) std::llround (v * collab::kSampleRate / 1000.0)); } },
+        { &fadeOutLabel, "フェードアウト（ms）"_ju, 0.0, 60000.0, 5.0,
+          [] (const collab::AudioClip& clip) { return (double) clip.fadeOutSamples * 1000.0 / collab::kSampleRate; },
+          [] (collab::AudioClip& clip, double v) { clip.fadeOutSamples = juce::jlimit<collab::SampleCount> (0, clip.lengthSamples - clip.fadeInSamples, (collab::SampleCount) std::llround (v * collab::kSampleRate / 1000.0)); } },
+    };
+
+    for (auto& f : fields)
+    {
+        auto* l = f.label;
+        styleValue (*l, 15.0f, false, true);
+        l->setTooltip (f.tip + "（クリックで入力、ホイールで増減）"_ju);
+        addChildComponent (l);
+
+        l->onEditorShow = [l]
+        {
+            if (auto* ed = l->getCurrentTextEditor())
+            {
+                ed->setText (l->getText().retainCharacters ("-0123456789."), false);
+                ed->setInputRestrictions (9, "-0123456789.");
+                ed->selectAll();
+            }
+        };
+
+        l->onTextChange = [this, l, min = f.min, max = f.max, set = f.set]
+        {
+            const auto text = l->getText().trim();
+
+            if (text.isNotEmpty() && (text.containsAnyOf ("0123456789")))
+            {
+                const double v = juce::jlimit (min, max, text.getDoubleValue());
+                editSelectedClip ("クリップの音量・フェード"_ju, [set, v] (collab::AudioClip& clip) { set (clip, v); });
+            }
+
+            refreshClip();
+        };
+
+        l->onWheel = [this, min = f.min, max = f.max, step = f.step, get = f.get, set = f.set] (int dir)
+        {
+            const double s = juce::ModifierKeys::getCurrentModifiers().isShiftDown() ? step / 5.0 : step;
+
+            if (auto sel = selectedAudioClip())
+            {
+                const double v = juce::jlimit (min, max, std::round ((get (sel->second) + dir * s) / s) * s);
+                editSelectedClip ("クリップの音量・フェード"_ju, [set, v] (collab::AudioClip& clip) { set (clip, v); }, nextWheelMergeId());
+            }
+        };
+    }
+
+    // そのトラックのテイクのつなぎ（くっついた・重なったクリップのクロスフェードの長さと形）
+    crossfadeButton.setTooltip ("クロスフェード（くっついた・重なったクリップのつなぎ）"_ju);
+    crossfadeButton.setWantsKeyboardFocus (false);
+    crossfadeButton.onClick = [this]
+    {
+        if (auto sel = selectedAudioClip())
+            ctx.crossfadeMenu (sel->first).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&crossfadeButton));
+    };
+    addChildComponent (crossfadeButton);
+
     keyLabel.setTooltip ("キー"_ju);
     keyLabel.setMouseCursor (juce::MouseCursor::PointingHandCursor);
     keyLabel.addMouseListener (this, false);
@@ -186,6 +257,83 @@ void ToolBar::changeListenerCallback (juce::ChangeBroadcaster*)
     autoScrollButton.setToggleState (ctx.state.autoScroll, juce::dontSendNotification);
     quantiseBox.setSelectedId (ctx.state.quantisePresetIndex() + 1, juce::dontSendNotification);
     refreshTempo();
+    refreshClip();
+}
+
+std::optional<std::pair<std::string, collab::AudioClip>> ToolBar::selectedAudioClip() const
+{
+    const auto& id = ctx.state.selectedClipId;
+
+    if (id.empty())
+        return std::nullopt;
+
+    for (auto& t : ctx.document.getProject().tracks)
+        for (auto& c : t.audioClips)
+            if (c.id == id)
+                return std::make_pair (t.id, c);
+
+    return std::nullopt;
+}
+
+void ToolBar::editSelectedClip (const juce::String& description, std::function<void (collab::AudioClip&)> fn, const juce::String& mergeId)
+{
+    if (auto sel = selectedAudioClip())
+        ctx.editTrack (sel->first, description, [id = sel->second.id, fn] (collab::Track& t)
+        {
+            for (auto& c : t.audioClips)
+                if (c.id == id)
+                    fn (c);
+        }, mergeId);
+}
+
+juce::String ToolBar::nextWheelMergeId()
+{
+    // 続けて回した分は 1 つの「元に戻す」にまとめる
+    const auto now = juce::Time::getMillisecondCounter();
+
+    if (wheelMergeId.isEmpty() || now - lastWheelTime > 800)
+        wheelMergeId = juce::Uuid().toString();
+
+    lastWheelTime = now;
+    return wheelMergeId;
+}
+
+void ToolBar::refreshClip()
+{
+    const auto sel = selectedAudioClip();
+    const bool show = sel.has_value();
+    bool layoutChanged = false;
+
+    for (auto* c : std::initializer_list<juce::Component*> { &clipTitle, &clipGainLabel, &fadeInLabel, &fadeOutLabel, &crossfadeButton })
+        if (c->isVisible() != show)
+        {
+            c->setVisible (show);
+            layoutChanged = true;
+        }
+
+    if (show)
+    {
+        const auto& c = sel->second;
+        auto ms = [] (collab::SampleCount s) { return juce::String (juce::roundToInt ((double) s * 1000.0 / collab::kSampleRate)) + " ms"; };
+
+        if (! clipGainLabel.isBeingEdited())
+            clipGainLabel.setText ((c.gainDb > 0.0 ? "+" : "") + juce::String (c.gainDb, 1) + " dB", juce::dontSendNotification);
+
+        if (! fadeInLabel.isBeingEdited())
+            fadeInLabel.setText ("in " + ms (c.fadeInSamples), juce::dontSendNotification);
+
+        if (! fadeOutLabel.isBeingEdited())
+            fadeOutLabel.setText ("out " + ms (c.fadeOutSamples), juce::dontSendNotification);
+
+        if (auto* t = ctx.document.getProject().findTrack (sel->first))
+            crossfadeButton.setButtonText ("X-fade " + juce::String (juce::roundToInt (t->crossfadeMs)) + " ms");
+    }
+
+    if (layoutChanged)
+    {
+        resized();
+        repaint();
+    }
 }
 
 void ToolBar::update()
@@ -280,6 +428,18 @@ void ToolBar::resized()
     area.removeFromLeft (4);
     keyLabel.setBounds (area.removeFromLeft (130));
     groups.push_back (bpmLabel.getBounds().getUnion (keyLabel.getBounds()).expanded (4, 1));
+
+    if (clipGainLabel.isVisible())
+    {
+        area.removeFromLeft (18);
+        clipTitle.setBounds (area.removeFromLeft (64));
+        clipGainLabel.setBounds (area.removeFromLeft (84));
+        fadeInLabel.setBounds (area.removeFromLeft (90));
+        fadeOutLabel.setBounds (area.removeFromLeft (96));
+        area.removeFromLeft (4);
+        crossfadeButton.setBounds (area.removeFromLeft (120).reduced (0, 3));
+        groups.push_back (clipTitle.getBounds().getUnion (crossfadeButton.getBounds()).expanded (4, 1));
+    }
 }
 
 collab::Tick ToolBar::playheadTick() const
