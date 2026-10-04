@@ -1,6 +1,8 @@
 #include <doctest/doctest.h>
 
 #include "collab/MidiExport.h"
+#include "collab/ProjectJson.h"
+#include "TestUtils.h"
 #include "collab/ChordPlayback.h"
 #include "collab/chord/Degree.h"
 
@@ -180,4 +182,27 @@ TEST_CASE ("MIDI key signatures are spelled the way the app names the key")
     {
         return e.bytes == std::vector<std::uint8_t> { 0xff, 0x59, (std::uint8_t) (std::int8_t) -6, 0 };
     }));
+}
+
+TEST_CASE ("pitch bends are written and reset to centre at the clip end")
+{
+    auto p = parseProject (fixture ("full.project.json"));
+    auto& clip = p.tracks[0].midiClips.at (0);
+    clip.pitchBends = { { 0, 8191 } };
+
+    const TempoMap map (p);
+    const auto bytes = writeMidiFile (p, map, false);
+
+    // ピッチベンド（0xE0〜0xEF）: 一番上（LSB 0x7f, MSB 0x7f）と、中央（0x00, 0x40）
+    int up = 0, centre = 0;
+
+    for (size_t i = 0; i + 2 < bytes.size(); ++i)
+        if ((bytes[i] & 0xf0) == 0xe0)
+        {
+            up += bytes[i + 1] == 0x7f && bytes[i + 2] == 0x7f ? 1 : 0;
+            centre += bytes[i + 1] == 0x00 && bytes[i + 2] == 0x40 ? 1 : 0;
+        }
+
+    CHECK (up == 1);
+    CHECK (centre >= 1);
 }

@@ -303,12 +303,24 @@ struct Note
     bool operator== (const Note&) const = default;
 };
 
+/** ピッチベンド（MIDI のピッチホイール）。value は -8192〜8191（0 が中央）。tick はクリップ先頭からの相対。 */
+struct PitchBend
+{
+    Tick tick = 0;
+    int value = 0;
+
+    bool operator== (const PitchBend&) const = default;
+};
+
+constexpr int kPitchBendMin = -8192, kPitchBendMax = 8191;
+
 struct MidiClip
 {
     std::string id;
     Tick startTick = 0;
     Tick lengthTick = kPpq * 4;
     std::vector<Note> notes;
+    std::vector<PitchBend> pitchBends;   // tick の順。ないときは中央のまま
 
     Tick endTick() const noexcept     { return startTick + lengthTick; }
 

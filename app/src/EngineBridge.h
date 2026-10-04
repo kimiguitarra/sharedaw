@@ -220,6 +220,7 @@ public:
     {
         std::string trackId;
         std::vector<collab::Note> notes;   // tick はプロジェクトの先頭から
+        std::vector<collab::PitchBend> pitchBends;   // tick はプロジェクトの先頭から
         collab::Tick punchInTick = 0;
     };
 

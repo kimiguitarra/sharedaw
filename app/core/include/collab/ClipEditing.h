@@ -47,6 +47,15 @@ MidiClip trimMidiClipStart (const MidiClip&, Tick newStart, Tick minLength);
 /** 2 つの MIDI クリップを 1 つにする（a の先頭から b の終わりまで。b のノートは a の中へ移す）。 */
 MidiClip glueMidiClips (const MidiClip& a, const MidiClip& b);
 
+/** その位置（クリップ先頭からの tick）でのピッチベンドの値（直前のイベントの値。なければ 0 = 中央）。 */
+int pitchBendAt (const std::vector<PitchBend>&, Tick);
+
+/**
+    ピッチベンドを描く: from〜to（クリップ先頭からの tick）のイベントを points で置き換える。
+    to より後は、前の値が続かないように to の位置に元の値を入れる。tick の順にそろえる。
+*/
+void replacePitchBends (std::vector<PitchBend>&, Tick from, Tick to, const std::vector<PitchBend>& points);
+
 /** 元ファイルで続いている 2 つのオーディオクリップを 1 つにする（続いていなければ nullopt）。 */
 std::optional<AudioClip> glueAudioClips (const AudioClip& a, const AudioClip& b, const TempoMap&);
 

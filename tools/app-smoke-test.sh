@@ -118,6 +118,75 @@ PY
 done
 echo "recording timing ok"
 
+# ピッチベンド: 全音符の A3（220 Hz）を一番上まで曲げると 2 半音上（246.9 Hz）で鳴る
+echo "== pitch bend"
+for mode in flat up; do
+    rm -rf "$work/pb-$mode"
+    cp -r "$work/demo" "$work/pb-$mode"
+    python3 - "$work/pb-$mode/project.json" "$mode" <<'PY'
+import json, sys, uuid
+p = json.load(open(sys.argv[1]))
+p["chordTrack"]["events"] = []
+tracks = []
+for t in p["tracks"]:
+    if t["name"] == "Piano":
+        c = t["clips"][0]
+        c["startTick"], c["lengthTick"] = 0, 960 * 8
+        c["notes"] = [{"id": str(uuid.uuid4()), "tick": 0, "lengthTick": 960 * 4, "pitch": 57, "velocity": 100}]
+        if sys.argv[2] == "up":
+            c["pitchBends"] = [[0, 8191]]
+        tracks.append(t)
+p["tracks"] = tracks
+json.dump(p, open(sys.argv[1], "w"), ensure_ascii=False)
+PY
+    HOME="$work/home" run_with_timeout 300 ${SMOKE_WRAPPER:-} "$exe" --render "$work/pb-$mode" "$work/pb-$mode.wav" > /dev/null 2>&1 || { echo "pitch bend render failed"; exit 1; }
+done
+python3 - "$work/pb-flat.wav" "$work/pb-up.wav" <<'PY'
+import sys, struct, math
+def read_wav(path):
+    """標準ライブラリだけで読む（32 bit float の WAV も）。1 チャンネル目と、サンプルレートを返す。"""
+    data = open(path, "rb").read()
+    pos, fmt, rate, ch, bits, samples = 12, 1, 48000, 2, 16, b""
+    while pos + 8 <= len(data):
+        cid, size = data[pos:pos + 4], struct.unpack("<I", data[pos + 4:pos + 8])[0]
+        body = data[pos + 8:pos + 8 + size]
+        if cid == b"fmt ":
+            fmt, ch, rate = struct.unpack("<HHI", body[:8])
+            bits = struct.unpack("<H", body[14:16])[0]
+            if fmt == 0xfffe:
+                fmt = struct.unpack("<H", body[24:26])[0]
+        elif cid == b"data":
+            samples = body
+        pos += 8 + size + (size & 1)
+    width = bits // 8
+    count = len(samples) // width
+    if fmt == 3:
+        vals = struct.unpack("<%df" % count, samples[:count * 4])
+    elif width == 3:
+        vals = [int.from_bytes(samples[i:i + 3], "little", signed=True) for i in range(0, count * 3, 3)]
+    else:
+        vals = struct.unpack("<%d%s" % (count, {2: "h", 4: "i"}[width]), samples[:count * width])
+    return list(vals[::ch]), rate
+def pitch(path):
+    seg, rate = read_wav(path)
+    seg = seg[int(0.3 * rate): int(1.3 * rate)]
+    # 自己相関で 150〜300 Hz の周期を探す（間引いて速く）
+    best, best_lag = -1e30, 0
+    for lag in range(int(rate / 300), int(rate / 150) + 1):
+        s = sum(seg[i] * seg[i + lag] for i in range(0, len(seg) - lag, 8))
+        if s > best:
+            best, best_lag = s, lag
+    # 前後の値で放物線補間（周期の端数）
+    def ac(l): return sum(seg[i] * seg[i + l] for i in range(0, len(seg) - l, 8))
+    a, b, c = ac(best_lag - 1), best, ac(best_lag + 1)
+    shift = 0.5 * (a - c) / (a - 2 * b + c) if (a - 2 * b + c) != 0 else 0.0
+    return rate / (best_lag + shift)
+flat, up = pitch(sys.argv[1]), pitch(sys.argv[2])
+semitones = 12 * math.log2(up / flat)
+print("pitch bend: %.1f Hz -> %.1f Hz (%.2f semitones)" % (flat, up, semitones))
+assert abs(semitones - 2.0) < 0.15, semitones
+PY
+
 # クリップを動かす・元に戻す・やり直すたびに、エンジンのクリップとノートが画面（プロジェクト）と同じ
 # （エンジンのクリップを作り直すとき 1 つおきに消し残し、画面にない古い場所の音が鳴っていた）
 echo "== engine follows edits and undo"

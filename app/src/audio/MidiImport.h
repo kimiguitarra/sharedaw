@@ -17,6 +17,7 @@ namespace MidiImport
         int channel = 1;         // 1〜16（10 はドラム）
         int program = -1;        // 最初のプログラムチェンジ（なければ -1）
         std::vector<collab::Note> notes;
+        std::vector<collab::PitchBend> pitchBends;   // ファイルの先頭からの tick
         collab::Tick endTick = 0;
 
         /** パートに合う内蔵音源の ID（ドラム / ベース / エレピ / ピアノ）。 */

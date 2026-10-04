@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "collab/ClipEditing.h"
+#include "collab/Stretch.h"
 
 using namespace collab;
 
@@ -179,4 +180,44 @@ TEST_CASE ("newer overlapping audio clip hides the older one with crossfades (Pr
     // すっかり隠れたクリップは鳴らない
     const auto hidden = audibleSegments ({ newer, older }, map, xf);
     CHECK (std::none_of (hidden.begin(), hidden.end(), [] (auto& s) { return s.clipIndex == 0; }));
+}
+
+TEST_CASE ("pitch bends: value at a position, drawing a range, and split / trim / glue / stretch keep them in place")
+{
+    std::vector<PitchBend> bends { { 100, 4000 }, { 200, 0 } };
+    CHECK (pitchBendAt (bends, 0) == 0);
+    CHECK (pitchBendAt (bends, 150) == 4000);
+    CHECK (pitchBendAt (bends, 250) == 0);
+
+    // 描く: 50〜120 を上書き。後ろは元の値（4000）に戻り、200 で中央へ
+    replacePitchBends (bends, 50, 120, { { 50, 1000 }, { 80, 2000 }, { 120, 3000 } });
+    CHECK (pitchBendAt (bends, 60) == 1000);
+    CHECK (pitchBendAt (bends, 100) == 2000);
+    CHECK (pitchBendAt (bends, 121) == 4000);
+    CHECK (pitchBendAt (bends, 250) == 0);
+
+    // 消す（中央で描く）と、イベントはまとまる
+    replacePitchBends (bends, 0, 300, { { 0, 0 } });
+    CHECK (bends.empty());
+
+    MidiClip c { "c", 1000, 960 * 4, {}, { { 0, 0 }, { 960, 8191 }, { 1920, -8192 }, { 2880, 0 } } };
+    c.pitchBends.erase (c.pitchBends.begin());
+
+    auto split = splitMidiClip (c, 1000 + 1500, "d", [] { return std::string ("n"); });
+    REQUIRE (split);
+    CHECK (split->first.pitchBends == std::vector<PitchBend> { { 960, 8191 } });
+    CHECK (split->second.pitchBends.front() == PitchBend { 0, 8191 });   // 分けた所での値から始まる
+    CHECK (pitchBendAt (split->second.pitchBends, 1920 - 1500) == -8192);
+
+    auto glued = glueMidiClips (split->first, split->second);
+    for (Tick t : { 0, 500, 1000, 1600, 2000, 3000 })
+        CHECK (pitchBendAt (glued.pitchBends, t) == pitchBendAt (c.pitchBends, t));
+
+    auto trimmed = trimMidiClipStart (c, 1000 + 1200, 10);
+    CHECK (pitchBendAt (trimmed.pitchBends, 0) == 8191);
+    CHECK (pitchBendAt (trimmed.pitchBends, 1920 - 1200) == -8192);
+
+    auto stretched = stretchMidiClip (c, 0.5);
+    CHECK (pitchBendAt (stretched.pitchBends, 480) == 8191);
+    CHECK (pitchBendAt (stretched.pitchBends, 960) == -8192);
 }

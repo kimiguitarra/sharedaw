@@ -111,6 +111,12 @@ void MainComponent::importMidiRecording (std::vector<EngineBridge::RecordedMidi>
             last = std::max (last, n.tick + n.lengthTick);
         }
 
+        for (auto& b : rec.pitchBends)
+        {
+            first = std::min (first, b.tick);
+            last = std::max (last, b.tick + 1);
+        }
+
         collab::MidiClip clip;
         clip.id = collab::generateUuid();
         clip.startTick = map.barToTick (map.tickToBar (first));
@@ -121,6 +127,17 @@ void MainComponent::importMidiRecording (std::vector<EngineBridge::RecordedMidi>
             n.tick -= clip.startTick;
             clip.notes.push_back (n);
         }
+
+        // ピッチベンド（同じ値が続くものは省き、最後は中央に戻す）
+        std::vector<collab::PitchBend> bends;
+
+        for (auto b : rec.pitchBends)
+            bends.push_back ({ b.tick - clip.startTick, b.value });
+
+        std::stable_sort (bends.begin(), bends.end(), [] (auto& a, auto& b) { return a.tick < b.tick; });
+
+        if (! bends.empty())
+            collab::replacePitchBends (clip.pitchBends, 0, clip.lengthTick - 1, bends);
 
         const auto trackId = rec.trackId;
         document.perform ("MIDI の録音"_ju, [trackId, clip] (collab::Project& p)

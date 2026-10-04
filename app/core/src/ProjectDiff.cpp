@@ -314,6 +314,15 @@ namespace
                                              + "件（" + detail + "）", noteRange, "notes");
         }
 
+        // ピッチベンド（両方にあるクリップごと。クリップの追加・削除は別の変更）
+        for (auto& cb : b->midiClips)
+            if (auto* ca = a->findMidiClip (cb.id); ca != nullptr && ca->pitchBends != cb.pitchBends)
+            {
+                Range r;
+                r.add (cb.startTick, cb.endTick());
+                add (Change::Category::notes, barRange (mapB, cb.startTick, cb.endTick()) + " ピッチベンドを変更", r, "pitchBends", cb.id);
+            }
+
         // オーディオクリップ
         for (auto& cb : b->audioClips)
         {
@@ -898,6 +907,14 @@ Project applyChangeFrom (const Project& targetIn, const Project& source, const C
             ct->startTick = cs->startTick;
             ct->lengthTick = cs->lengthTick;
         }
+    }
+    else if (part == "pitchBends")
+    {
+        auto* ct = t->findMidiClip (change.itemId);
+        auto* cs = s->findMidiClip (change.itemId);
+
+        if (ct != nullptr && cs != nullptr)
+            ct->pitchBends = cs->pitchBends;
     }
     else if (part == "notes")
     {

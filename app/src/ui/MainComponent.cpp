@@ -366,6 +366,49 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
     }, "nudge and velocity in the piano roll" });
     steps->push_back ({ 300, [] (MainComponent& m)
     {
+        // ピッチベンド: 下の段を切り替えて描き（ドラッグと同じ編集）、画面を保存し、元に戻す
+        auto* clip = m.ctx.selectedClip();
+
+        if (clip == nullptr)
+            return;
+
+        m.pianoRoll.showPitchBend (true);
+        const auto length = clip->lengthTick;
+        m.pianoRoll.editNotes ("ピッチベンド"_ju, [length] (collab::MidiClip& c)
+        {
+            std::vector<collab::PitchBend> points;
+
+            for (collab::Tick t = 0; t < length / 2; t += 60)
+                points.push_back ({ t, (int) (8191.0 * std::sin ((double) t / (double) length * 6.28)) });
+
+            collab::replacePitchBends (c.pitchBends, 0, length / 2, points);
+        });
+
+        if (auto* after = m.ctx.selectedClip(); after == nullptr || after->pitchBends.empty())
+        {
+            std::cout << "smoke: FAILED pitch bend was not added" << std::endl;
+            std::_Exit (7);
+        }
+
+        if (const auto dir = juce::SystemStats::getEnvironmentVariable ("SHAREDAW_SMOKE_SHOTS", {}); dir.isNotEmpty())
+        {
+            juce::FileOutputStream out (juce::File (dir).getChildFile ("pitchbend.png"));
+            out.setPosition (0);
+            out.truncate();
+            juce::PNGImageFormat().writeImageToStream (m.pianoRoll.createComponentSnapshot (m.pianoRoll.getLocalBounds()), out);
+        }
+
+        m.document.undo();
+        m.pianoRoll.showPitchBend (false);
+
+        if (auto* after = m.ctx.selectedClip(); after != nullptr && ! after->pitchBends.empty())
+        {
+            std::cout << "smoke: FAILED undo of pitch bend" << std::endl;
+            std::_Exit (7);
+        }
+    }, "pitch bend lane" });
+    steps->push_back ({ 300, [] (MainComponent& m)
+    {
         m.commandManager.invokeDirectly (cmdWaveBigger, false);
         m.commandManager.invokeDirectly (cmdWaveBigger, false);
         m.timeline.repaintLanes();

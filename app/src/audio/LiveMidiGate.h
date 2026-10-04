@@ -46,8 +46,9 @@ public:
             if (! isLive (m.mpeSourceID) || m.mpeSourceID == ok)
                 continue;
 
+            // ピッチベンドを中央に戻すのも通す（弾いている途中で選択を変えても、前のトラックが曲がったままにならない）
             const bool stopsSound = m.isNoteOff() || m.isAllNotesOff() || m.isAllSoundOff()
-                                     || (m.isSustainPedalOff());
+                                     || m.isSustainPedalOff() || (m.isPitchWheel() && m.getPitchWheelValue() == 8192);
 
             if (! stopsSound)
                 midi.remove (i);

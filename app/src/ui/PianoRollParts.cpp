@@ -77,7 +77,25 @@ void PianoKeyboard::mouseWheelMove (const juce::MouseEvent& e, const juce::Mouse
 //==============================================================================
 VelocityLane::VelocityLane (PianoRollView& o) : owner (o)
 {
-    setTooltip ("ノートを選んでから、上下にドラッグでベロシティを変えます（選んだノートはまとめて）"_ju);
+    modeButton.setWantsKeyboardFocus (false);
+    modeButton.onClick = [this] { setShowsPitchBend (! bendMode); };
+    addAndMakeVisible (modeButton);
+    setShowsPitchBend (false);
+}
+
+void VelocityLane::setShowsPitchBend (bool shouldShow)
+{
+    bendMode = shouldShow;
+    modeButton.setButtonText (bendMode ? "ピッチベンド"_ju : "ベロシティ"_ju);
+    modeButton.setTooltip (bendMode ? "ベロシティの表示に切り替える"_ju : "ピッチベンドの表示に切り替える"_ju);
+    setTooltip (bendMode ? "ドラッグでピッチベンドを描く（真ん中＝0。上下の端で ±2 半音）。Alt か右ボタンでドラッグすると中央に戻す、ダブルクリックでこのクリップのベンドを全部消す"_ju
+                         : "ノートを選んでから、上下にドラッグでベロシティを変えます（選んだノートはまとめて）"_ju);
+    repaint();
+}
+
+void VelocityLane::resized()
+{
+    modeButton.setBounds (getWidth() - 96, 3, 92, 18);   // 右上（ノートの少ない所）
 }
 
 void VelocityLane::paint (juce::Graphics& g)
@@ -91,6 +109,9 @@ void VelocityLane::paint (juce::Graphics& g)
 
     if (clip == nullptr)
         return;
+
+    if (bendMode)
+        return paintPitchBend (g, *clip);
 
     const auto& axis = owner.axis();
     const auto base = track != nullptr ? Theme::parseColour (track->color) : Theme::accent;
@@ -163,13 +184,151 @@ const collab::Note* VelocityLane::noteAt (float x) const
     return best;
 }
 
+//==============================================================================
+void VelocityLane::paintPitchBend (juce::Graphics& g, const collab::MidiClip& clip)
+{
+    const auto& axis = owner.axis();
+    const float mid = (float) getHeight() * 0.5f, half = (float) getHeight() * 0.5f - 4.0f;
+    auto yFor = [&] (int value) { return mid - half * (float) value / 8192.0f; };
+
+    // 中央と ±1・±2 半音（ベンド幅 ±2 半音のとき）の目安
+    for (int st : { -2, -1, 1, 2 })
+    {
+        g.setColour (Theme::overlay (st % 2 == 0 ? 0.10f : 0.05f));
+        g.drawHorizontalLine ((int) yFor (st * 4096), 0.0f, (float) getWidth());
+    }
+
+    g.setColour (Theme::overlay (0.25f));
+    g.drawHorizontalLine ((int) mid, 0.0f, (float) getWidth());
+    g.setColour (Theme::textDim);
+    g.setFont (juce::FontOptions (10.5f));
+    g.drawText ("+2", juce::Rectangle<float> (4.0f, yFor (8191) - 1.0f, 20.0f, 12.0f), juce::Justification::centredLeft);
+    g.drawText ("-2", juce::Rectangle<float> (4.0f, yFor (-8192) - 11.0f, 20.0f, 12.0f), juce::Justification::centredLeft);
+
+    // クリップの範囲だけ、階段状に（値は次のイベントまで続く）
+    const float x0 = (float) axis.tickToX ((double) clip.startTick);
+    const float x1 = (float) axis.tickToX ((double) clip.endTick());
+    auto* track = owner.getTrack();
+    const auto colour = track != nullptr ? Theme::parseColour (track->color) : Theme::accent;
+
+    juce::Path line, area;
+    float x = x0;
+    int value = 0;
+    line.startNewSubPath (x0, yFor (0));
+    area.startNewSubPath (x0, mid);
+    area.lineTo (x0, yFor (0));
+
+    for (auto& b : clip.pitchBends)
+    {
+        if (b.tick < 0 || b.tick >= clip.lengthTick)
+            continue;
+
+        const float bx = (float) axis.tickToX ((double) (clip.startTick + b.tick));
+        line.lineTo (bx, yFor (value));
+        area.lineTo (bx, yFor (value));
+        value = b.value;
+        line.lineTo (bx, yFor (value));
+        area.lineTo (bx, yFor (value));
+        x = bx;
+    }
+
+    juce::ignoreUnused (x);
+    line.lineTo (x1, yFor (value));
+    area.lineTo (x1, yFor (value));
+    area.lineTo (x1, mid);
+    area.closeSubPath();
+
+    g.setColour (colour.withAlpha (0.25f));
+    g.fillPath (area);
+    g.setColour (colour);
+    g.strokePath (line, juce::PathStrokeType (1.8f));
+}
+
+collab::Tick VelocityLane::bendTickAt (float x) const
+{
+    auto* clip = owner.getClip();
+
+    if (clip == nullptr)
+        return 0;
+
+    const auto tick = (collab::Tick) std::llround (owner.axis().xToTick (x)) - clip->startTick;
+    return juce::jlimit<collab::Tick> (0, std::max<collab::Tick> (0, clip->lengthTick - 1), tick);
+}
+
+int VelocityLane::bendValueAt (float y) const
+{
+    const float mid = (float) getHeight() * 0.5f, half = (float) getHeight() * 0.5f - 4.0f;
+    const int value = juce::jlimit (collab::kPitchBendMin, collab::kPitchBendMax, juce::roundToInt ((mid - y) / half * 8192.0f));
+    return std::abs (value) < 250 ? 0 : value;   // 中央の近くは中央に吸い付く
+}
+
+void VelocityLane::drawBendTo (juce::Point<float> p)
+{
+    // 前の位置からなめらかにつなぐ（細かすぎないよう 2 ピクセルごと）
+    const auto from = lastDraw;
+    const int steps = juce::jmax (1, (int) (std::abs (p.x - from.x) / 2.0f));
+
+    for (int i = 1; i <= steps; ++i)
+    {
+        const auto q = from + (p - from) * ((float) i / (float) steps);
+        drawn[bendTickAt (q.x)] = erasing ? 0 : bendValueAt (q.y);
+    }
+
+    drawn[bendTickAt (p.x)] = erasing ? 0 : bendValueAt (p.y);
+    lastDraw = p;
+
+    if (drawn.empty())
+        return;
+
+    std::vector<collab::PitchBend> points;
+
+    for (auto& [tick, value] : drawn)
+        points.push_back ({ tick, value });
+
+    const auto from_ = drawn.begin()->first, to_ = drawn.rbegin()->first;
+    const auto original = originalBends;
+
+    owner.editNotes ("ピッチベンド"_ju, [original, points, from_, to_] (collab::MidiClip& c)
+    {
+        c.pitchBends = original;
+        collab::replacePitchBends (c.pitchBends, from_, to_, points);
+    }, mergeId);
+}
+
+void VelocityLane::mouseDoubleClick (const juce::MouseEvent&)
+{
+    if (! bendMode)
+        return;
+
+    owner.editNotes ("ピッチベンドを全部消す"_ju, [] (collab::MidiClip& c) { c.pitchBends.clear(); });
+}
+
 void VelocityLane::mouseMove (const juce::MouseEvent&)
 {
+    if (bendMode)
+        return setMouseCursor (juce::MouseCursor::CrosshairCursor);
+
     setMouseCursor (owner.selectedNotes.empty() ? juce::MouseCursor::NormalCursor : juce::MouseCursor::UpDownResizeCursor);
 }
 
 void VelocityLane::mouseDown (const juce::MouseEvent& e)
 {
+    if (bendMode)
+    {
+        auto* clip = owner.getClip();
+
+        if (clip == nullptr || e.getNumberOfClicks() > 1)
+            return;
+
+        mergeId = juce::Uuid().toString();
+        originalBends = clip->pitchBends;
+        drawn.clear();
+        erasing = e.mods.isAltDown() || e.mods.isPopupMenu();
+        lastDraw = e.position;
+        drawBendTo (e.position);
+        return;
+    }
+
     // 棒を押したら、そのノートを選ぶ（値は変えない。Shift で選択に足す）
     if (auto* n = noteAt (e.position.x); n != nullptr && owner.selectedNotes.count (n->id) == 0)
     {
@@ -193,6 +352,14 @@ void VelocityLane::mouseDown (const juce::MouseEvent& e)
 
 void VelocityLane::mouseDrag (const juce::MouseEvent& e)
 {
+    if (bendMode)
+    {
+        if (! drawn.empty())
+            drawBendTo (e.position);
+
+        return;
+    }
+
     if (originalVelocities.empty())
         return;
 
@@ -215,6 +382,7 @@ void VelocityLane::mouseDrag (const juce::MouseEvent& e)
 
 void VelocityLane::mouseUp (const juce::MouseEvent&)
 {
+    drawn.clear();
     originalVelocities.clear();
     owner.ctx.document.endMerge();
 }

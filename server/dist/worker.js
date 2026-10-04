@@ -2482,6 +2482,19 @@ var project_schema_default = {
           items: {
             $ref: "#/definitions/note"
           }
+        },
+        pitchBends: {
+          description: "Pitch wheel events as [tick relative to the clip start, value -8192..8191 (0 = centre)], in tick order.",
+          type: "array",
+          items: {
+            type: "array",
+            items: [
+              { $ref: "#/definitions/tick" },
+              { type: "integer", minimum: -8192, maximum: 8191 }
+            ],
+            minItems: 2,
+            additionalItems: false
+          }
         }
       }
     },

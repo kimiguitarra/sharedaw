@@ -60,21 +60,42 @@ private:
     const collab::Note* hitNote (juce::Point<float>, bool& nearRightEdge) const;
 };
 
-/** ベロシティの表示・編集（選んだノートを上下にドラッグ）。 */
+/**
+    ベロシティの表示・編集（選んだノートを上下にドラッグ）。
+    左上のボタンでピッチベンドに切り替える: ドラッグで描く、Alt か右ボタンでドラッグすると中央に戻す、ダブルクリックでクリップのベンドを全部消す。
+*/
 class VelocityLane  : public juce::Component,
                       public juce::SettableTooltipClient
 {
 public:
     explicit VelocityLane (PianoRollView& o);
     void paint (juce::Graphics&) override;
+    void resized() override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
+    void mouseDoubleClick (const juce::MouseEvent&) override;
+
+    bool showsPitchBend() const noexcept    { return bendMode; }
+    void setShowsPitchBend (bool);
 
 private:
     PianoRollView& owner;
     juce::String mergeId;
+
+    // ピッチベンド
+    bool bendMode = false;
+    juce::TextButton modeButton;
+    std::vector<collab::PitchBend> originalBends;
+    std::map<collab::Tick, int> drawn;          // このドラッグで描いた点（クリップ先頭からの tick → 値）
+    juce::Point<float> lastDraw;
+    bool erasing = false;
+
+    void paintPitchBend (juce::Graphics&, const collab::MidiClip&);
+    collab::Tick bendTickAt (float x) const;
+    int bendValueAt (float y) const;
+    void drawBendTo (juce::Point<float>);
 
     // 選んだノートを、ドラッグした分だけ上下させる（それぞれの差は保つ）
     float downY = 0;
@@ -130,6 +151,9 @@ public:
 
     /** 選択中のノートを nudgeTicks だけ左（-1）・右（+1）にずらす（グルーヴ用。グリッドには合わせない）。 */
     void nudgeSelection (int direction);
+
+    /** 下の段をピッチベンドの表示・編集にする（false でベロシティ）。 */
+    void showPitchBend (bool shouldShow)    { velocity.setShowsPitchBend (shouldShow); }
     /** 選択中のノートを、いちばん早いノートを起点に factor 倍に伸び縮みさせる（位置と長さ）。 */
     void stretchSelection (double factor);
     /** 選択中のノートのベロシティを delta だけ変える。 */

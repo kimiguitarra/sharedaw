@@ -458,6 +458,9 @@ void AppContext::importMidiFiles (const juce::Array<juce::File>& files, std::str
             clip.lengthTick = length;
             clip.notes = part.notes;
 
+            for (auto b : part.pitchBends)
+                clip.pitchBends.push_back ({ b.tick, b.value });   // クリップはファイルの先頭（atTick）から
+
             if (target != nullptr && r.parts.size() == 1)
             {
                 clipsForExisting.push_back ({ target->id, clip });

@@ -22,6 +22,9 @@ MidiClip stretchMidiClip (const MidiClip& clip, double factor)
         n.lengthTick = std::max<Tick> (1, stretchTick (n.lengthTick, factor));
     }
 
+    for (auto& b : c.pitchBends)
+        b.tick = stretchTick (b.tick, factor);
+
     return c;
 }
 

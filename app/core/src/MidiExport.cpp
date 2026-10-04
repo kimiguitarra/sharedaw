@@ -1,4 +1,5 @@
 #include "collab/MidiExport.h"
+#include "collab/ClipEditing.h"
 
 #include <algorithm>
 #include <cmath>
@@ -200,6 +201,23 @@ std::vector<std::uint8_t> writeMidiFile (const Project& project, const TempoMap&
                 const Tick length = std::min (n.lengthTick, clip.lengthTick - n.tick);
                 addNote (events, channel, clip.startTick + n.tick, length, n.pitch, n.velocity);
             }
+
+        // ピッチベンド（クリップの中だけ。クリップの終わりで中央に戻す）
+        for (auto& clip : t.midiClips)
+        {
+            auto bend = [&] (Tick tick, int value)
+            {
+                const int v = std::clamp (value, kPitchBendMin, kPitchBendMax) + 8192;
+                events.push_back ({ tick, 2, { (std::uint8_t) (0xe0 | channel), (std::uint8_t) (v & 0x7f), (std::uint8_t) ((v >> 7) & 0x7f) } });
+            };
+
+            for (auto& b : clip.pitchBends)
+                if (b.tick >= 0 && b.tick < clip.lengthTick)
+                    bend (clip.startTick + b.tick, b.value);
+
+            if (pitchBendAt (clip.pitchBends, clip.lengthTick - 1) != 0)
+                bend (clip.endTick(), 0);
+        }
 
         chunks.push_back (trackChunk (std::move (events)));
     }

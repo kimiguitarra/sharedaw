@@ -53,6 +53,11 @@ namespace
             for (auto& n : c.notes)
                 s << n.tick << ',' << n.lengthTick << ',' << n.pitch << ',' << n.velocity << ';';
 
+            s << "]b[";
+
+            for (auto& b : c.pitchBends)
+                s << b.tick << ',' << b.value << ';';
+
             s << ']';
         }
 
@@ -554,6 +559,26 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
 
             seq.addNote (n.pitch, secondsToBeats (ns), te::BeatDuration::fromBeats (juce::jmax (0.001, ne - ns)),
                          n.velocity, 0, nullptr);
+        }
+
+        // ピッチベンド（Tracktion の値は 0〜16383、中央 8192）。クリップの頭と終わりは中央にして、前後の音に残さない
+        if (! c.pitchBends.empty())
+        {
+            auto addBend = [&] (double seconds, int value)
+            {
+                seq.addControllerEvent (secondsToBeats (juce::jlimit (0.0, end - start, seconds)), te::MidiControllerEvent::pitchWheelType,
+                                        juce::jlimit (0, 16383, value + 8192), nullptr);
+            };
+
+            if (c.pitchBends.front().tick > 0)
+                addBend (0.0, 0);
+
+            for (auto& b : c.pitchBends)
+                if (b.tick >= 0 && b.tick < c.lengthTick)
+                    addBend (map.tickToSeconds ((double) (c.startTick + b.tick)) - start, b.value);
+
+            if (collab::pitchBendAt (c.pitchBends, c.lengthTick - 1) != 0)
+                addBend (end - start - 0.0005, 0);
         }
     }
 }

@@ -76,6 +76,21 @@ std::optional<std::pair<MidiClip, MidiClip>> splitMidiClip (const MidiClip& c, T
         }
     }
 
+    // ピッチベンドも分ける。右は、分けた位置での値から始める
+    left.pitchBends.clear();
+    right.pitchBends.clear();
+
+    for (auto b : c.pitchBends)
+        if (b.tick < rel)
+            left.pitchBends.push_back (b);
+
+    if (const int v = pitchBendAt (c.pitchBends, rel); v != 0 && std::none_of (c.pitchBends.begin(), c.pitchBends.end(), [rel] (auto& b) { return b.tick == rel; }))
+        right.pitchBends.push_back ({ 0, v });
+
+    for (auto b : c.pitchBends)
+        if (b.tick >= rel)
+            right.pitchBends.push_back ({ b.tick - rel, b.value });
+
     return std::make_pair (left, right);
 }
 
@@ -124,6 +139,18 @@ MidiClip trimMidiClipStart (const MidiClip& c, Tick newStart, Tick minLength)
     for (auto& n : r.notes)
         n.tick -= delta;
 
+    // ピッチベンドもずらす。頭より前になったものは、新しい頭での値にまとめる
+    const int startValue = pitchBendAt (c.pitchBends, delta);
+    std::vector<PitchBend> bends;
+
+    if (startValue != 0)
+        bends.push_back ({ 0, startValue });
+
+    for (auto b : c.pitchBends)
+        if (b.tick - delta > 0 || (b.tick - delta == 0 && startValue == 0))
+            bends.push_back ({ b.tick - delta, b.value });
+
+    r.pitchBends = bends;
     return r;
 }
 
@@ -141,6 +168,21 @@ MidiClip glueMidiClips (const MidiClip& a, const MidiClip& b)
         n.tick += b.startTick - start;
         r.notes.push_back (n);
     }
+
+    // ピッチベンド: それぞれのクリップの範囲ではそのクリップの値（後ろのクリップの頭で値を戻す）
+    std::vector<PitchBend> bends;
+
+    for (auto pb : a.pitchBends)
+        bends.push_back ({ pb.tick + a.startTick - start, pb.value });
+
+    if (! a.pitchBends.empty() || ! b.pitchBends.empty())
+        bends.push_back ({ b.startTick - start, pitchBendAt (b.pitchBends, 0) });
+
+    for (auto pb : b.pitchBends)
+        bends.push_back ({ pb.tick + b.startTick - start, pb.value });
+
+    std::stable_sort (bends.begin(), bends.end(), [] (auto& x, auto& y) { return x.tick < y.tick; });
+    r.pitchBends = bends;
 
     r.startTick = start;
     r.lengthTick = end - start;
@@ -279,6 +321,53 @@ std::vector<AudibleSegment> audibleSegments (const std::vector<AudioClip>& clips
     }
 
     return result;
+}
+
+int pitchBendAt (const std::vector<PitchBend>& bends, Tick tick)
+{
+    int value = 0;
+
+    for (auto& b : bends)
+    {
+        if (b.tick > tick)
+            break;
+
+        value = b.value;
+    }
+
+    return value;
+}
+
+void replacePitchBends (std::vector<PitchBend>& bends, Tick from, Tick to, const std::vector<PitchBend>& points)
+{
+    if (to < from)
+        std::swap (from, to);
+
+    const int after = pitchBendAt (bends, to);
+    std::erase_if (bends, [&] (const PitchBend& b) { return b.tick >= from && b.tick <= to; });
+
+    for (auto p : points)
+        if (p.tick >= from && p.tick <= to)
+            bends.push_back ({ p.tick, std::clamp (p.value, kPitchBendMin, kPitchBendMax) });
+
+    // 描いた範囲の後は、元の値に戻す（描いた最後の値が後ろまで続かないように）
+    if (std::none_of (bends.begin(), bends.end(), [to] (auto& b) { return b.tick == to + 1; }))
+        bends.push_back ({ to + 1, after });
+
+    std::stable_sort (bends.begin(), bends.end(), [] (auto& a, auto& b) { return a.tick < b.tick; });
+
+    // 前と同じ値のイベントは省く（最初は 0 = 中央から始まる）
+    std::vector<PitchBend> compact;
+    int current = 0;
+
+    for (auto& b : bends)
+        if (b.value != current)
+        {
+            compact.push_back (b);
+            current = b.value;
+        }
+
+    bends = compact;
 }
 
 } // namespace collab

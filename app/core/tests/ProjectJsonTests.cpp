@@ -121,3 +121,18 @@ TEST_CASE ("master effects round-trip and are found by effectsFor")
     CHECK (back.master.effects == p.master.effects);
     CHECK (back == p);
 }
+
+TEST_CASE ("pitch bends round-trip as [tick, value] pairs")
+{
+    auto p = parseProject (fixture ("full.project.json"));
+    auto& t = p.tracks[0];
+    REQUIRE (! t.midiClips.empty());
+    t.midiClips[0].pitchBends = { { 0, -8192 }, { 480, 0 }, { 960, 8191 } };
+
+    const auto text = serialiseProject (p);
+    CHECK (text.find ("\"pitchBends\"") != std::string::npos);
+    CHECK (parseProject (text) == p);
+
+    t.midiClips[0].pitchBends = { { 0, 9000 } };   // 範囲外はスキーマで弾く
+    CHECK_THROWS (parseProject (serialiseProject (p)));
+}

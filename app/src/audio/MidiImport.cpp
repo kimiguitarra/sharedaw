@@ -99,6 +99,9 @@ Result read (const juce::File& file)
                     part.program = m.getProgramChangeNumber();
             }
 
+            if (m.isPitchWheel())
+                byChannel[m.getChannel()].pitchBends.push_back ({ toTick (time), m.getPitchWheelValue() - 8192 });
+
             if (m.isNoteOn() && m.getVelocity() > 0)
             {
                 auto& part = byChannel[m.getChannel()];

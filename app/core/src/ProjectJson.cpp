@@ -121,7 +121,20 @@ namespace
         for (auto& n : c.notes)
             notes.push_back (toJson (n));
 
-        return { { "id", c.id }, { "startTick", c.startTick }, { "lengthTick", c.lengthTick }, { "notes", notes } };
+        ojson o { { "id", c.id }, { "startTick", c.startTick }, { "lengthTick", c.lengthTick }, { "notes", notes } };
+
+        // ピッチベンド（録ると数が多いので [tick, 値] の組で短く）
+        if (! c.pitchBends.empty())
+        {
+            ojson bends = ojson::array();
+
+            for (auto& b : c.pitchBends)
+                bends.push_back ({ b.tick, b.value });
+
+            o["pitchBends"] = bends;
+        }
+
+        return o;
     }
 
     ojson toJson (const AudioClip& c)
@@ -663,6 +676,10 @@ Project projectFromJson (const json& j)
                     for (auto& nj : cj.at ("notes"))
                         c.notes.push_back ({ get<std::string> (nj, "id"), get<Tick> (nj, "tick"), get<Tick> (nj, "lengthTick"),
                                              get<int> (nj, "pitch"), get<int> (nj, "velocity") });
+
+                    if (auto pb = cj.find ("pitchBends"); pb != cj.end())
+                        for (auto& bj : *pb)
+                            c.pitchBends.push_back ({ bj.at (0).get<Tick>(), bj.at (1).get<int>() });
 
                     t.midiClips.push_back (std::move (c));
                 }

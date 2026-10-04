@@ -572,7 +572,22 @@ void EngineBridge::recordingFinished (te::InputDeviceInstance& input, te::EditIt
                 rec.notes.push_back (note);
             }
 
-            if (! rec.notes.empty())
+            // ピッチベンド（ピッチホイール）も同じ時刻の直し方で
+            for (auto* ev : midi->getSequence().getControllerEvents())
+            {
+                if (ev->getType() != te::MidiControllerEvent::pitchWheelType)
+                    continue;
+
+                const double at = clipStart + ev->getBeatPosition().inBeats() - offset - midiOutputLatencySeconds;
+
+                if (at < punchInSeconds - 0.05)
+                    continue;
+
+                rec.pitchBends.push_back ({ (collab::Tick) std::llround (map.secondsToTick (juce::jmax (0.0, at))),
+                                            juce::jlimit (collab::kPitchBendMin, collab::kPitchBendMax, ev->getControllerValue() - 8192) });
+            }
+
+            if (! rec.notes.empty() || ! rec.pitchBends.empty())
                 pendingMidi.push_back (std::move (rec));
         }
 
