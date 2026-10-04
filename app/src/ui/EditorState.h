@@ -105,7 +105,7 @@ struct EditorState  : public juce::ChangeBroadcaster
     TimeAxis pianoRoll { 120.0, 0.0 };
 
     collab::Grid grid { 16, 1, true };      // クオンタイズ値（ピアノロールのグリッド、再生位置の移動）
-    collab::Grid timelineGrid { 4, 1, true };
+    collab::Grid timelineGrid { 4, 1, true };   // テンポ・拍子のレーン（クリップの移動・長さ変更は grid＝クオンタイズ値に合わせる。Cubase と同じ）
 
     /** スナップ（J）。オフのときはクオンタイズ値に合わせずフリーに動かす。 */
     bool snapEnabled() const noexcept      { return grid.enabled; }

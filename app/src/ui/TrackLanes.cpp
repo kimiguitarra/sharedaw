@@ -131,7 +131,7 @@ TrackLanes::Hit TrackLanes::findHit (juce::Point<float> p) const
 collab::Tick TrackLanes::snap (double tick, const juce::ModifierKeys& mods) const
 {
     const auto t = (collab::Tick) std::llround (juce::jmax (0.0, tick));
-    return mods.isAltDown() ? t : ctx.state.timelineGrid.snap (t, ctx.document.getTempoMap());
+    return mods.isAltDown() ? t : ctx.state.grid.snap (t, ctx.document.getTempoMap());
 }
 
 void TrackLanes::paint (juce::Graphics& g)
@@ -845,7 +845,7 @@ void TrackLanes::mouseDrag (const juce::MouseEvent& e)
 
     if (dragMode == DragMode::resizeMidi)
     {
-        const auto minLen = juce::jmax<collab::Tick> (1, ctx.state.timelineGrid.stepTicks());
+        const auto minLen = juce::jmax<collab::Tick> (1, ctx.state.grid.stepTicks());
         auto end = juce::jmax (dragOrigStart + minLen, snap ((double) (dragOrigStart + dragOrigLength) + delta, e.mods));
 
         if (createdByPencil)
@@ -866,7 +866,7 @@ void TrackLanes::mouseDrag (const juce::MouseEvent& e)
     if (dragMode == DragMode::trimMidiStart)
     {
         // 左端: 開始位置を動かす（ノートの位置は変えず、外に出たノートは隠れる）
-        const auto minLen = juce::jmax<collab::Tick> (1, ctx.state.timelineGrid.stepTicks());
+        const auto minLen = juce::jmax<collab::Tick> (1, ctx.state.grid.stepTicks());
         const auto updated = collab::trimMidiClipStart (dragOrigMidi, snap ((double) dragOrigStart + delta, e.mods), minLen);
 
         editClip ("クリップの長さ変更"_ju, [updated] (collab::Track& t)
