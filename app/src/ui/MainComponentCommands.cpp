@@ -38,7 +38,7 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
                          cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
                          cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9,
                          cmdToolSplit, cmdCopy, cmdCut, cmdPaste, cmdNudgeLeft, cmdNudgeRight,
-                         cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate, cmdToLoopStart, cmdToLoopEnd, cmdInspector, cmdCursorLeft, cmdCursorRight, cmdBarLeft, cmdBarRight, cmdTrackUp, cmdTrackDown, cmdPianoFull, cmdWaveBigger, cmdWaveSmaller, cmdAutoArm, cmdStretchSong });
+                         cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate, cmdToLoopStart, cmdToLoopEnd, cmdInspector, cmdCursorLeft, cmdCursorRight, cmdBarLeft, cmdBarRight, cmdTrackUp, cmdTrackDown, cmdPianoFull, cmdWaveBigger, cmdWaveSmaller, cmdTransientsAtPeak, cmdAutoArm, cmdStretchSong });
 }
 
 void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommandInfo& info)
@@ -138,6 +138,11 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
             info.setInfo ("波形を小さく表示"_ju, {}, "View", 0);
             info.addDefaultKeypress ('g', juce::ModifierKeys::shiftModifier);
             info.setActive (state.waveformZoom > 1.0f);
+            break;
+        case cmdTransientsAtPeak:
+            // 既定は Cubase・Pro Tools と同じく、音の鳴り始め（アタックの頭）に線を引く
+            info.setInfo ("立ち上がりの線を音量が最大の所に引く"_ju, {}, "View", 0);
+            info.setTicked (audioCache.transientsAtPeak);
             break;
         case cmdAddMarker:
             info.setInfo ("再生位置にマーカーを追加"_ju, {}, "Transport", 0);
@@ -351,6 +356,13 @@ bool MainComponent::perform (const InvocationInfo& info)
                 state.waveformZoom = 1.0f;
 
             state.changed();
+            commandManager.commandStatusChanged();
+            break;
+        case cmdTransientsAtPeak:
+            audioCache.transientsAtPeak = ! audioCache.transientsAtPeak;
+            settings.setValue ("transientsAtPeak", audioCache.transientsAtPeak);
+            timeline.repaint();
+            pianoRoll.repaint();
             commandManager.commandStatusChanged();
             break;
         case cmdZoomOut:    zoom (0.8); break;
@@ -722,6 +734,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addCommandItem (cm, cmdZoomOut);
             m.addCommandItem (cm, cmdWaveBigger);
             m.addCommandItem (cm, cmdWaveSmaller);
+            m.addCommandItem (cm, cmdTransientsAtPeak);
             m.addCommandItem (cm, cmdAutoScroll);
             m.addSeparator();
             m.addSubMenu ("文字サイズ（画面共有用）"_ju, sizes);

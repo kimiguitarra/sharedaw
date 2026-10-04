@@ -365,19 +365,19 @@ public:
 
     void paintBody (juce::Graphics& g, juce::Rectangle<int> r) override
     {
-        auto* t = track();
+        auto* fx = effects();
 
         for (int i = 0; i < insertRows; ++i)
         {
             auto row = r.removeFromTop (rowHeight);
 
-            if (t != nullptr && i < (int) t->effects.size())
+            if (fx != nullptr && i < (int) fx->size())
             {
-                auto& e = t->effects[(size_t) i];
+                auto& e = (*fx)[(size_t) i];
                 drawRow (g, row.withTrimmedLeft (14), AppContext::effectName (e), ! e.bypass, true);
                 drawPower (g, row.removeFromLeft (14).toFloat(), ! e.bypass);
             }
-            else if (t != nullptr && i == (int) t->effects.size())
+            else if (fx != nullptr && i == (int) fx->size())
             {
                 drawRow (g, row, "+", false, false);
             }
@@ -387,44 +387,51 @@ public:
             }
         }
 
-        if (t != nullptr && (int) t->effects.size() > insertRows)
+        if (fx != nullptr && (int) fx->size() > insertRows)
         {
             g.setColour (Theme::textDim);
-            g.drawText ("+" + juce::String ((int) t->effects.size() - insertRows), r, juce::Justification::centredRight);
+            g.drawText ("+" + juce::String ((int) fx->size() - insertRows), r, juce::Justification::centredRight);
         }
     }
 
     void bodyMouseDown (const juce::MouseEvent& e, juce::Point<int> p) override
     {
-        auto* t = track();
+        auto* fx = effects();
 
-        if (t == nullptr)
+        if (fx == nullptr)
             return;
 
         const int i = p.y / rowHeight;
+        const auto owner = ownerId();
 
-        if (i < (int) t->effects.size())
+        if (i < (int) fx->size())
         {
-            const auto effectId = t->effects[(size_t) i].id;
+            const auto effectId = (*fx)[(size_t) i].id;
 
             if (e.mods.isPopupMenu())
             {
                 juce::PopupMenu m;
-                m.addItem ("画面を開く"_ju, [this, effectId] { if (ctx.openPluginEditor) ctx.openPluginEditor (trackId, effectId); });
-                m.addItem ("バイパス"_ju, true, t->effects[(size_t) i].bypass, [this, effectId] { ctx.toggleEffectBypass (trackId, effectId); });
-                m.addItem ("削除"_ju, [this, effectId] { ctx.removeEffect (trackId, effectId); });
+                m.addItem ("画面を開く"_ju, [this, owner, effectId] { if (ctx.openPluginEditor) ctx.openPluginEditor (owner, effectId); });
+                m.addItem ("バイパス"_ju, true, (*fx)[(size_t) i].bypass, [this, owner, effectId] { ctx.toggleEffectBypass (owner, effectId); });
+                m.addItem ("削除"_ju, [this, owner, effectId] { ctx.removeEffect (owner, effectId); });
                 m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this));
             }
             else if (p.x < 14)
-                ctx.toggleEffectBypass (trackId, effectId);
+                ctx.toggleEffectBypass (owner, effectId);
             else if (ctx.openPluginEditor)
-                ctx.openPluginEditor (trackId, effectId);
+                ctx.openPluginEditor (owner, effectId);
         }
         else
         {
-            ctx.addEffectMenu (trackId).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this));
+            ctx.addEffectMenu (owner).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this));
         }
     }
+
+private:
+    /** エフェクトの持ち主（トラック、またはマスター＝プロジェクトの master.id）。 */
+    std::string ownerId() const     { return trackId == masterId ? ctx.document.getProject().master.id : trackId; }
+
+    const std::vector<collab::Effect>* effects() const     { return ctx.document.getProject().effectsFor (ownerId()); }
 };
 
 //==============================================================================
@@ -773,7 +780,7 @@ public:
 
         addChildComponent (masterSection);
         masterSection.setVisible (isMaster());
-        inserts.setVisible (isTrack());
+        inserts.setVisible (isTrack() || isMaster());   // マスターにも挿せる（リミッターの前）
         eq.setVisible (isTrack());
         comp.setVisible (isTrack());
         sends.setVisible (isTrack());
@@ -1057,7 +1064,8 @@ public:
         eq.setBounds (compFirst ? second : first);
         comp.setBounds (compFirst ? first : second);
         sends.setBounds (area.removeFromTop (headerHeight + rowHeight * sendRows + 2));
-        masterSection.setBounds (inserts.getX(), insertsTop, inserts.getWidth(), headerHeight + rowHeight * 2 + 8 + 3 + 14 + 22 + 13 + 14 + 8);
+        masterSection.setBounds (inserts.getX(), isMaster() ? inserts.getBottom() + 3 : insertsTop, inserts.getWidth(),
+                                 headerHeight + rowHeight * 2 + 8 + 3 + 14 + 22 + 13 + 14 + 8);
         area.removeFromTop (5);
 
         pan.setBounds (area.removeFromTop (18));

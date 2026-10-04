@@ -236,7 +236,7 @@ juce::AudioThumbnail* AudioFileCache::getThumbnail (const juce::File& projectDir
 const std::vector<double>* AudioFileCache::getTransients (const juce::File& projectDir, const std::string& hash)
 {
     if (auto it = transients.find (hash); it != transients.end())
-        return &it->second;
+        return transientsAtPeak ? &it->second.peaks : &it->second.onsets;
 
     auto* thumb = getThumbnail (projectDir, hash);
 
@@ -259,6 +259,7 @@ const std::vector<double>* AudioFileCache::getTransients (const juce::File& proj
 
     const float peak = env.empty() ? 0.0f : *std::max_element (env.begin(), env.end());
     auto& result = transients[hash];
+    std::vector<double> rough;
     int last = -1000;
 
     for (int i = 1; i < count && peak > 0.0f; ++i)
@@ -270,12 +271,56 @@ const std::vector<double>* AudioFileCache::getTransients (const juce::File& proj
 
         if (env[(size_t) i] >= peak * 0.063f && env[(size_t) i] > before * 2.0f && i - last >= 23)
         {
-            result.push_back (i * step);
+            rough.push_back (i * step);
             last = i;
         }
     }
 
-    return &result;
+    // 波形の概略（3 ms 刻み）で見つけた所を、実際のサンプルで詰める:
+    // 鳴り始め = その音のピークの 10 % に初めて届いたサンプル、ピーク = 60 ms 以内でいちばん大きいサンプル
+    std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (AudioFiles::fileForHash (projectDir, hash)));
+
+    for (double t : rough)
+    {
+        if (reader == nullptr || reader->sampleRate <= 0.0)
+        {
+            result.onsets.push_back (t);
+            result.peaks.push_back (t);
+            continue;
+        }
+
+        const double rate = reader->sampleRate;
+        const auto from = juce::jmax ((juce::int64) 0, (juce::int64) ((t - 0.006) * rate));
+        const int length = (int) juce::jmin ((juce::int64) (0.066 * rate), reader->lengthInSamples - from);
+
+        if (length <= 0)
+            continue;
+
+        juce::AudioBuffer<float> buffer ((int) juce::jmax (1u, reader->numChannels), length);
+        reader->read (&buffer, 0, length, from, true, true);
+
+        std::vector<float> level ((size_t) length, 0.0f);
+
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            for (int i = 0; i < length; ++i)
+                level[(size_t) i] = juce::jmax (level[(size_t) i], std::abs (buffer.getSample (ch, i)));
+
+        const auto loudest = (int) (std::max_element (level.begin(), level.end()) - level.begin());
+        const float top = level[(size_t) loudest];
+        int start = loudest;
+
+        for (int i = 0; i <= loudest; ++i)
+            if (level[(size_t) i] >= top * 0.1f)
+            {
+                start = i;
+                break;
+            }
+
+        result.onsets.push_back ((double) (from + start) / rate);
+        result.peaks.push_back ((double) (from + loudest) / rate);
+    }
+
+    return transientsAtPeak ? &result.peaks : &result.onsets;
 }
 
 juce::int64 AudioFileCache::getLengthSamples (const juce::File& projectDir, const std::string& hash)

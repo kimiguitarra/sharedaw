@@ -39,15 +39,20 @@ private:
     EngineBridge::MasterStatus status;
     int frameCounter = 0;
     float inShown = -100.0f, outShown = -100.0f, grShown = 0.0f;
-    std::vector<float> grHistory, shortTermHistory;
+    // 波形の表示（Ozone の Vintage Limiter のように、入力・出力の大きさとゲインリダクションを右から左へ流す）
+    struct Frame { float inDb = -100.0f, outDb = -100.0f, grDb = 0.0f; };
+    static constexpr int historyFrames = 360;   // 60 fps で 6 秒
+    std::vector<Frame> history;
+    std::vector<float> shortTermHistory;
 
-    juce::Rectangle<int> limiterArea, loudnessArea, inMeter, outMeter, grGraph, characterLabel, loudnessNumbers, loudnessBar, historyGraph;
+    juce::Rectangle<int> limiterArea, loudnessArea, inMeter, outMeter, waveGraph, characterLabel, loudnessNumbers, loudnessBar, historyGraph;
 
     void edit (const juce::String& description, std::function<void (collab::MasterLimiter&)>, bool merge);
     void update();
     void matchTarget();
 
     void paintLimiter (juce::Graphics&);
+    void paintWaveform (juce::Graphics&);
     void paintLoudness (juce::Graphics&);
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override    { update(); }

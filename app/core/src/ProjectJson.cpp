@@ -308,6 +308,33 @@ namespace
                  toNfc (get<std::string> (j, "vendor")), get<std::string> (j, "uid"), get<std::string> (j, "os") };
     }
 
+    std::vector<Effect> effectsFromJson (const json& list)
+    {
+        std::vector<Effect> result;
+
+        for (auto& ej : list)
+        {
+            Effect e;
+            e.id = get<std::string> (ej, "id");
+            e.bypass = getOr<bool> (ej, "bypass", false);
+
+            if (auto b = ej.find ("builtin"); b != ej.end())
+            {
+                e.builtin = b->get<std::string>();
+                e.params = ej.value ("params", json::object());
+            }
+            else
+            {
+                e.plugin = pluginFromJson (ej.at ("plugin"));
+                e.stateRef = getOr<std::string> (ej, "stateRef", {});
+            }
+
+            result.push_back (std::move (e));
+        }
+
+        return result;
+    }
+
     Instrument instrumentFromJson (const json& j)
     {
         Instrument i;
@@ -424,6 +451,16 @@ ojson projectToJson (const Project& source)
         o["master"] = { { "id", p.master.id.empty() ? masterBusIdFor (p.projectId) : p.master.id },
                         { "limiter", { { "enabled", l.enabled }, { "thresholdDb", l.thresholdDb }, { "ceilingDb", l.ceilingDb },
                                        { "character", l.character }, { "mode", limiterModeName (l.mode) } } } };
+
+        if (! p.master.effects.empty())
+        {
+            ojson fx = ojson::array();
+
+            for (auto& e : p.master.effects)
+                fx.push_back (toJson (e));
+
+            o["master"]["effects"] = fx;
+        }
     }
 
     ojson tracks = ojson::array();
@@ -560,6 +597,9 @@ Project projectFromJson (const json& j)
         {
             p.master.id = getOr<std::string> (*it, "id", p.master.id);
 
+            if (auto fx = it->find ("effects"); fx != it->end())
+                p.master.effects = effectsFromJson (*fx);
+
             if (auto l = it->find ("limiter"); l != it->end())
             {
                 auto& m = p.master.limiter;
@@ -588,25 +628,7 @@ Project projectFromJson (const json& j)
                 t.instrument = instrumentFromJson (*it);
 
             if (auto it = tj.find ("effects"); it != tj.end())
-                for (auto& ej : *it)
-                {
-                    Effect e;
-                    e.id = get<std::string> (ej, "id");
-                    e.bypass = getOr<bool> (ej, "bypass", false);
-
-                    if (auto b = ej.find ("builtin"); b != ej.end())
-                    {
-                        e.builtin = b->get<std::string>();
-                        e.params = ej.value ("params", json::object());
-                    }
-                    else
-                    {
-                        e.plugin = pluginFromJson (ej.at ("plugin"));
-                        e.stateRef = getOr<std::string> (ej, "stateRef", {});
-                    }
-
-                    t.effects.push_back (std::move (e));
-                }
+                t.effects = effectsFromJson (*it);
 
             if (auto it = tj.find ("strip"); it != tj.end())
                 t.strip = stripFromJson (*it);

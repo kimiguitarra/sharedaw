@@ -372,6 +372,13 @@ void EngineBridge::sync()
 
     if (masterLimiter != nullptr)
         masterLimiter->setLimiter (project.master.limiter);
+
+    // マスターのエフェクト（リミッターの前）。この PC にない外部プラグインは飛ばす
+    if (mixTrack != nullptr)
+    {
+        masterEffects.track = mixTrack;
+        syncEffects (project.master.effects, masterEffects, masterLimiter);
+    }
     syncChordTrack (tempoChanged);
     syncMetronome (tempoChanged);
 
@@ -631,9 +638,15 @@ void EngineBridge::removeEffects (Binding& b)
 
 void EngineBridge::syncEffects (const collab::Track& t, Binding& b)
 {
+    // チャンネルストリップ（なければ音量・パン）の直前に並べる
+    syncEffects (t.effects, b, b.strip != nullptr ? static_cast<te::Plugin*> (b.strip) : b.track->getVolumePlugin());
+}
+
+void EngineBridge::syncEffects (const std::vector<collab::Effect>& effects, Binding& b, te::Plugin* before)
+{
     std::string key;
 
-    for (auto& e : t.effects)
+    for (auto& e : effects)
         key += e.id + "|" + e.builtin + "|" + e.plugin.uid + "|" + e.stateRef + ";";
 
     if (key != b.effectsKey)
@@ -641,11 +654,9 @@ void EngineBridge::syncEffects (const collab::Track& t, Binding& b)
         removeEffects (b);
         b.effectsKey = key;
 
-        // チャンネルストリップ（なければ音量・パン）の直前に並べる
-        te::Plugin* before = b.strip != nullptr ? static_cast<te::Plugin*> (b.strip) : b.track->getVolumePlugin();
         int index = before != nullptr ? b.track->pluginList.indexOf (before) : -1;
 
-        for (auto& e : t.effects)
+        for (auto& e : effects)
         {
             te::Plugin::Ptr p;
 
@@ -668,7 +679,7 @@ void EngineBridge::syncEffects (const collab::Track& t, Binding& b)
     }
 
     // バイパス（エフェクトを通さない）と、内蔵エフェクトの値
-    for (auto& e : t.effects)
+    for (auto& e : effects)
         for (auto& be : b.effects)
             if (be.id == e.id)
             {
@@ -1013,11 +1024,24 @@ bool EngineBridge::flushPluginStates()
                 write (e.plugin.get(), e.stateRef);
     }
 
+    for (auto& e : masterEffects.effects)
+        if (dynamic_cast<BuiltinEffectPlugin*> (e.plugin.get()) == nullptr)
+            write (e.plugin.get(), e.stateRef);
+
     return changed;
 }
 
 te::Plugin* EngineBridge::getExternalPlugin (const std::string& trackId, const std::string& effectId) const
 {
+    if (! trackId.empty() && trackId == document.getProject().master.id)
+    {
+        for (auto& e : masterEffects.effects)
+            if (e.id == effectId)
+                return e.plugin.get();
+
+        return nullptr;
+    }
+
     auto it = bindings.find (trackId);
 
     if (it == bindings.end())

@@ -101,3 +101,23 @@ TEST_CASE ("schema is embedded and usable")
     CHECK (validateProjectJson (nlohmann::json::parse (fixture ("full.project.json"))).empty());
     CHECK_FALSE (validateProjectJson (nlohmann::json::parse (fixture ("invalid/bad-pitch.project.json"))).empty());
 }
+
+TEST_CASE ("master effects round-trip and are found by effectsFor")
+{
+    auto p = parseProject (fixture ("full.project.json"));
+    p.master.id = masterBusIdFor (p.projectId);
+
+    Effect e;
+    e.id = generateUuid();
+    e.builtin = "busComp";
+    p.master.effects.push_back (e);
+
+    REQUIRE (p.effectsFor (p.master.id) == &p.master.effects);
+    CHECK (p.effectsFor (p.tracks[0].id) == &p.tracks[0].effects);
+    CHECK (p.effectsFor ("nope") == nullptr);
+    CHECK_FALSE (p.master.isDefault());
+
+    const auto back = parseProject (serialiseProject (p));
+    CHECK (back.master.effects == p.master.effects);
+    CHECK (back == p);
+}

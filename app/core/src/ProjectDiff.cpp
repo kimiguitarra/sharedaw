@@ -596,6 +596,10 @@ ProjectDiff diffProjects (const Project& beforeIn, const Project& afterIn)
 
             diff.changes.push_back ({ after.master.id, ScopeKind::master, "マスター", Change::Category::master, s, -1, -1, "master", {} });
         }
+
+        if (before.master.effects != after.master.effects)
+            diff.changes.push_back ({ after.master.id, ScopeKind::master, "マスター", Change::Category::master,
+                                      "マスターのエフェクトを変更", -1, -1, "masterEffects", {} });
     }
 
     // トラック（ヘッドの並び順、削除されたものは最後）
@@ -852,7 +856,8 @@ Project applyChangeFrom (const Project& targetIn, const Project& source, const C
     if (part == "keyEvent")     { copyItem (target.keyTrack.events, source.keyTrack.events, change.itemId);       return target; }
     if (part == "chordEvents")  { target.chordTrack.events = source.chordTrack.events;                           return target; }
     if (part == "chordPlayback"){ target.chordTrack.playback = source.chordTrack.playback;                       return target; }
-    if (part == "master")       { target.master = source.master;                                                 return target; }
+    if (part == "master")       { target.master.limiter = source.master.limiter;                                 return target; }
+    if (part == "masterEffects"){ target.master.effects = source.master.effects;                                 return target; }
 
     if (change.scopeKind != ScopeKind::track)
         return replaceScopes (target, source, { change.scopeId });

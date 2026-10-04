@@ -377,6 +377,7 @@ private:
         if (name == "--export" && args.size() >= 4)                              return exportCommand (args[1], juce::File (args[2]), juce::File (args[3]));
         if (name == "--import-audio" && args.size() >= 3)                        return importAudioCommand (args);
         if (name == "--midi-info" && args.size() >= 2)                           return midiInfoCommand (juce::File (args[1]));
+        if (name == "--transients" && args.size() >= 3)                          return transientsCommand (juce::File (args[1]), args[2]);
         if (name == "--scan-plugins")                                            return scanPluginsCommand();
         if ((name == "--bounce" || name == "--render-status") && args.size() >= 2) return bounceCommand (args);
         if (name.startsWith ("--sync-"))                                         return runSyncCommand (args);
@@ -485,6 +486,29 @@ private:
 
         document->perform ("import", [track] (collab::Project& p) { p.tracks.push_back (track); });
         return document->save().wasOk() ? 0 : 4;
+    }
+
+    /** 動作確認用: 曲のフォルダの audio/<hash>.wav の立ち上がり（鳴り始めとピーク）を出す。 */
+    int transientsCommand (const juce::File& folder, const juce::String& hash)
+    {
+        AudioFileCache cache;
+
+        for (int i = 0; i < 200 && cache.getTransients (folder, hash.toStdString()) == nullptr; ++i)
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (50);   // 波形の読み込みを待つ
+
+        auto* onsets = cache.getTransients (folder, hash.toStdString());
+
+        if (onsets == nullptr)
+            return 3;
+
+        const auto on = *onsets;
+        cache.transientsAtPeak = true;
+        const auto peaks = *cache.getTransients (folder, hash.toStdString());
+
+        for (size_t i = 0; i < on.size(); ++i)
+            std::cout << "transient onset " << on[i] << " peak " << (i < peaks.size() ? peaks[i] : -1.0) << std::endl;
+
+        return 0;
     }
 
     LoopbackDeviceType* loopbackType = nullptr;

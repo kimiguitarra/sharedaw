@@ -208,8 +208,8 @@ BuiltinEffectEditor::~BuiltinEffectEditor()
 
 const collab::Effect* BuiltinEffectEditor::effect() const
 {
-    if (auto* t = ctx.document.getProject().findTrack (trackId))
-        for (auto& e : t->effects)
+    if (auto* fx = ctx.document.getProject().effectsFor (trackId))
+        for (auto& e : *fx)
             if (e.id == effectId)
                 return &e;
 
@@ -220,7 +220,8 @@ juce::String BuiltinEffectEditor::getTitle() const
 {
     auto* t = ctx.document.getProject().findTrack (trackId);
     auto* e = effect();
-    return (e != nullptr ? AppContext::effectName (*e) : juce::String()) + (t != nullptr ? " - " + toJuce (t->name) : juce::String());
+    const auto owner = t != nullptr ? toJuce (t->name) : trackId == ctx.document.getProject().master.id ? "マスター"_ju : juce::String();
+    return (e != nullptr ? AppContext::effectName (*e) : juce::String()) + (owner.isNotEmpty() ? " - " + owner : juce::String());
 }
 
 void BuiltinEffectEditor::setParam (const std::string& key, double value)
@@ -228,8 +229,8 @@ void BuiltinEffectEditor::setParam (const std::string& key, double value)
     auto track = trackId, fx = effectId;
     ctx.document.perform ("エフェクトの設定"_ju, [track, fx, key, value] (collab::Project& p)
     {
-        if (auto* t = p.findTrack (track))
-            for (auto& e : t->effects)
+        if (auto* list = p.effectsFor (track))
+            for (auto& e : *list)
                 if (e.id == fx)
                     e.params[key] = value;
     }, mergeId);
@@ -248,8 +249,8 @@ void BuiltinEffectEditor::showPresets()
             auto track = trackId, fx = effectId;
             ctx.document.perform ("エフェクトのプリセット"_ju, [track, fx, params] (collab::Project& p)
             {
-                if (auto* t = p.findTrack (track))
-                    for (auto& e : t->effects)
+                if (auto* list = p.effectsFor (track))
+                    for (auto& e : *list)
                         if (e.id == fx)
                             for (auto it = params.begin(); it != params.end(); ++it)   // MSVC は入れ子のラムダで構造化束縛を使えない
                                 e.params[it.key()] = it.value();

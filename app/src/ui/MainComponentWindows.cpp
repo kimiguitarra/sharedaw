@@ -135,11 +135,10 @@ void MainComponent::toggleMixer()
 
 bool MainComponent::openBuiltinEffect (const std::string& trackId, const std::string& effectId)
 {
-    auto* t = document.getProject().findTrack (trackId);
     const collab::Effect* effect = nullptr;
 
-    if (t != nullptr)
-        for (auto& e : t->effects)
+    if (auto* fx = document.getProject().effectsFor (trackId))   // トラックかマスター
+        for (auto& e : *fx)
             if (e.id == effectId && e.isBuiltin())
                 effect = &e;
 

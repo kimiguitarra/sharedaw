@@ -310,3 +310,36 @@ TEST_CASE ("each change can be reverted on its own and brought back")
         CHECK (applyChangeFrom (reverted, local, c) == local);
     }
 }
+
+TEST_CASE ("master effects show as their own change and can be reverted alone")
+{
+    auto before = parseProject (fixture ("full.project.json"));
+    before.master.id = masterBusIdFor (before.projectId);
+    auto after = before;
+
+    Effect e;
+    e.id = generateUuid();
+    e.builtin = "busComp";
+    after.master.effects.push_back (e);
+    after.master.limiter.enabled = ! before.master.limiter.enabled;
+
+    const auto diff = diffProjects (before, after);
+    const auto changes = diff.forScope (after.master.id);
+    REQUIRE (changes.size() == 2);
+
+    for (auto& c : changes)
+    {
+        const auto reverted = applyChangeFrom (after, before, c);
+
+        if (c.part == "masterEffects")
+        {
+            CHECK (reverted.master.effects.empty());
+            CHECK (reverted.master.limiter == after.master.limiter);
+        }
+        else
+        {
+            CHECK (reverted.master.effects == after.master.effects);
+            CHECK (reverted.master.limiter == before.master.limiter);
+        }
+    }
+}

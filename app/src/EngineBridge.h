@@ -313,6 +313,7 @@ private:
     // 曲の音がまとまるミックスバス（マスターのリミッターとラウドネス計測。メトロノームは通さない）
     te::AudioTrack::Ptr mixTrack;
     class MasterLimiterPlugin* masterLimiter = nullptr;
+    Binding masterEffects;   // マスターのエフェクト（ミックスバスのリミッターの前。track はミックスバス）
     collab::LoudnessStats loudnessStats;
     std::vector<double> loudnessScratch;
     bool loudnessWasPlaying = false;
@@ -423,6 +424,7 @@ private:
     void syncTrack (const collab::Track&, Binding&, bool tempoChanged);
     void syncInstrument (const collab::Track&, Binding&);
     void syncEffects (const collab::Track&, Binding&);
+    void syncEffects (const std::vector<collab::Effect>&, Binding&, te::Plugin* insertBefore);
     void syncStrip (const collab::Track&, Binding&);
     void syncRouting (const collab::Project&);
     void removeInstrument (Binding&);

@@ -165,14 +165,6 @@ struct MasterLimiter
 };
 
 /** マスター（全員で共通の設定。スコープとしてロック・差分の単位になる）。 */
-struct MasterBus
-{
-    std::string id;
-    MasterLimiter limiter;
-
-    bool isDefault() const noexcept     { return limiter == MasterLimiter(); }
-    bool operator== (const MasterBus&) const = default;
-};
 
 /** マスターの ID（マーカートラックと同じくプロジェクト ID から決まる）。 */
 std::string masterBusIdFor (const std::string& projectId);
@@ -224,6 +216,16 @@ struct Effect
     bool isBuiltin() const noexcept         { return ! builtin.empty(); }
 
     bool operator== (const Effect&) const = default;
+};
+
+struct MasterBus
+{
+    std::string id;
+    std::vector<Effect> effects;   // マスターに挿すエフェクト（リミッターの前。トラックのエフェクトと同じ形）
+    MasterLimiter limiter;
+
+    bool isDefault() const noexcept     { return effects.empty() && limiter == MasterLimiter(); }
+    bool operator== (const MasterBus&) const = default;
 };
 
 /**
@@ -392,6 +394,10 @@ struct Project
 
     const Track* findTrack (const std::string& trackId) const;
     Track* findTrack (const std::string& trackId);
+
+    /** トラック（またはマスター。id が master.id のとき）のエフェクトの並び。なければ nullptr。 */
+    const std::vector<Effect>* effectsFor (const std::string& id) const;
+    std::vector<Effect>* effectsFor (const std::string& id);
     int indexOfTrack (const std::string& trackId) const;
 
     /** 全クリップ・コードイベントの末尾 tick（プロジェクトの「末尾」）。 */

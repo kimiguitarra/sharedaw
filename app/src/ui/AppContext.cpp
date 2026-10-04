@@ -274,27 +274,31 @@ void AppContext::addEffect (const std::string& trackId, const juce::PluginDescri
 
     document.perform ("エフェクトの追加"_ju, [trackId, e] (collab::Project& p)
     {
-        if (auto* t = p.findTrack (trackId))
-            t->effects.push_back (e);
+        if (auto* fx = p.effectsFor (trackId))   // トラックかマスター
+            fx->push_back (e);
     });
 }
 
 void AppContext::addBuiltinEffect (const std::string& trackId, collab::fx::Type type)
 {
-    auto* t = document.getProject().findTrack (trackId);
+    const auto& project = document.getProject();
+    auto* t = project.findTrack (trackId);
 
-    if (t == nullptr)
+    if (t == nullptr && trackId != project.master.id)
         return;
+
+    // バス・マスター（いろいろな音がまとまる所）向けの既定値
+    const bool busLike = t == nullptr || t->type == collab::TrackType::bus;
 
     collab::Effect e;
     e.id = collab::generateUuid();
     e.builtin = collab::fx::idOf (type);
-    e.params = collab::fx::defaultParams (type, t->type == collab::TrackType::bus);
+    e.params = collab::fx::defaultParams (type, busLike);
 
     document.perform ("エフェクトの追加"_ju, [trackId, e] (collab::Project& p)
     {
-        if (auto* tr = p.findTrack (trackId))
-            tr->effects.push_back (e);
+        if (auto* fx = p.effectsFor (trackId))
+            fx->push_back (e);
     });
 
     // 追加したらすぐ画面を開く
@@ -335,8 +339,8 @@ void AppContext::removeEffect (const std::string& trackId, const std::string& ef
 {
     document.perform ("エフェクトの削除"_ju, [trackId, effectId] (collab::Project& p)
     {
-        if (auto* t = p.findTrack (trackId))
-            std::erase_if (t->effects, [&] (auto& e) { return e.id == effectId; });
+        if (auto* fx = p.effectsFor (trackId))
+            std::erase_if (*fx, [&] (auto& e) { return e.id == effectId; });
     });
 }
 
@@ -344,8 +348,8 @@ void AppContext::toggleEffectBypass (const std::string& trackId, const std::stri
 {
     document.perform ("エフェクトのバイパス"_ju, [trackId, effectId] (collab::Project& p)
     {
-        if (auto* t = p.findTrack (trackId))
-            for (auto& e : t->effects)
+        if (auto* fx = p.effectsFor (trackId))
+            for (auto& e : *fx)
                 if (e.id == effectId)
                     e.bypass = ! e.bypass;
     });

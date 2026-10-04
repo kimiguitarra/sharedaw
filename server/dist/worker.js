@@ -2139,6 +2139,13 @@ var project_schema_default = {
         id: {
           $ref: "#/definitions/uuid"
         },
+        effects: {
+          description: "Inserts on the master, before the limiter. Same form as track effects.",
+          type: "array",
+          items: {
+            $ref: "#/definitions/effect"
+          }
+        },
         limiter: {
           type: "object",
           additionalProperties: false,

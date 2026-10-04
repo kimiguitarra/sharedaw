@@ -57,8 +57,12 @@ public:
     /**
         音の立ち上がり（アタック）の位置（ファイルの先頭からの秒）。波形の上に縦線で出して、グリッドに合わせる目安にする。
         波形を読み込み終わるまでは nullptr。
+        既定は Cubase のヒットポイント・Pro Tools の解析マーカーと同じく、音の鳴り始め（アタックの頭）。
+        transientsAtPeak なら、その音がいちばん大きくなった所（聴いた感じの「拍」に近い）。
     */
     const std::vector<double>* getTransients (const juce::File& projectDir, const std::string& hash);
+
+    bool transientsAtPeak = false;
 
     /** 実体の長さ（サンプル）。ファイルがなければ 0。 */
     juce::int64 getLengthSamples (const juce::File& projectDir, const std::string& hash);
@@ -70,7 +74,8 @@ private:
     juce::AudioThumbnailCache thumbnailCache { 64 };
     std::map<std::string, std::unique_ptr<juce::AudioThumbnail>> thumbnails;
     std::map<std::string, juce::int64> lengths;
-    std::map<std::string, std::vector<double>> transients;
+    struct Hits { std::vector<double> onsets, peaks; };
+    std::map<std::string, Hits> transients;
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
 };

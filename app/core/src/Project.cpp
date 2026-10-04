@@ -1,5 +1,7 @@
 #include "collab/Project.h"
 
+#include <utility>
+
 #include <algorithm>
 #include <tuple>
 
@@ -36,6 +38,20 @@ const Track* Project::findTrack (const std::string& trackId) const
 Track* Project::findTrack (const std::string& trackId)
 {
     return const_cast<Track*> (std::as_const (*this).findTrack (trackId));
+}
+
+const std::vector<Effect>* Project::effectsFor (const std::string& id) const
+{
+    if (! id.empty() && id == master.id)
+        return &master.effects;
+
+    auto* t = findTrack (id);
+    return t != nullptr ? &t->effects : nullptr;
+}
+
+std::vector<Effect>* Project::effectsFor (const std::string& id)
+{
+    return const_cast<std::vector<Effect>*> (std::as_const (*this).effectsFor (id));
 }
 
 int Project::indexOfTrack (const std::string& trackId) const

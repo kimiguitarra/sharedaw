@@ -64,6 +64,7 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     addChildComponent (inspector);
     inspector.setVisible (settings.getBoolValue ("inspectorVisible", true));
     state.autoArmSelected = settings.getBoolValue ("autoArmSelected", true);
+    audioCache.transientsAtPeak = settings.getBoolValue ("transientsAtPeak", false);
 
     // インスペクター・トラックヘッダー・同期パネルの幅は境目をドラッグで変える（この PC の設定）。
     // 作業する場所（タイムライン）を広く取れるよう、最初は細めにしておく
@@ -315,6 +316,16 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
 
         shoot ("staff.png");
 
+        // ミキサー（マスターのインサートも）
+        if (dir.isNotEmpty() && m.mixerWindow != nullptr)
+            if (auto* mixer = m.mixerWindow->getContentComponent(); mixer != nullptr && mixer->getWidth() > 0)
+            {
+                juce::FileOutputStream out (juce::File (dir).getChildFile ("mixer.png"));
+                out.setPosition (0);
+                out.truncate();
+                juce::PNGImageFormat().writeImageToStream (mixer->createComponentSnapshot (mixer->getLocalBounds()), out);
+            }
+
         m.pianoRoll.setStaffBassClef (false);
         shoot ("staff-treble.png");
         m.pianoRoll.setStaffBassClef (true);
@@ -370,7 +381,11 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
             std::_Exit (7);
         }
     }, "waveform display zoom back" });
-    steps->push_back ({ 800, [] (MainComponent& m) { m.commandManager.invokeDirectly (cmdPlay, false); }, "play" });
+    steps->push_back ({ 800, [] (MainComponent& m)
+    {
+        m.openMaster();   // 再生中のリミッターの表示（波形・ゲインリダクション）
+        m.commandManager.invokeDirectly (cmdPlay, false);
+    }, "play" });
     steps->push_back ({ 300, [] (MainComponent& m)
     {
         // 再生しながら選択トラックを切り替える（録音待機・MIDI の入力先も付いて移る。音が途切れないこと）
@@ -391,7 +406,26 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
                 }
             });
     }, "switch the selected track while playing" });
-    steps->push_back ({ 2000, [] (MainComponent& m) { m.commandManager.invokeDirectly (cmdPlay, false); m.bridge.stop(); }, "stop" });
+    steps->push_back ({ 2000, [] (MainComponent& m)
+    {
+        // 確認用: マスターの画面を保存する
+        const auto dir = juce::SystemStats::getEnvironmentVariable ("SHAREDAW_SMOKE_SHOTS", {});
+
+        if (dir.isNotEmpty() && m.masterWindow != nullptr)
+            if (auto* content = m.masterWindow->getContentComponent())
+            {
+                juce::FileOutputStream out (juce::File (dir).getChildFile ("master.png"));
+                out.setPosition (0);
+                out.truncate();
+                juce::PNGImageFormat().writeImageToStream (content->createComponentSnapshot (content->getLocalBounds()), out);
+            }
+
+        if (m.masterWindow != nullptr)
+            m.masterWindow->setVisible (false);
+
+        m.commandManager.invokeDirectly (cmdPlay, false);
+        m.bridge.stop();
+    }, "stop" });
     steps->push_back ({ 300, [] (MainComponent& m)
     {
         // 確認用: タイムラインの画面（波形・立ち上がりの線）を保存する
@@ -472,6 +506,9 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
             for (auto& t : document.getProject().tracks)
                 for (auto& e : t.effects)
                     exists = exists || e.id == it->first;
+
+            for (auto& e : document.getProject().master.effects)
+                exists = exists || e.id == it->first;
 
             it = exists ? std::next (it) : effectWindows.erase (it);
         }

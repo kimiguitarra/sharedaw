@@ -151,8 +151,8 @@ MasterPanel::MasterPanel (AppContext& c) : look (std::make_unique<Look>()), ctx 
 
     ctx.document.addChangeListener (this);
     update();
-    startTimerHz (30);
-    setSize (880, 440);
+    startTimerHz (60);
+    setSize (1000, 540);
 }
 
 MasterPanel::~MasterPanel()
@@ -224,13 +224,17 @@ void MasterPanel::timerCallback()
     fall (outShown, status.outputPeakDb);
     grShown = status.gainReductionDb > grShown ? status.gainReductionDb : grShown + (status.gainReductionDb - grShown) * 0.25f;
 
-    grHistory.push_back (grShown);
+    // 波形の表示: このフレームの間のピーク（止まっている間は流さない）
+    if (ctx.engine.isPlaying() || history.empty())
+    {
+        history.push_back ({ status.inputPeakDb, status.outputPeakDb, status.gainReductionDb });
 
-    if (grHistory.size() > 240)
-        grHistory.erase (grHistory.begin());
+        if ((int) history.size() > historyFrames)
+            history.erase (history.begin());
+    }
 
     // ショートタームの推移（0.1 秒ごと、2 分ぶん）
-    if (++frameCounter % 3 == 0 && ctx.engine.isPlaying())
+    if (++frameCounter % 6 == 0 && ctx.engine.isPlaying())
     {
         shortTermHistory.push_back ((float) status.shortTermLufs);
 
@@ -256,6 +260,101 @@ void MasterPanel::paint (juce::Graphics& g)
 
     paintLimiter (g);
     paintLoudness (g);
+}
+
+void MasterPanel::paintWaveform (juce::Graphics& g)
+{
+    // Ozone の Vintage Limiter と同じ見せ方: 中心線から上下に、入力（薄いグレー）と出力（琥珀色）の大きさを波形として流し、
+    // ゲインリダクションは上の端から赤く垂らす。THRESHOLD（琥珀色の点線）と CEILING（赤の線）も重ねる。新しいものが右
+    auto r = waveGraph.toFloat();
+    g.setColour (juce::Colour (0xff0d0c0b));
+    g.fillRoundedRectangle (r, 4.0f);
+
+    const auto& l = ctx.document.getProject().master.limiter;
+    constexpr float floorDb = -36.0f, grRangeDb = 12.0f;
+    const float mid = r.getCentreY(), half = r.getHeight() * 0.5f - 4.0f;
+    auto heightFor = [&] (float db) { return half * juce::jlimit (0.0f, 1.0f, (db - floorDb) / -floorDb); };
+    auto xFor = [&] (size_t i) { return r.getRight() - 2.0f - (r.getWidth() - 4.0f) * (float) (history.size() - 1 - i) / (float) (historyFrames - 1); };
+
+    // 目盛り（0, -6, -12, -24 dB）
+    g.setFont (juce::FontOptions (11.0f));
+
+    for (int db : { 0, -6, -12, -24 })
+    {
+        const float h = heightFor ((float) db);
+        g.setColour (cream.withAlpha (0.08f));
+        g.drawHorizontalLine ((int) (mid - h), r.getX(), r.getRight());
+        g.drawHorizontalLine ((int) (mid + h), r.getX(), r.getRight());
+        g.setColour (cream.withAlpha (0.35f));
+        g.drawText (juce::String (db), juce::Rectangle<float> (r.getX() + 4.0f, mid - h - 6.0f, 26.0f, 12.0f), juce::Justification::centredLeft);
+    }
+
+    g.setColour (cream.withAlpha (0.15f));
+    g.drawHorizontalLine ((int) mid, r.getX(), r.getRight());
+
+    auto mirrored = [&] (auto level)
+    {
+        juce::Path p;
+
+        if (history.size() < 2)
+            return p;
+
+        p.startNewSubPath (xFor (0), mid - level (history[0]));
+
+        for (size_t i = 1; i < history.size(); ++i)
+            p.lineTo (xFor (i), mid - level (history[i]));
+
+        for (size_t i = history.size(); i-- > 0;)
+            p.lineTo (xFor (i), mid + level (history[i]));
+
+        p.closeSubPath();
+        return p;
+    };
+
+    g.setColour (cream.withAlpha (0.22f));
+    g.fillPath (mirrored ([&] (const Frame& f) { return heightFor (f.inDb); }));
+    g.setColour (amber.withAlpha (0.85f));
+    g.fillPath (mirrored ([&] (const Frame& f) { return heightFor (f.outDb); }));
+
+    // ゲインリダクション（上の端から下へ。12 dB で表示の高さの 4 割）
+    if (history.size() > 1)
+    {
+        juce::Path p;
+        auto grY = [&] (const Frame& f) { return r.getY() + 2.0f + r.getHeight() * 0.4f * juce::jlimit (0.0f, 1.0f, f.grDb / grRangeDb); };
+        p.startNewSubPath (xFor (0), r.getY() + 2.0f);
+
+        for (size_t i = 0; i < history.size(); ++i)
+            p.lineTo (xFor (i), grY (history[i]));
+
+        p.lineTo (xFor (history.size() - 1), r.getY() + 2.0f);
+        p.closeSubPath();
+        g.setColour (over.withAlpha (0.35f));
+        g.fillPath (p);
+        g.setColour (over);
+        g.strokePath (p, juce::PathStrokeType (1.3f));
+    }
+
+    // THRESHOLD・CEILING
+    {
+        const float th = heightFor ((float) l.thresholdDb), ce = heightFor ((float) l.ceilingDb);
+        const float dashes[] = { 5.0f, 4.0f };
+
+        g.setColour (amber.withAlpha (0.9f));
+
+        for (float y : { mid - th, mid + th })
+            g.drawDashedLine (juce::Line<float> (r.getX(), y, r.getRight(), y), dashes, 2, 1.2f);
+
+        g.setColour (over.withAlpha (0.8f));
+        g.drawHorizontalLine ((int) (mid - ce), r.getX(), r.getRight());
+        g.drawHorizontalLine ((int) (mid + ce), r.getX(), r.getRight());
+    }
+
+    g.setColour (cream);
+    g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+    g.drawText ("GAIN REDUCTION", r.reduced (8.0f, 4.0f), juce::Justification::bottomLeft);
+    g.setColour (over);
+    g.setFont (juce::FontOptions (15.0f, juce::Font::bold));
+    g.drawText ("-" + juce::String (grShown, 1) + " dB", r.reduced (8.0f, 4.0f), juce::Justification::topRight);
 }
 
 void MasterPanel::paintLimiter (juce::Graphics& g)
@@ -318,41 +417,7 @@ void MasterPanel::paintLimiter (juce::Graphics& g)
         g.drawText ("CEILING  " + juce::String (l.ceilingDb, 1) + " dB", row, juce::Justification::centredRight);
     }
 
-    // ゲインリダクションの推移（上から下へ、0〜12 dB）
-    {
-        auto r = grGraph.toFloat();
-        g.setColour (juce::Colour (0xff0d0c0b));
-        g.fillRoundedRectangle (r, 4.0f);
-        g.setColour (cream.withAlpha (0.12f));
-
-        for (int db : { 3, 6, 9 })
-            g.drawHorizontalLine ((int) (r.getY() + r.getHeight() * (float) db / 12.0f), r.getX(), r.getRight());
-
-        if (grHistory.size() > 1)
-        {
-            juce::Path p;
-            p.startNewSubPath (r.getX(), r.getY());
-
-            for (size_t i = 0; i < grHistory.size(); ++i)
-            {
-                const float x = r.getX() + r.getWidth() * (float) i / 239.0f;
-                p.lineTo (x, r.getY() + r.getHeight() * juce::jlimit (0.0f, 1.0f, grHistory[i] / 12.0f));
-            }
-
-            p.lineTo (r.getX() + r.getWidth() * (float) (grHistory.size() - 1) / 239.0f, r.getY());
-            p.closeSubPath();
-            g.setColour (amber.withAlpha (0.35f));
-            g.fillPath (p);
-            g.setColour (amber);
-            g.strokePath (p, juce::PathStrokeType (1.2f));
-        }
-
-        g.setColour (cream);
-        g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-        g.drawText ("GAIN REDUCTION", r.reduced (6.0f, 3.0f), juce::Justification::topLeft);
-        g.setFont (juce::FontOptions (14.5f, juce::Font::bold));
-        g.drawText ("-" + juce::String (grShown, 1) + " dB", r.reduced (6.0f, 3.0f), juce::Justification::topRight);
-    }
+    paintWaveform (g);
 
     g.setColour (amber);
     g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
@@ -366,8 +431,9 @@ void MasterPanel::paintLoudness (juce::Graphics& g)
     g.setFont (juce::FontOptions (16.5f, juce::Font::bold));
     g.drawText ("LOUDNESS", r.removeFromTop (22), juce::Justification::centredLeft);
     g.setColour (cream.withAlpha (0.6f));
-    g.setFont (juce::FontOptions (14.0f));
-    g.drawText ("目標 -14 LUFS（リミッターの後、マスター音量の前で測定）"_ju, loudnessArea.reduced (16, 10).withHeight (22), juce::Justification::centredRight);
+    g.setFont (juce::FontOptions (12.5f));
+    g.drawText ("目標 -14 LUFS（リミッターの後で測定）"_ju, loudnessArea.reduced (16, 10).withHeight (22).withTrimmedLeft (110),
+                juce::Justification::centredRight, true);
 
     // 数字
     {
@@ -487,16 +553,18 @@ void MasterPanel::paintLoudness (juce::Graphics& g)
 void MasterPanel::resized()
 {
     auto area = getLocalBounds().reduced (10);
-    limiterArea = area.removeFromLeft (440);
+    limiterArea = area.removeFromLeft (560);
     area.removeFromLeft (10);
     loudnessArea = area;
 
-    // リミッター
+    // リミッター: 上に波形の表示、下に IN（THRESHOLD）・モードと CHARACTER・OUT（CEILING）
     {
         auto r = limiterArea.reduced (14, 10);
         auto header = r.removeFromTop (24);
         enabled.setBounds (header.removeFromLeft (100));
         resetLimiter.setBounds (header.removeFromRight (80));
+        r.removeFromTop (8);
+        waveGraph = r.removeFromTop (190);
         r.removeFromTop (26);
         r.removeFromBottom (40);
 
@@ -514,8 +582,6 @@ void MasterPanel::resized()
         ceiling.setBounds (right.removeFromRight (30).withTop (outMeter.getY() - 5).withHeight ((int) (perDb * 6.0f) + 10));
 
         r.reduce (12, 0);
-        grGraph = r.removeFromTop (110);
-        r.removeFromTop (12);
         auto modes = r.removeFromTop (28);
         const int w = modes.getWidth() / 3;
 
