@@ -670,13 +670,21 @@ private:
 
             juce::Timer::callAfterDelay (300, [this, virtualMidi, midiTracks, failures, step, k, attempt]
             {
+                // 弾く直前の大きさ（前の音の余韻）。選んでいないトラックは、これより大きくならなければよい
+                auto before = std::make_shared<std::map<std::string, float>>();
+
                 for (auto& [id, name] : midiTracks)
-                    bridge->getTrackPeakDb (id);   // ここまでのピークを捨てる
+                {
+                    const auto p = bridge->getTrackPeakDb (id);
+                    (*before)[id] = juce::jmax (p.left, p.right);
+                }
+
+                const int channel = k == 0 ? 10 : 1;
 
                 for (int pitch : { 36, 38, 42, 48, 60 })
-                    virtualMidi->handleIncomingMidiMessage (juce::MidiMessage::noteOn (k == 0 ? 10 : 1, pitch, (juce::uint8) 120), virtualMidi->getMPESourceID());
+                    virtualMidi->handleIncomingMidiMessage (juce::MidiMessage::noteOn (channel, pitch, (juce::uint8) 120), virtualMidi->getMPESourceID());
 
-                juce::Timer::callAfterDelay (400, [this, virtualMidi, midiTracks, failures, step, k, attempt]
+                juce::Timer::callAfterDelay (400, [this, virtualMidi, midiTracks, failures, step, k, attempt, before, channel]
                 {
                     std::cout << "gate: target " << midiTracks[k].second << " (try " << attempt + 1 << "):";
                     bool targetSounded = false, otherSounded = false;
@@ -687,21 +695,24 @@ private:
                         const float db = juce::jmax (p.left, p.right);
                         std::cout << " " << name << "=" << db;
 
-                        if (db > -60.0f)
-                            (id == midiTracks[k].first ? targetSounded : otherSounded) = true;
+                        if (id == midiTracks[k].first)
+                            targetSounded = targetSounded || db > -60.0f;
+                        else
+                            otherSounded = otherSounded || db > juce::jmax (-60.0f, (*before)[id] + 6.0f);   // 余韻より大きくなった＝弾いた音が届いた
                     }
 
                     std::cout << std::endl;
 
-                    for (int ch : { 1, 10 })
-                        virtualMidi->handleIncomingMidiMessage (juce::MidiMessage::allNotesOff (ch), virtualMidi->getMPESourceID());
+                    // 鍵盤を離す（本物のキーボードと同じくノートオフ）
+                    for (int pitch : { 36, 38, 42, 48, 60 })
+                        virtualMidi->handleIncomingMidiMessage (juce::MidiMessage::noteOff (channel, pitch), virtualMidi->getMPESourceID());
 
                     const bool retry = ! otherSounded && ! targetSounded && attempt < 5;
 
                     if (! retry)
                         *failures += otherSounded || ! targetSounded ? 1 : 0;
 
-                    juce::Timer::callAfterDelay (retry ? 1000 : 600, [step, k, attempt, retry] { (*step) (retry ? k : k + 1, retry ? attempt + 1 : 0); });
+                    juce::Timer::callAfterDelay (retry ? 1000 : 1200, [step, k, attempt, retry] { (*step) (retry ? k : k + 1, retry ? attempt + 1 : 0); });
                 });
             });
         };
