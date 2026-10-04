@@ -154,9 +154,11 @@ ProjectPicker::ProjectPicker (SyncManager& s, juce::PropertiesFile& p, juce::Fil
     };
 
     openButton.onClick = [this] { openSelected(); };
+    freshButton.setTooltip ("この PC のコピーとは別のフォルダに、サーバーの最新をイチからダウンロードして開きます"_ju);
+    freshButton.onClick = [this] { downloadSelectedFresh(); };
     closeButton.onClick = [this] { close(); };
 
-    for (auto* b : { &createButton, &refreshButton, &serverButton, &folderButton, &openButton, &closeButton })
+    for (auto* b : { &createButton, &refreshButton, &serverButton, &folderButton, &openButton, &freshButton, &closeButton })
         addAndMakeVisible (b);
 
     setWantsKeyboardFocus (true);
@@ -336,6 +338,7 @@ void ProjectPicker::updateButtons()
     openButton.setEnabled (e != nullptr);
     createButton.setEnabled (sync.hasCredentials());
     openButton.setButtonText (e != nullptr && ! e->local ? "ダウンロードして開く"_ju : "開く"_ju);
+    freshButton.setVisible (e != nullptr && e->local && e->status != Status::offline);
 }
 
 void ProjectPicker::openSelected()
@@ -358,6 +361,22 @@ void ProjectPicker::openSelected()
     {
         cb.openLocal (e.local->folder, e.status == Status::serverNewer || e.status == Status::both);
     }
+}
+
+void ProjectPicker::downloadSelectedFresh()
+{
+    // この PC のコピーとは別に、サーバーの最新をイチからダウンロードする（仲間がどう受け取るかを確かめるときなど）
+    const auto* sel = selected();
+
+    if (sel == nullptr || sel->status == Status::offline)
+        return;
+
+    const auto id = sel->projectId;
+    auto cb = callbacks;
+    close();
+
+    if (cb.download)
+        cb.download (id);
 }
 
 void ProjectPicker::renameSelected()
@@ -463,6 +482,9 @@ void ProjectPicker::showMenu (int row)
     if (e.local)
         m.addItem ("フォルダを表示"_ju, [folder = e.local->folder] { folder.revealToUser(); });
 
+    if (e.local && e.status != Status::offline)
+        m.addItem ("別のフォルダに新しくダウンロード…"_ju, [this] { downloadSelectedFresh(); });
+
     m.addSeparator();
     m.addItem ("削除…"_ju, e.status != Status::offline, false, [this] { deleteSelected(); });
     m.showMenuAsync (juce::PopupMenu::Options());
@@ -564,6 +586,8 @@ void ProjectPicker::resized()
 
     auto bottom = area.removeFromBottom (40).withTrimmedTop (6);
     openButton.setBounds (bottom.removeFromRight (190));
+    bottom.removeFromRight (8);
+    freshButton.setBounds (bottom.removeFromRight (240));
     bottom.removeFromRight (8);
     closeButton.setBounds (bottom.removeFromRight (100));
     folderButton.setBounds (bottom.removeFromRight (70).reduced (0, 3));

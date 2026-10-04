@@ -45,7 +45,9 @@ void MainComponent::openProjectFolder (const juce::File& folder)
     try
     {
         bridge.stop();
+        const SyncUI::BusyOverlay busy (this, "曲を開いています…"_ju);
         document.load (folder);
+        bridge.sync();   // 音源・プラグインの読み込み（時間がかかる）も、窓を出している間に行う
         state.selectedTrackId = {};
             state.selectClip ({});
         state.timeline.scrollTick = 0;

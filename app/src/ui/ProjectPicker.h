@@ -72,6 +72,7 @@ private:
     juce::ListBox list { {}, this };
     juce::TextButton createButton { "＋ 新しい曲"_ju }, refreshButton { "更新"_ju }, serverButton { "サーバー設定…"_ju };
     juce::TextButton folderButton { "変更…"_ju }, openButton { "開く"_ju }, closeButton { "閉じる"_ju };
+    juce::TextButton freshButton { "別のフォルダに新しくダウンロード…"_ju };
 
     std::vector<SyncManager::LocalInfo> locals;
     std::optional<nlohmann::json> serverList;
@@ -85,6 +86,7 @@ private:
     const Entry* selected() const;
     void openSelected();
     void renameSelected();
+    void downloadSelectedFresh();
     void deleteSelected();
     void showMenu (int row);
     void close();

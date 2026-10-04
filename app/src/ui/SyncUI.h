@@ -9,6 +9,20 @@ namespace SyncUI
     /** 進捗ウィンドウを出してバックグラウンドで実行する（完了まで待つ）。 */
     juce::Result runWithProgress (const juce::String& title, std::function<juce::Result()> work);
 
+    /**
+        画面の処理を止めてしまう重い処理（曲を開くなど）の間、「…しています」の窓を出す（作ったときにすぐ描く）。
+        消えると窓も消える。
+    */
+    class BusyOverlay
+    {
+    public:
+        BusyOverlay (juce::Component* centreAround, const juce::String& text);
+        ~BusyOverlay();
+
+    private:
+        std::unique_ptr<juce::Component> window;
+    };
+
     /** 進み具合（バー・何を送っているか）を出し、「中止」できる版。 */
     juce::Result runWithProgress (const juce::String& title, std::function<juce::Result (const SyncProgress&)> work);
 

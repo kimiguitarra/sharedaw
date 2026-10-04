@@ -67,6 +67,68 @@ juce::Result runWithProgress (const juce::String& title, std::function<juce::Res
 }
 
 //==============================================================================
+BusyOverlay::BusyOverlay (juce::Component* centreAround, const juce::String& text)
+{
+    if (juce::Desktop::getInstance().getDisplays().displays.isEmpty())
+        return;
+
+    struct Window  : public juce::Component
+    {
+        explicit Window (const juce::String& t) : text (t) { setOpaque (false); }
+
+        void paint (juce::Graphics& g) override
+        {
+            auto r = getLocalBounds().toFloat().reduced (1.0f);
+            g.setColour (Theme::panel);
+            g.fillRoundedRectangle (r, 12.0f);
+            g.setColour (Theme::accent.withAlpha (0.6f));
+            g.drawRoundedRectangle (r, 12.0f, 1.5f);
+
+            // くるくるの印（止まっていても、待っていることが分かるように）
+            auto ring = r.removeFromLeft (r.getHeight()).reduced (18.0f);
+            g.setColour (Theme::textDim.withAlpha (0.3f));
+            g.drawEllipse (ring, 4.0f);
+            juce::Path arc;
+            arc.addCentredArc (ring.getCentreX(), ring.getCentreY(), ring.getWidth() / 2, ring.getHeight() / 2, 0.0f,
+                               0.0f, juce::MathConstants<float>::pi * 1.2f, true);
+            g.setColour (Theme::accent);
+            g.strokePath (arc, juce::PathStrokeType (4.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+            g.setColour (Theme::text);
+            g.setFont (juce::FontOptions (17.0f, juce::Font::bold));
+            g.drawText (text, r.reduced (4.0f, 0.0f), juce::Justification::centredLeft, true);
+        }
+
+        juce::String text;
+    };
+
+    auto w = std::make_unique<Window> (text);
+    w->setSize (360, 76);
+
+    if (centreAround != nullptr && centreAround->isShowing())
+        w->setCentrePosition (centreAround->getScreenBounds().getCentre());
+    else
+        w->centreWithSize (360, 76);
+
+    w->addToDesktop (juce::ComponentPeer::windowIsTemporary | juce::ComponentPeer::windowIgnoresKeyPresses);
+    w->setAlwaysOnTop (true);
+    w->setVisible (true);
+
+    // 重い処理の前に、いま描いておく（処理の間はメッセージが回らないので）
+    if (auto* peer = w->getPeer())
+        peer->performAnyPendingRepaintsNow();
+
+    juce::MouseCursor::showWaitCursor();
+    window = std::move (w);
+}
+
+BusyOverlay::~BusyOverlay()
+{
+    if (window != nullptr)
+        juce::MouseCursor::hideWaitCursor();
+}
+
+//==============================================================================
 ServerSettings::ServerSettings (const juce::String& url, bool hasToken,
                                 std::function<juce::String (const juce::String&, const juce::String&)> cb)
     : onTestAndSave (std::move (cb))
