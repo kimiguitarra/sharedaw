@@ -1,4 +1,5 @@
 #include "MainComponent.h"
+#include "AudioFilesPanel.h"
 #include "collab/Render.h"
 #include "MainComponentCommands.h"
 
@@ -180,6 +181,7 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     bridge.setMasterVolumeDb (state.masterVolumeDb);
     commandManager.getKeyMappings()->resetToDefaultMappings();
     ctx.addTrackMenu = [this] { return addTrackMenu(); };
+    ctx.openAudioFiles = [this] { showAudioFiles(); };
     ctx.openChannelStrip = [this] (const std::string& id, bool compressor) { openChannelStrip (id, compressor); };
     ctx.openMaster = [this] { openMaster(); };
     bridge.onRecordingFinished = [this] (std::vector<EngineBridge::RecordedTake> takes) { importTakes (std::move (takes)); };
@@ -495,6 +497,26 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
         std::cout << "export panel: " << (ok ? "ok" : "FAILED " + failed.joinIntoString ("; ")) << std::endl;
         dir.deleteRecursively();
     }, "export" });
+    steps->push_back ({ 100, [] (MainComponent& m)
+    {
+        // オーディオファイルの一覧: 使っていないファイルだけが「使っていない」になる
+        if (! m.document.hasLocation())
+            return;
+
+        const auto audioDir = m.document.getProjectDir().getChildFile ("audio");
+        audioDir.createDirectory();
+        const auto stray = audioDir.getChildFile ("Guitar_take09_0123abcd.wav");
+        stray.replaceWithText ("x");
+        const auto unused = AudioFilesPanel::unusedFiles (m.document);
+        bool usedListed = false;
+
+        for (auto& t : m.document.getProject().tracks)
+            for (auto& c : t.audioClips)
+                usedListed = usedListed || unused.contains (AudioFiles::fileForHash (m.document.getProjectDir(), c.audioHash));
+
+        std::cout << "audio files: " << (unused.contains (stray) && ! usedListed ? "ok" : "FAILED") << std::endl;
+        stray.deleteFile();
+    }, "audio files" });
 
     // 手順を順に、間を空けて実行する（画面が作り直されて this が消えたら止める。そのときは done を呼ばない＝CI は時間切れで失敗する）
     struct Runner

@@ -77,7 +77,10 @@ ToolBar::ToolBar (AppContext& c) : ctx (c)
         ctx.state.changed();
     };
 
-    for (auto* b : std::initializer_list<juce::TextButton*> { &snapButton, &autoScrollButton, &metronomeButton })
+    audioFilesButton.setTooltip ("オーディオファイル（使っていない録音の削除）"_ju);
+    audioFilesButton.onClick = [this] { if (ctx.openAudioFiles) ctx.openAudioFiles(); };
+
+    for (auto* b : std::initializer_list<juce::TextButton*> { &snapButton, &autoScrollButton, &metronomeButton, &audioFilesButton })
     {
         b->setClickingTogglesState (false);
         addAndMakeVisible (b);
@@ -428,6 +431,10 @@ void ToolBar::resized()
     area.removeFromLeft (4);
     keyLabel.setBounds (area.removeFromLeft (130));
     groups.push_back (bpmLabel.getBounds().getUnion (keyLabel.getBounds()).expanded (4, 1));
+
+    area.removeFromLeft (18);
+    audioFilesButton.setBounds (area.removeFromLeft (40));
+    groups.push_back (audioFilesButton.getBounds().expanded (4, 1));
 
     if (clipGainLabel.isVisible())
     {

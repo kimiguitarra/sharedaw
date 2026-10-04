@@ -604,15 +604,28 @@ juce::Result SyncManager::runDownloadAudio (const collab::Project& p, const juce
     std::vector<std::string> needed;
 
     for (auto& hash : referencedAudio (p))
-        if (! audioDir.getChildFile (toJuce (hash) + ".wav").existsAsFile())
+        if (! AudioFiles::fileForHash (projectDir, hash).existsAsFile())
             needed.push_back (hash);
+
+    // 置くときの名前（どのトラックの何の音か）
+    std::map<std::string, juce::String> labels;
+
+    for (auto& t : p.tracks)
+    {
+        if (t.render && ! labels.count (t.render->audioHash))
+            labels[t.render->audioHash] = toJuce (t.name) + "_bounce";
+
+        for (auto& c : t.audioClips)
+            if (! labels.count (c.audioHash))
+                labels[c.audioHash] = toJuce (t.name) + "_" + toJuce (c.displayName);
+    }
 
     int index = 0;
 
     for (auto& hash : needed)
     {
         ++index;
-        auto target = audioDir.getChildFile (toJuce (hash) + ".wav");
+        auto target = AudioFiles::newFileForHash (projectDir, hash, labels[hash]);
         const auto label = "オーディオをダウンロードしています "_ju + juce::String (index) + " / " + juce::String ((int) needed.size());
 
         if (progress && ! progress (label, (double) (index - 1) / (double) needed.size()))

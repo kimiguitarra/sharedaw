@@ -129,6 +129,7 @@ target_sources(ShareDAW PRIVATE
     src/ui/PianoRollParts.cpp
     src/ui/PianoRollPage.cpp
     src/ui/ProjectPicker.cpp
+    src/ui/AudioFilesPanel.cpp
     src/ui/InstrumentPanel.cpp
     src/ui/Dialogs.cpp)
 

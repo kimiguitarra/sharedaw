@@ -13,6 +13,7 @@
 #include "ProjectPicker.h"
 #include "MixerView.h"
 #include "SyncUI.h"
+#include "AudioFilesPanel.h"
 #include "Theme.h"
 #include "collab/ChordPlayback.h"
 #include "collab/ClipEditing.h"
@@ -395,6 +396,21 @@ void MainComponent::exportFiles (bool wav, bool mp3, bool stems, bool midi, cons
         else
             done.add (file.getFileName());
     }
+}
+
+void MainComponent::showAudioFiles()
+{
+    if (! document.hasLocation())
+        return;
+
+    juce::DialogWindow::LaunchOptions o;
+    o.content.setOwned (new AudioFilesPanel (document));
+    o.dialogTitle = "オーディオファイル"_ju;
+    o.dialogBackgroundColour = Theme::panel;
+    o.escapeKeyTriggersCloseButton = true;
+    o.useNativeTitleBar = true;
+    o.resizable = true;
+    o.launchAsync();
 }
 
 void MainComponent::importAudio()

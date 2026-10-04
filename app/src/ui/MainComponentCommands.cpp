@@ -38,7 +38,7 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
                          cmdStop, cmdZoomIn, cmdZoomOut, cmdSnap, cmdAutoScroll, cmdAddMarker,
                          cmdMarker1, cmdMarker2, cmdMarker3, cmdMarker4, cmdMarker5, cmdMarker6, cmdMarker7, cmdMarker8, cmdMarker9,
                          cmdToolSplit, cmdCopy, cmdCut, cmdPaste, cmdNudgeLeft, cmdNudgeRight,
-                         cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate, cmdToLoopStart, cmdToLoopEnd, cmdInspector, cmdCursorLeft, cmdCursorRight, cmdBarLeft, cmdBarRight, cmdTrackUp, cmdTrackDown, cmdPianoFull, cmdWaveBigger, cmdWaveSmaller, cmdTransientsAtPeak, cmdAutoArm, cmdStretchSong });
+                         cmdForward, cmdRewind, cmdShortcuts, cmdSyncPanel, cmdSyncCreate, cmdToLoopStart, cmdToLoopEnd, cmdInspector, cmdCursorLeft, cmdCursorRight, cmdBarLeft, cmdBarRight, cmdTrackUp, cmdTrackDown, cmdPianoFull, cmdWaveBigger, cmdWaveSmaller, cmdTransientsAtPeak, cmdAutoArm, cmdStretchSong, cmdAudioFiles });
 }
 
 void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommandInfo& info)
@@ -250,6 +250,10 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdAddAudioTrack: info.setInfo ("オーディオトラックを追加"_ju, {}, "Track", 0); break;
         case cmdImportAudio:   info.setInfo ("オーディオを読み込む…"_ju, {}, "File", 0); info.addDefaultKeypress ('i', cmd); break;
         case cmdImportMidi:    info.setInfo ("MIDI ファイルを読み込む…"_ju, {}, "File", 0); break;
+        case cmdAudioFiles:
+            info.setInfo ("オーディオファイル…"_ju, {}, "File", 0);
+            info.setActive (document.hasLocation());
+            break;
         case cmdExportMixdown:
             info.setInfo ("書き出し…"_ju, {}, "File", 0);
             info.addDefaultKeypress ('e', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
@@ -514,6 +518,7 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdImportAudio:   importAudio(); break;
         case cmdImportMidi:    importMidi(); break;
         case cmdExportMixdown: showExportPanel(); break;
+        case cmdAudioFiles:    showAudioFiles(); break;
         case cmdSplit:         ctx.splitAtPlayhead(); break;
         case cmdMuteTrack:
         case cmdSoloTrack:
@@ -613,6 +618,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addCommandItem (cm, cmdImportAudio);
             m.addCommandItem (cm, cmdImportMidi);
             m.addCommandItem (cm, cmdExportMixdown);
+            m.addCommandItem (cm, cmdAudioFiles);
            #if ! JUCE_MAC
             m.addSeparator();
             m.addCommandItem (cm, juce::StandardApplicationCommandIDs::quit);

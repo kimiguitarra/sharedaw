@@ -233,7 +233,7 @@ juce::Result EngineBridge::bounceTrack (const std::string& trackId, collab::Rend
     if (hash.empty())
         return juce::Result::fail ("オーディオファイルを読めません"_ju);
 
-    auto target = AudioFiles::fileForHash (document.getProjectDir(), hash);
+    auto target = AudioFiles::newFileForHash (document.getProjectDir(), hash, toJuce (track->name) + "_bounce");
 
     if (! target.existsAsFile() && ! temp.getFile().moveFileTo (target))
         return juce::Result::fail ("保存できません: "_ju + target.getFullPathName());

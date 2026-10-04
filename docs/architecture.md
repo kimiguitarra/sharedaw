@@ -54,7 +54,7 @@
 
 - 録音は Tracktion の仕組みを使う。入力はモノラルのチャンネルごと（`setStereoPair(false)`）。
   トラックへの入力の割り当て・録音待機・モニタリングはこの環境だけの設定なので JSON には入れない（`EngineBridge::TrackInput`）。
-- テイクはアプリの一時フォルダに書かれ、停止後に 48kHz / 32bit float に変換して `audio/<sha256>.wav` にし、元のファイルは消す。
+- テイクはアプリの一時フォルダに書かれ、停止後に 48kHz / 32bit float に変換して `audio/<トラック名>_take01_<ハッシュの頭 8 文字>.wav` のような名前で置き、元のファイルは消す（どの実体かはハッシュで決まる）。
 - レイテンシは Tracktion がドライバの報告する入出力レイテンシで補正する。手動オフセット（サンプル）は
   デバイスごとにアプリの設定へ保存し、`WaveInputDevice::setRecordAdjustmentMs` で掛ける。
 - **カウントイン**: Edit は 60BPM なので Tracktion のカウントイン（Edit の拍子 × 拍）は曲のテンポと合わない。

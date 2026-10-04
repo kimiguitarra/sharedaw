@@ -164,6 +164,7 @@ struct AppContext
 
     /** 「トラックを追加」のメニュー（オーディオ / 音源 → ドラム・ベース・ピアノ）。MainComponent が設定する。 */
     std::function<juce::PopupMenu()> addTrackMenu;
+    std::function<void()> openAudioFiles;   // オーディオファイルの一覧（ツールバーのボタン）
 
     /** トラックの EQ・コンプの画面を開く（MainComponent が設定する）。 */
     std::function<void (const std::string& trackId, bool compressor)> openChannelStrip;   // EQ か Compressor の画面

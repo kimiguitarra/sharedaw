@@ -162,7 +162,12 @@ void MainComponent::importTakes (std::vector<EngineBridge::RecordedTake> takes)
     const auto dir = document.getProjectDir();
     const auto map = document.getTempoMap();
 
-    auto r = SyncUI::runWithProgress ("録音を保存しています"_ju, [&] { return Takes::import (takes, dir, map, clips); });
+    std::map<std::string, juce::String> names;
+
+    for (auto& t : document.getProject().tracks)
+        names[t.id] = toJuce (t.name);
+
+    auto r = SyncUI::runWithProgress ("録音を保存しています"_ju, [&] { return Takes::import (takes, dir, map, clips, names); });
 
     Takes::addToProject (document, clips);
     commandManager.commandStatusChanged();

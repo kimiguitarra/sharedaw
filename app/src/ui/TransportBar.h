@@ -105,6 +105,7 @@ private:
     ToolButton selectTool { EditTool::select }, pencilTool { EditTool::pencil }, splitTool { EditTool::split };
     juce::ComboBox quantiseBox;
     Theme::IconButton snapButton { "snap" }, autoScrollButton { "follow" }, metronomeButton { "metronome" };
+    Theme::IconButton audioFilesButton { "audiofiles" };
     std::vector<juce::Rectangle<int>> groups;   // ガラスのまとまり（ツール、クオンタイズ、メトロノーム…）
     juce::Slider metronomeVolume { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     ValueLabel bpmLabel, meterLabel;

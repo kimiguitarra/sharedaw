@@ -47,7 +47,7 @@ namespace
 }
 
 juce::Result import (const std::vector<EngineBridge::RecordedTake>& input, const juce::File& projectDir,
-                     const collab::TempoMap& map, std::vector<Clip>& result)
+                     const collab::TempoMap& map, std::vector<Clip>& result, const std::map<std::string, juce::String>& trackNames)
 {
     juce::StringArray errors;
     const auto name = "テイク"_ju;   // 番号はトラックに加えるときに付ける（addToProject）
@@ -100,7 +100,10 @@ juce::Result import (const std::vector<EngineBridge::RecordedTake>& input, const
     {
         AudioFiles::Imported imported;
 
-        if (auto r = AudioFiles::importFile (take.file, projectDir.getChildFile ("audio"), imported); r.failed())
+        const auto it = trackNames.find (take.trackId);
+        const auto label = AudioFiles::nextTakeLabel (projectDir, it != trackNames.end() ? it->second : juce::String ("Audio"));
+
+        if (auto r = AudioFiles::importFile (take.file, projectDir.getChildFile ("audio"), imported, label); r.failed())
         {
             errors.add (r.getErrorMessage());
             continue;

@@ -73,7 +73,7 @@ echo "== smoke test"
 HOME="$work/home" run_with_timeout "${SMOKE_TIMEOUT:-300}" ${SMOKE_WRAPPER:-} "$exe" --smoke-test "$work/demo" > "$work/smoke.log" 2>&1 || status=$?
 grep -v "Assertion failure" "$work/smoke.log" || true
 
-if [ "$status" -ne 0 ] || ! grep -q "SMOKE TEST PASSED" "$work/smoke.log" || ! grep -q "export panel: ok" "$work/smoke.log"; then
+if [ "$status" -ne 0 ] || ! grep -q "SMOKE TEST PASSED" "$work/smoke.log" || ! grep -q "export panel: ok" "$work/smoke.log" || ! grep -q "audio files: ok" "$work/smoke.log"; then
     echo "smoke test failed (exit status $status)"
     exit 1
 fi
@@ -99,6 +99,8 @@ PY
     SHAREDAW_REC_OVERLAP="$overlap" SHAREDAW_LOOPBACK="$spec" HOME="$work/home" run_with_timeout 120 ${SMOKE_WRAPPER:-} "$exe" --record-test "$work/rec" 5 0 1 > "$work/rec.log" 2>&1 || status=$?
     grep -E "^(loopback|audio offset|midi offset|live|take|record failed|no take|notes )" "$work/rec.log" || true
     [ "$status" -eq 0 ] || { echo "record test failed (exit status $status)"; exit 1; }
+    # 録音のファイルは「トラック名_take01_<ハッシュの頭>.wav」のような名前
+    ls "$work/rec/audio" | grep -Eq '_take[0-9]+_[0-9a-f]{8}\.wav$' || { echo "recorded file is not named by take: $(ls "$work/rec/audio")"; exit 1; }
     python3 - "$work/rec.log" <<'PY'
 import re, sys
 text = open(sys.argv[1]).read()
