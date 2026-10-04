@@ -94,8 +94,10 @@ p["chordTrack"]["events"] = []
 json.dump(p, open(sys.argv[1], "w"), ensure_ascii=False)
 PY
     status=0
-    SHAREDAW_LOOPBACK="$spec" HOME="$work/home" run_with_timeout 120 ${SMOKE_WRAPPER:-} "$exe" --record-test "$work/rec" 5 0 1 > "$work/rec.log" 2>&1 || status=$?
-    grep -E "^(loopback|audio offset|midi offset|live|take|record failed|no take)" "$work/rec.log" || true
+    # 2 回目は、もう MIDI クリップがある所の上に録る（Tracktion がそのクリップにノートを足して、画面に出ないまま鳴っていた）
+    overlap=""; [ "$spec" = "600,600,512" ] && overlap=1
+    SHAREDAW_REC_OVERLAP="$overlap" SHAREDAW_LOOPBACK="$spec" HOME="$work/home" run_with_timeout 120 ${SMOKE_WRAPPER:-} "$exe" --record-test "$work/rec" 5 0 1 > "$work/rec.log" 2>&1 || status=$?
+    grep -E "^(loopback|audio offset|midi offset|live|take|record failed|no take|notes )" "$work/rec.log" || true
     [ "$status" -eq 0 ] || { echo "record test failed (exit status $status)"; exit 1; }
     python3 - "$work/rec.log" <<'PY'
 import re, sys
@@ -109,6 +111,9 @@ m = re.search(r"midi offset ms: median (-?[\d.e-]+) .*\((\d+)\)", text)
 assert m and int(m.group(2)) >= 6 and abs(float(m.group(1))) < 15.0, text
 # 録音中も、弾いたノートが画面用に届いている
 assert re.search(r"live: \S+ peaks \d+ notes ([1-9]\d*)", text), text
+# エンジンが鳴らすノートは、プロジェクト（画面）のノートと同じ（隠れて鳴る音がない）
+counts = re.findall(r"^notes .*: project (\d+) engine (\d+)$", text, re.M)
+assert counts and all(a == b for a, b in counts), text
 PY
 done
 echo "recording timing ok"

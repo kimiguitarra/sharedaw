@@ -100,6 +100,9 @@ public:
     /** 前回呼んでからのトラックのピーク。ミキサーのメーター用。trackId が空ならコードトラック。 */
     StereoPeak getTrackPeakDb (const std::string& trackId);
 
+    /** 動作確認用: エンジン（Edit）のトラックの MIDI クリップにあるノートの数。プロジェクトのノートと同じはず。 */
+    int countEngineNotes (const std::string& trackId) const;
+
     /** メトロノーム・マスターのピーク。マスターはマスター音量をかけた後の値。 */
     StereoPeak getMetronomePeakDb();
     StereoPeak getMasterPeakDb();

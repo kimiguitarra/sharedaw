@@ -1449,3 +1449,19 @@ void EngineBridge::previewNote (const std::string& trackId, int pitch, int veloc
             b->second.track->injectLiveMidiMessage (juce::MidiMessage::noteOff (1, pitch), te::MPESourceID());
     });
 }
+
+int EngineBridge::countEngineNotes (const std::string& trackId) const
+{
+    auto it = bindings.find (trackId);
+
+    if (it == bindings.end() || it->second.track == nullptr)
+        return 0;
+
+    int count = 0;
+
+    for (auto* clip : it->second.track->getClips())
+        if (auto* midi = dynamic_cast<te::MidiClip*> (clip))
+            count += midi->getSequence().getNotes().size();
+
+    return count;
+}

@@ -253,6 +253,16 @@ void EngineBridge::updateLiveMidiGates()
 
     LiveMidiGate::setLiveSources (sources);
 
+    // 録った MIDI は必ず新しいクリップとして受け取り、プロジェクトに入れる。Tracktion の既定（mergeRecordings）では、
+    // 録った所に MIDI クリップがあると、エンジンの中のそのクリップにノートを足してしまい、画面（プロジェクト）に出ないまま鳴っていた
+    for (auto* in : edit->getAllInputDevices())
+        if (isLiveMidiInput (*in))
+            if (auto* midi = dynamic_cast<te::MidiInputDevice*> (&in->getInputDevice()))
+            {
+                midi->mergeRecordings = false;
+                midi->replaceExistingClips = false;
+            }
+
     for (auto& [id, b] : bindings)
     {
         const auto allowed = id != midiTargetId ? LiveMidiGate::noSource
@@ -490,6 +500,15 @@ void EngineBridge::deliverRecordings()
     // Tracktion は録音の始めにも（クリップなしで）recordingFinished を呼ぶので、録音中はまだ閉じない
     if (! edit->getTransport().isRecording())
         finishOwnRecording();
+
+    // 録音で Tracktion がエンジンの中のクリップを変えていても、プロジェクトのとおりに作り直す（画面にない音を鳴らさない）
+    if (! edit->getTransport().isRecording())
+    {
+        for (auto& [id, b] : bindings)
+            b.clipsKey = {};
+
+        sync();
+    }
 
     if (! pendingMidi.empty())
     {

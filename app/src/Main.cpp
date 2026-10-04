@@ -756,6 +756,11 @@ private:
             inst.id = collab::builtin::piano;
             inst.version = library->findLatest (inst.id)->version;
             midiTrack.instrument = inst;
+
+            // SHAREDAW_REC_OVERLAP: 録る所にもう MIDI クリップがある（その上に録る）
+            if (juce::SystemStats::getEnvironmentVariable ("SHAREDAW_REC_OVERLAP", {}).isNotEmpty())
+                midiTrack.midiClips.push_back ({ collab::generateUuid(), 0, collab::kPpq * 4 * 8, {} });
+
             document->perform ("track", [midiTrack] (collab::Project& p) { p.tracks.push_back (midiTrack); });
             bridge->sync();
 
@@ -853,6 +858,20 @@ private:
                     printOffsets ("midi", seconds);
                 }
             }
+
+            // エンジンが鳴らすノートは、プロジェクト（画面）のノートと同じであること（隠れて鳴る音がない）
+            if (loopbackType != nullptr)
+                for (auto& t : document->getProject().tracks)
+                    if (t.type == collab::TrackType::midi)
+                    {
+                        size_t notes = 0;
+
+                        for (auto& c : t.midiClips)
+                            notes += c.notes.size();
+
+                        bridge->sync();
+                        std::cout << "notes " << t.name << ": project " << notes << " engine " << bridge->countEngineNotes (t.id) << std::endl;
+                    }
 
             finish (r.wasOk() && document->save().wasOk() && ! clips.empty() ? 0 : 4);
         };
