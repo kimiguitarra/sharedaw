@@ -46,7 +46,10 @@ jobs:
       - name: Check Japanese string literals
         run: python3 tools/check_literals.py
       - name: Install Ninja
-        run: sudo apt-get update && sudo apt-get install -y ninja-build
+        # ランナーに入っている Microsoft のパッケージ置き場は使わない（403 で apt-get update ごと失敗することがある）
+        run: |
+          sudo grep -rlE "packages\.microsoft\.com" /etc/apt/sources.list.d 2>/dev/null | xargs -r sudo rm -f
+          sudo apt-get update && sudo apt-get install -y ninja-build
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCOLLAB_BUILD_APP=OFF
       - name: Build
@@ -154,6 +157,7 @@ jobs:
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
+          sudo grep -rlE "packages\.microsoft\.com" /etc/apt/sources.list.d 2>/dev/null | xargs -r sudo rm -f
           sudo apt-get update
           sudo apt-get install -y ninja-build libasound2-dev libjack-jackd2-dev libfreetype-dev libfontconfig1-dev \
             libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev \
