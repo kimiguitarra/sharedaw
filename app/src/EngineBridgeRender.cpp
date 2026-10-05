@@ -181,7 +181,7 @@ bool EngineBridge::renderTracksToWav (const juce::BigInteger& tracksToDo, const 
     params.bitDepth = bitDepth;
     params.sampleRateForAudio = sampleRate;
     params.blockSizeForAudio = 512;
-    params.time = te::TimeRange (secondsToTime (0), secondsToTime (endSeconds));
+    params.time = te::TimeRange (secondsToTime (std::min (renderStartSeconds, endSeconds - 0.01)), secondsToTime (endSeconds));
     params.tracksToDo = tracksToDo;
     params.canRenderInMono = false;
     params.usePlugins = true;

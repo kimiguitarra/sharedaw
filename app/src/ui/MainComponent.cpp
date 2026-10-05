@@ -582,8 +582,23 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
         dir.deleteRecursively();
         juce::StringArray done, failed;
         m.exportFiles (true, true, false, true, dir, "smoke", done, failed);
-        const bool ok = failed.isEmpty() && dir.getChildFile ("smoke.wav").getSize() > 1000
+        bool ok = failed.isEmpty() && dir.getChildFile ("smoke.wav").getSize() > 1000
                          && dir.getChildFile ("smoke.mp3").getSize() > 1000 && dir.getChildFile ("smoke.mid").existsAsFile();
+        // 範囲（2 小節目の頭から 3 小節目の頭まで）: ちょうど 1 小節の長さ（余韻を足さない）
+        const auto& map = m.document.getTempoMap();
+        const Export::Range range { map.barToTick (2), map.barToTick (3) };
+        juce::StringArray rangeDone, rangeFailed;
+        m.exportFiles (true, false, false, false, dir, "range", rangeDone, rangeFailed, &range);
+        double rangeSeconds = 0.0;
+
+        if (auto reader = std::unique_ptr<juce::AudioFormatReader> (juce::WavAudioFormat().createReaderFor (dir.getChildFile ("range.wav").createInputStream().release(), true)))
+            rangeSeconds = (double) reader->lengthInSamples / reader->sampleRate;
+
+        const double expected = map.tickToSeconds ((double) range.end) - map.tickToSeconds ((double) range.start);
+        const bool rangeOk = rangeFailed.isEmpty() && std::abs (rangeSeconds - expected) < 0.02;
+        std::cout << "export range: " << rangeSeconds << " s (expected " << expected << ")" << std::endl;
+        ok = ok && rangeOk;
+
         std::cout << "export panel: " << (ok ? "ok" : "FAILED " + failed.joinIntoString ("; ")) << std::endl;
         dir.deleteRecursively();
     }, "export" });

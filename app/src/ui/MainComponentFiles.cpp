@@ -193,7 +193,7 @@ void MainComponent::showExportPanel()
                 { &wav, "ミックスダウン WAV（48 kHz / 24 bit）"_ju },
                 { &mp3, "ミックスダウン MP3（320 kbps）"_ju },
                 { &stems, "パラデータ（トラックごとの WAV）"_ju },
-                { &midi, "MIDI ファイル"_ju },
+                { &midi, "MIDI ファイル（いつも曲全体）"_ju },
             };
 
             auto& settings = owner.settings;
@@ -206,6 +206,34 @@ void MainComponent::showExportPanel()
                 items[i].first->onClick = [this] { updateButton(); };
                 addAndMakeVisible (items[i].first);
             }
+
+            // 範囲: 左右のロケーター（既定）か、曲全体（最後の音の余韻まで自動）
+            rangeTitle.setText ("範囲"_ju, juce::dontSendNotification);
+            rangeTitle.setFont (juce::FontOptions (15.0f, juce::Font::bold));
+            addAndMakeVisible (rangeTitle);
+
+            useRange.setButtonText ("範囲を指定"_ju);
+            fullSong.setButtonText ("曲全体（自動）"_ju);
+
+            for (auto* b : { &useRange, &fullSong })
+            {
+                b->setRadioGroupId (1);
+                b->onClick = [this] { updateButton(); };
+                addAndMakeVisible (b);
+            }
+
+            (settings.getBoolValue ("exportFullSong", false) ? fullSong : useRange).setToggleState (true, juce::dontSendNotification);
+
+            rangeStart.setText (formatPosition (owner.state.loopStart));
+            rangeEnd.setText (formatPosition (owner.state.loopEnd));
+            rangeTo.setText ("〜"_ju, juce::dontSendNotification);
+            rangeTo.setJustificationType (juce::Justification::centred);
+            rangeNote.setText ("小節. 拍. tick（左右のロケーターの位置）"_ju, juce::dontSendNotification);
+            rangeNote.setFont (juce::FontOptions (13.5f));
+            rangeNote.setColour (juce::Label::textColourId, Theme::textDim);
+
+            for (auto* c : std::initializer_list<juce::Component*> { &rangeStart, &rangeEnd, &rangeTo, &rangeNote })
+                addAndMakeVisible (c);
 
             nameTitle.setText ("名前"_ju, juce::dontSendNotification);
             folderTitle.setText ("保存先"_ju, juce::dontSendNotification);
@@ -256,6 +284,23 @@ void MainComponent::showExportPanel()
                 st.setValue ("exportStems", stems.getToggleState());
                 st.setValue ("exportMidi", midi.getToggleState());
                 st.setValue ("exportFolder", folder.getFullPathName());
+                st.setValue ("exportFullSong", fullSong.getToggleState());
+
+                // 範囲（指定するとき）
+                std::optional<Export::Range> range;
+
+                if (useRange.getToggleState())
+                {
+                    const auto from = parsePosition (rangeStart.getText()), to = parsePosition (rangeEnd.getText());
+
+                    if (! from || ! to || *to <= *from)
+                    {
+                        Dialogs::showError ("書き出し"_ju, "範囲を「小節. 拍. tick」で入れてください（終わりは始まりより後）。"_ju);
+                        return;
+                    }
+
+                    range = Export::Range { *from, *to };
+                }
 
                 auto* main = &owner;
                 const bool w = wav.getToggleState(), m = mp3.getToggleState(), s = stems.getToggleState(), mi = midi.getToggleState();
@@ -266,9 +311,9 @@ void MainComponent::showExportPanel()
                     dw->exitModalState (0);
 
                 // パネルを閉じてから書き出す（書き出し中は進み具合のバーを出す）
-                juce::MessageManager::callAsync ([main, w, m, s, mi, dir, base]
+                juce::MessageManager::callAsync ([main, w, m, s, mi, dir, base, range]
                 {
-                    main->runExport (w, m, s, mi, dir, base.isEmpty() ? juce::String ("mixdown") : base);
+                    main->runExport (w, m, s, mi, dir, base.isEmpty() ? juce::String ("mixdown") : base, range);
                 });
             };
             addAndMakeVisible (exportButton);
@@ -282,11 +327,41 @@ void MainComponent::showExportPanel()
             addAndMakeVisible (cancelButton);
 
             updateButton();
-            setSize (460, 330);
+            setSize (480, 440);
+        }
+
+        juce::String formatPosition (collab::Tick t) const
+        {
+            const auto bb = owner.document.getTempoMap().tickToBarBeat (juce::jmax<collab::Tick> (0, t));
+            return juce::String (bb.bar) + ". " + juce::String (bb.beat) + ". " + juce::String (bb.tickInBeat);
+        }
+
+        std::optional<collab::Tick> parsePosition (const juce::String& text) const
+        {
+            // 「小節」「小節.拍」「小節.拍.tick」（トランスポートのロケーターと同じ）
+            auto parts = juce::StringArray::fromTokens (text.replaceCharacter (' ', '.'), ".", {});
+            parts.removeEmptyStrings();
+
+            if (parts.isEmpty() || parts.size() > 3)
+                return std::nullopt;
+
+            const auto& map = owner.document.getTempoMap();
+            const int bar = parts[0].getIntValue();
+
+            if (bar < 1)
+                return std::nullopt;
+
+            const auto sig = map.timeSignatureAtBar (bar);
+            const int beat = juce::jlimit (1, sig.numerator, parts.size() > 1 ? parts[1].getIntValue() : 1);
+            const auto tick = juce::jlimit<collab::Tick> (0, sig.ticksPerBeat() - 1, parts.size() > 2 ? parts[2].getIntValue() : 0);
+            return map.barToTick (bar) + (collab::Tick) (beat - 1) * sig.ticksPerBeat() + tick;
         }
 
         void updateButton()
         {
+            rangeStart.setEnabled (useRange.getToggleState());
+            rangeEnd.setEnabled (useRange.getToggleState());
+
             exportButton.setEnabled (wav.getToggleState() || mp3.getToggleState() || stems.getToggleState() || midi.getToggleState());
         }
 
@@ -297,6 +372,17 @@ void MainComponent::showExportPanel()
 
             for (auto* b : { &wav, &mp3, &stems, &midi })
                 b->setBounds (area.removeFromTop (28).withTrimmedLeft (6));
+
+            area.removeFromTop (10);
+            rangeTitle.setBounds (area.removeFromTop (24));
+            auto choice = area.removeFromTop (28).withTrimmedLeft (6);
+            useRange.setBounds (choice.removeFromLeft (130));
+            fullSong.setBounds (choice.removeFromLeft (160));
+            auto fields = area.removeFromTop (28).withTrimmedLeft (30);
+            rangeStart.setBounds (fields.removeFromLeft (110).reduced (0, 2));
+            rangeTo.setBounds (fields.removeFromLeft (30));
+            rangeEnd.setBounds (fields.removeFromLeft (110).reduced (0, 2));
+            rangeNote.setBounds (area.removeFromTop (20).withTrimmedLeft (30));
 
             area.removeFromTop (10);
             auto row = area.removeFromTop (28);
@@ -315,7 +401,9 @@ void MainComponent::showExportPanel()
         }
 
         MainComponent& owner;
-        juce::Label title, nameTitle, folderTitle, folderLabel;
+        juce::Label title, nameTitle, folderTitle, folderLabel, rangeTitle, rangeTo, rangeNote;
+        juce::ToggleButton useRange, fullSong;
+        juce::TextEditor rangeStart, rangeEnd;
         juce::ToggleButton wav, mp3, stems, midi;
         juce::TextEditor name;
         juce::TextButton chooseFolder, exportButton, cancelButton;
@@ -331,10 +419,11 @@ void MainComponent::showExportPanel()
     o.launchAsync();
 }
 
-void MainComponent::runExport (bool wav, bool mp3, bool stems, bool midi, const juce::File& folder, const juce::String& name)
+void MainComponent::runExport (bool wav, bool mp3, bool stems, bool midi, const juce::File& folder, const juce::String& name,
+                               std::optional<Export::Range> range)
 {
     juce::StringArray done, failed;
-    exportFiles (wav, mp3, stems, midi, folder, name, done, failed);
+    exportFiles (wav, mp3, stems, midi, folder, name, done, failed, range ? &*range : nullptr);
 
     if (! failed.isEmpty())
         return Dialogs::showError ("書き出し"_ju, failed.joinIntoString ("\n"));
@@ -343,7 +432,7 @@ void MainComponent::runExport (bool wav, bool mp3, bool stems, bool midi, const 
 }
 
 void MainComponent::exportFiles (bool wav, bool mp3, bool stems, bool midi, const juce::File& folder, const juce::String& name,
-                                 juce::StringArray& done, juce::StringArray& failed)
+                                 juce::StringArray& done, juce::StringArray& failed, const Export::Range* range)
 {
     if (! folder.isDirectory() && ! folder.createDirectory())
     {
@@ -356,7 +445,7 @@ void MainComponent::exportFiles (bool wav, bool mp3, bool stems, bool midi, cons
     {
         const auto file = folder.getChildFile (name + ".wav");
 
-        if (auto r = Export::mixdownWav (bridge, document, file); r.failed())
+        if (auto r = Export::mixdownWav (bridge, document, file, range); r.failed())
             failed.add ("WAV: "_ju + r.getErrorMessage());
         else
             done.add (file.getFileName() + "\n" + Export::loudnessSummary (file));
@@ -368,7 +457,7 @@ void MainComponent::exportFiles (bool wav, bool mp3, bool stems, bool midi, cons
         auto r = Export::mixdownMp3 (bridge, document, file, [] (std::function<juce::Result()> encode)
         {
             return SyncUI::runWithProgress ("MP3 に変換しています…"_ju, std::move (encode));
-        });
+        }, range);
 
         if (r.failed())
             failed.add ("MP3: "_ju + r.getErrorMessage());
@@ -381,7 +470,7 @@ void MainComponent::exportFiles (bool wav, bool mp3, bool stems, bool midi, cons
         auto dir = folder.getNonexistentChildFile (name + "_stems", {}, false);
         juce::Array<juce::File> written;
 
-        if (auto r = Export::stems (bridge, document, dir, written); r.failed())
+        if (auto r = Export::stems (bridge, document, dir, written, range); r.failed())
             failed.add ("パラデータ: "_ju + r.getErrorMessage());
         else
             done.add (dir.getFileName() + "/（"_ju + juce::String (written.size()) + " トラック）"_ju);

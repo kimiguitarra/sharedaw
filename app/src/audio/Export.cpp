@@ -17,24 +17,55 @@ namespace
     {
         return collab::chordTrackEndTick (doc.getProject(), doc.getTempoMap());
     }
+
+    /** 範囲の書き出しの間だけ、書き出しの始まりをずらす（終わったら頭に戻す）。 */
+    struct ScopedStart
+    {
+        ScopedStart (EngineBridge& b, const ProjectDocument& doc, const Export::Range* range) : bridge (b)
+        {
+            if (range != nullptr)
+                bridge.setRenderStartSeconds (doc.getTempoMap().tickToSeconds ((double) range->start));
+        }
+
+        ~ScopedStart()    { bridge.setRenderStartSeconds (0.0); }
+
+        EngineBridge& bridge;
+    };
+
+    /** 終わり（tick）と、足す余韻（秒）。範囲なら余韻なし。 */
+    std::pair<collab::Tick, double> endOf (EngineBridge& bridge, const ProjectDocument& doc, const Export::Range* range)
+    {
+        if (range != nullptr)
+            return { range->end, 0.0 };
+
+        return { songEnd (doc), bridge.tailSecondsFor ({}) };
+    }
 }
 
-juce::Result mixdownWav (EngineBridge& bridge, const ProjectDocument& doc, const juce::File& wav)
+juce::Result mixdownWav (EngineBridge& bridge, const ProjectDocument& doc, const juce::File& wav, const Range* range)
 {
-    if (! bridge.renderToFile (wav, songEnd (doc), bridge.tailSecondsFor ({}), 24))
+    const ScopedStart start (bridge, doc, range);
+    const auto [end, tail] = endOf (bridge, doc, range);
+
+    if (! bridge.renderToFile (wav, end, tail, 24))
         return juce::Result::fail ("ミックスダウンを書き出せませんでした。"_ju);
 
     return juce::Result::ok();
 }
 
 juce::Result mixdownMp3 (EngineBridge& bridge, const ProjectDocument& doc, const juce::File& mp3,
-                         std::function<juce::Result (std::function<juce::Result()>)> runEncode)
+                         std::function<juce::Result (std::function<juce::Result()>)> runEncode, const Range* range)
 {
     // 44.1 kHz の 32 bit float WAV に書き出してから MP3 にする（途中で丸めない）
     juce::TemporaryFile temp (mp3.withFileExtension ("wav"));
 
-    if (! bridge.renderToFile (temp.getFile(), songEnd (doc), bridge.tailSecondsFor ({}), 32, 44100.0))
-        return juce::Result::fail ("ミックスダウンを書き出せませんでした。"_ju);
+    {
+        const ScopedStart start (bridge, doc, range);
+        const auto [end, tail] = endOf (bridge, doc, range);
+
+        if (! bridge.renderToFile (temp.getFile(), end, tail, 32, 44100.0))
+            return juce::Result::fail ("ミックスダウンを書き出せませんでした。"_ju);
+    }
 
     auto encode = [source = temp.getFile(), mp3, title = toJuce (doc.getProject().name)]
     {
@@ -44,13 +75,17 @@ juce::Result mixdownMp3 (EngineBridge& bridge, const ProjectDocument& doc, const
     return runEncode ? runEncode (encode) : encode();
 }
 
-juce::Result stems (EngineBridge& bridge, const ProjectDocument& doc, const juce::File& folder, juce::Array<juce::File>& written)
+juce::Result stems (EngineBridge& bridge, const ProjectDocument& doc, const juce::File& folder, juce::Array<juce::File>& written,
+                    const Range* range)
 {
+    const ScopedStart start (bridge, doc, range);
+
     if (! folder.isDirectory() && ! folder.createDirectory())
         return juce::Result::fail ("フォルダを作れません: "_ju + folder.getFullPathName());
 
     const auto& project = doc.getProject();
-    const double end = doc.getTempoMap().tickToSeconds ((double) songEnd (doc)) + bridge.tailSecondsFor ({});
+    const auto [endTick, tail] = endOf (bridge, doc, range);
+    const double end = doc.getTempoMap().tickToSeconds ((double) endTick) + tail;
     int number = 1;
 
     auto fileFor = [&] (const juce::String& name)

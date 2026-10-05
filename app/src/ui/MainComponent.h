@@ -1,5 +1,7 @@
 #pragma once
 
+#include "audio/Export.h"
+
 #include "update/Updater.h"
 
 #include "ui/AppContext.h"
@@ -130,11 +132,12 @@ private:
 
     /** そのトラックを最後にアップした人・日時（サーバーの履歴をたどる）。 */
     void showLastUpload (const std::string& scopeId, const juce::String& name);
-    void runExport (bool wav, bool mp3, bool stems, bool midi, const juce::File& folder, const juce::String& name);
+    void runExport (bool wav, bool mp3, bool stems, bool midi, const juce::File& folder, const juce::String& name,
+                    std::optional<Export::Range> range);
 
     /** 書き出しの本体。書いたもの（done）と失敗（failed）を返す。 */
     void exportFiles (bool wav, bool mp3, bool stems, bool midi, const juce::File& folder, const juce::String& name,
-                      juce::StringArray& done, juce::StringArray& failed);
+                      juce::StringArray& done, juce::StringArray& failed, const Export::Range* range = nullptr);
     std::unique_ptr<juce::DocumentWindow> masterWindow;
 
     // 録音（§3.5）

@@ -51,6 +51,9 @@ public:
     /** トラックの音源が読み込めていない場合の理由（問題なければ空）。 */
     juce::String getInstrumentProblem (const std::string& trackId) const;
 
+    /** 書き出しの始まり（秒）。ふだんは 0（曲の頭）。範囲を書き出すときだけ変える（Export が戻す）。 */
+    void setRenderStartSeconds (double seconds) noexcept    { renderStartSeconds = std::max (0.0, seconds); }
+
     /** 先頭から endTick + tailSeconds までをオフラインで WAV に書き出す（メトロノームは含めない）。sampleRate は書き出すレート。 */
     bool renderToFile (const juce::File& output, collab::Tick endTick, double tailSeconds = 2.0, int bitDepth = 32,
                        double sampleRate = (double) collab::kSampleRate);
@@ -315,6 +318,7 @@ private:
         JUCE_DECLARE_NON_COPYABLE (ScopedIsolatedTrack)
     };
     bool renderTracksToWav (const juce::BigInteger& tracksToDo, const juce::File& output, double endSeconds, int bitDepth, double sampleRate);
+    double renderStartSeconds = 0.0;
     std::unique_ptr<Meter> chordMeter, metronomeMeter, masterMeter;
     float masterVolumeDb = 0.0f;
     SfizzPlugin* chordSynth = nullptr;
