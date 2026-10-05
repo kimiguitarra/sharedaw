@@ -114,7 +114,6 @@ private:
     // 選んでいるオーディオクリップの音量・フェード（Cubase の情報ライン）と、そのトラックのクロスフェード
     juce::Label clipTitle;
     ValueLabel clipGainLabel, fadeInLabel, fadeOutLabel;
-    juce::TextButton crossfadeButton;
     juce::String wheelMergeId;
     juce::uint32 lastWheelTime = 0;
     collab::Tick lastTick = -1;

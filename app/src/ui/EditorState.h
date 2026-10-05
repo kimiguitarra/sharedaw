@@ -18,7 +18,10 @@ struct TimeAxis
     double pixelsPerTick() const noexcept          { return pixelsPerQuarter / collab::kPpq; }
 
     /** マウス位置を中心に拡大・縮小する。 */
-    void zoomAround (double x, double factor, double minPpq = 4.0, double maxPpq = 800.0)
+    // 横の拡大の上限: 4 分音符が 24000 ピクセル（120 BPM ならおよそ 1 サンプルが 1 ピクセル。サンプルの線まで見える）
+    static constexpr double maxPixelsPerQuarter = 24000.0;
+
+    void zoomAround (double x, double factor, double minPpq = 4.0, double maxPpq = maxPixelsPerQuarter)
     {
         const double tickAtX = xToTick (x);
         pixelsPerQuarter = juce::jlimit (minPpq, maxPpq, pixelsPerQuarter * factor);
@@ -141,7 +144,31 @@ struct EditorState  : public juce::ChangeBroadcaster
     bool autoScroll = true;                     // 再生中に再生位置を追ってスクロールする（F）
     bool autoArmSelected = true;                // 選んだトラックを自動で録音待機にする（* で録音できる）
     bool pianoRollAutoFitted = false;           // ピアノロールがクリップに合わせて拡大率を変えた（タイムラインには連動させない）
-    float waveformZoom = 1.0f;                  // 波形を表示の上だけ大きくする倍率（音量は変わらない。Shift+H / Shift+G）
+    float waveformZoom = 1.0f;                  // 波形を表示の上だけ大きくする倍率（音量は変わらない。Shift+H / Shift+G、Alt+ホイール）
+
+    /** 波形の表示を大きく・小さくする（1 倍〜16 倍）。 */
+    void zoomWaveform (bool bigger)
+    {
+        waveformZoom = juce::jlimit (1.0f, 64.0f, waveformZoom * (bigger ? 1.25f : 1.0f / 1.25f));
+
+        if (waveformZoom < 1.05f)
+            waveformZoom = 1.0f;
+
+        changed();
+    }
+
+    /** Alt + ホイール: 上で波形を大きく、下で小さく（表示だけ）。処理したら true。 */
+    bool waveformWheel (const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
+    {
+        // Mac は Alt（Option）を押すとホイールが横向きで届くことがある
+        const float d = std::abs (w.deltaY) >= std::abs (w.deltaX) ? w.deltaY : w.deltaX;
+
+        if (! e.mods.isAltDown() || d == 0.0f)
+            return false;
+
+        zoomWaveform (d > 0.0f);
+        return true;
+    }
 
     std::string selectedTrackId;
     std::string selectedClipId;             // 主に選んでいるクリップ（ピアノロールで開くもの）

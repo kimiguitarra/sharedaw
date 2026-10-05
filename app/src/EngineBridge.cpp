@@ -65,7 +65,7 @@ namespace
             s << "A" << c.id << '@' << c.startTick << ':' << c.audioHash << ':' << c.sourceOffsetSamples << ':' << c.lengthSamples
               << ':' << c.gainDb << ':' << c.fadeInSamples << ':' << c.fadeOutSamples << ';';
 
-        s << "X" << t.crossfadeMs << t.crossfadeShape;   // クロスフェードを変えたら作り直す
+        s << "X";
 
         if (t.render)
             s << "R" << t.render->audioHash;
@@ -580,10 +580,10 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
     }
 
     // テイクの切り替わりはクロスフェード（下のクリップを少し延ばして、等パワーの形で入れ替える）
-    const auto shape = t.crossfadeShape == "linear" ? te::AudioFadeCurve::linear
-                     : t.crossfadeShape == "sCurve" ? te::AudioFadeCurve::sCurve : te::AudioFadeCurve::convex;
+    // つなぎは決まった形にする（直線・5 ms。調整はしない）
+    const auto shape = te::AudioFadeCurve::linear;
 
-    for (auto seg : collab::audibleSegments (t.audioClips, map, juce::jlimit (0.0, 1.0, t.crossfadeMs / 1000.0)))
+    for (auto seg : collab::audibleSegments (t.audioClips, map, 0.005))
     {
         auto& c = t.audioClips[seg.clipIndex];
         auto file = AudioFiles::fileForHash (document.getProjectDir(), c.audioHash);
@@ -655,7 +655,8 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
             if (c.pitchBends.front().tick > 0)
                 addBend (0.0, 0);
 
-            for (auto& b : c.pitchBends)
+            // 点の間の直線は、細かいイベントで埋めて鳴らす
+            for (auto& b : collab::densePitchBends (c.pitchBends))
                 if (b.tick >= 0 && b.tick < c.lengthTick)
                     addBend (map.tickToSeconds ((double) (c.startTick + b.tick)) - start, b.value);
 

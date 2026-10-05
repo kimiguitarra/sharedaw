@@ -7,6 +7,7 @@
 
 #include "ChannelStripDsp.h"
 #include "Project.h"
+#include "SlidingMax.h"
 
 namespace collab
 {
@@ -47,19 +48,6 @@ public:
     int getLatencySamples() const noexcept          { return lookahead; }
 
 private:
-    /** 直近 window 個の最大値（最小値は値を負にして使う）を、1 サンプルごとに O(1) で求める。 */
-    struct SlidingMax
-    {
-        void prepare (int window);
-        void reset();
-        double push (double value);   // 値を足して、窓の中の最大値を返す
-
-        int window = 1;
-        long long count = 0;
-        std::vector<std::pair<long long, double>> buffer;   // 単調減少の列（輪っか）
-        size_t head = 0, size = 0;
-    };
-
     double sampleRate = 48000.0;
     MasterLimiter params;
 

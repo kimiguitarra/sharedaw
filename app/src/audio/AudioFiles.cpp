@@ -273,7 +273,8 @@ AudioFileCache::~AudioFileCache()
 }
 
 void AudioFiles::drawWaveform (juce::Graphics& g, juce::AudioThumbnail& thumb, juce::Rectangle<float> area,
-                               double startSeconds, double endSeconds, float gain, juce::Colour colour)
+                               double startSeconds, double endSeconds, float gain, juce::Colour colour,
+                               std::function<bool (double, double, juce::AudioBuffer<float>&)> readExact)
 {
     const int channels = juce::jmax (1, thumb.getNumChannels());
     const auto clip = g.getClipBounds().toFloat();
@@ -284,6 +285,59 @@ void AudioFiles::drawWaveform (juce::Graphics& g, juce::AudioThumbnail& thumb, j
 
     const double secondsPerPixel = (endSeconds - startSeconds) / (double) juce::jmax (1.0f, area.getWidth());
     const float laneHeight = area.getHeight() / (float) channels;
+
+    // 大きく拡大したとき（1 ピクセルが要約の 1 点より細かい）: ファイルのサンプルをそのまま線で描く
+    if (readExact != nullptr && secondsPerPixel * (double) collab::kSampleRate < 64.0)
+    {
+        const double from = startSeconds + (double) (left - area.getX()) * secondsPerPixel;
+        const double to = startSeconds + (double) (right - area.getX()) * secondsPerPixel;
+        juce::AudioBuffer<float> samples;
+
+        if (readExact (from - 2.0 / collab::kSampleRate, to + 2.0 / collab::kSampleRate, samples) && samples.getNumSamples() > 0)
+        {
+            const int n = samples.getNumSamples();
+            const double first = from - 2.0 / collab::kSampleRate;
+            const int lanes = juce::jmax (1, samples.getNumChannels());
+            const float h = area.getHeight() / (float) lanes;
+
+            for (int ch = 0; ch < lanes; ++ch)
+            {
+                const auto lane = area.withY (area.getY() + h * (float) ch).withHeight (h);
+                const float centre = lane.getCentreY(), half = lane.getHeight() * 0.5f - 1.0f;
+                g.setColour (colour.withAlpha (0.45f));
+                g.fillRect (left, centre - 0.5f, right - left, 1.0f);
+
+                juce::Path p;
+                const auto* d = samples.getReadPointer (ch);
+
+                for (int i = 0; i < n; ++i)
+                {
+                    const double t = first + (double) i / collab::kSampleRate;
+                    const float x = area.getX() + (float) ((t - startSeconds) / secondsPerPixel);
+                    const float y = centre - juce::jlimit (-1.0f, 1.0f, d[i] * gain) * half;
+
+                    if (i == 0)
+                        p.startNewSubPath (x, y);
+                    else
+                        p.lineTo (x, y);
+                }
+
+                g.setColour (colour);
+                g.strokePath (p, juce::PathStrokeType (1.5f));
+
+                // サンプルの点（1 サンプルが 6 ピクセルより広いとき）
+                if (secondsPerPixel * (double) collab::kSampleRate < 1.0 / 6.0)
+                    for (int i = 0; i < n; ++i)
+                    {
+                        const double t = first + (double) i / collab::kSampleRate;
+                        const float x = area.getX() + (float) ((t - startSeconds) / secondsPerPixel);
+                        g.fillEllipse (x - 2.0f, centre - juce::jlimit (-1.0f, 1.0f, d[i] * gain) * half - 2.0f, 4.0f, 4.0f);
+                    }
+            }
+
+            return;
+        }
+    }
 
     for (int ch = 0; ch < channels; ++ch)
     {
@@ -364,6 +418,37 @@ juce::AudioThumbnail* AudioFileCache::getThumbnail (const juce::File& projectDir
     thumb->setSource (new juce::FileInputSource (file));
     thumb->addChangeListener (this);
     return (thumbnails[hash] = std::move (thumb)).get();
+}
+
+bool AudioFileCache::readSamples (const juce::File& projectDir, const std::string& hash, double fromSeconds, double toSeconds,
+                                  juce::AudioBuffer<float>& out)
+{
+    auto it = readers.find (hash);
+
+    if (it == readers.end())
+    {
+        auto file = AudioFiles::fileForHash (projectDir, hash);
+
+        if (! file.existsAsFile())
+            return false;
+
+        it = readers.emplace (hash, std::unique_ptr<juce::AudioFormatReader> (formats.createReaderFor (file))).first;
+    }
+
+    auto* reader = it->second.get();
+
+    if (reader == nullptr)
+        return false;
+
+    const auto start = juce::jlimit<juce::int64> (0, reader->lengthInSamples, (juce::int64) std::floor (fromSeconds * reader->sampleRate));
+    const auto end = juce::jlimit<juce::int64> (start, reader->lengthInSamples, (juce::int64) std::ceil (toSeconds * reader->sampleRate));
+    const int count = (int) std::min<juce::int64> (end - start, 200000);
+
+    if (count <= 0)
+        return false;
+
+    out.setSize ((int) reader->numChannels, count);
+    return reader->read (&out, 0, count, start, true, true);
 }
 
 const std::vector<double>* AudioFileCache::getTransients (const juce::File& projectDir, const std::string& hash)

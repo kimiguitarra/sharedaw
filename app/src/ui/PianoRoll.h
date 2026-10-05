@@ -82,17 +82,18 @@ private:
     PianoRollView& owner;
     juce::String mergeId;
 
-    // ピッチベンド
+    // ピッチベンド（Cubase のコントローラーの段と同じく点で書く。点の間は直線）
     const bool bendMode;
-    std::vector<collab::PitchBend> originalBends;
-    std::map<collab::Tick, int> drawn;          // このドラッグで描いた点（クリップ先頭からの tick → 値）
-    juce::Point<float> lastDraw;
-    bool erasing = false;
+    std::vector<collab::PitchBend> originalBends;   // ドラッグを始めたときの点
+    int bendIndex = -1;                             // 動かしている点（originalBends の番号）
+    double bendDownTick = 0;
+    juce::Point<float> bendHover { -100.0f, -100.0f }, bendLast;
 
     void paintPitchBend (juce::Graphics&, const collab::MidiClip&);
-    collab::Tick bendTickAt (float x) const;
-    int bendValueAt (float y) const;
-    void drawBendTo (juce::Point<float>);
+    float bendY (int value) const;
+    int bendValueAt (float y, bool free) const;
+    int bendPointAt (const collab::MidiClip&, juce::Point<float>) const;
+    void setBends (std::vector<collab::PitchBend>, const juce::String& description);
 
     // 選んだノートを、ドラッグした分だけ上下させる（それぞれの差は保つ）
     float downY = 0;

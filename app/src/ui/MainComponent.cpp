@@ -794,12 +794,12 @@ void MainComponent::timerCallback()
 
         if (lastTimelineZoom > 0.0 && std::abs (tl - lastTimelineZoom) > 1.0e-9)
         {
-            follow (state.pianoRoll, juce::jlimit (10.0, 2000.0, pr * tl / lastTimelineZoom));
+            follow (state.pianoRoll, juce::jlimit (10.0, TimeAxis::maxPixelsPerQuarter, pr * tl / lastTimelineZoom));
             state.changed();
         }
         else if (lastPianoZoom > 0.0 && std::abs (pr - lastPianoZoom) > 1.0e-9)
         {
-            follow (state.timeline, juce::jlimit (4.0, 800.0, tl * pr / lastPianoZoom));
+            follow (state.timeline, juce::jlimit (4.0, TimeAxis::maxPixelsPerQuarter, tl * pr / lastPianoZoom));
             state.changed();
         }
 

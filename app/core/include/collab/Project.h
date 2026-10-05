@@ -256,7 +256,7 @@ enum class CompType { fet, opto };
 struct ChannelComp
 {
     bool enabled = false;
-    CompType type = CompType::fet;  // FET（速い・色付け）／オプティカル（ゆっくり・自然）
+    CompType type = CompType::fet;  // FET（速い）／オプティカル（ゆっくり・自然）。どちらも色付けはしない
     double thresholdDb = -18.0;
     double ratio = 4.0;
     double attackMs = 1.0;          // FET のみ（オプティカルは音に応じて自動）

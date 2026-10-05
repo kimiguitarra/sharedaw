@@ -30,42 +30,6 @@ namespace
 }
 
 //==============================================================================
-void VintageLimiterDsp::SlidingMax::prepare (int w)
-{
-    window = std::max (1, w);
-    buffer.assign ((size_t) window + 1, {});
-    reset();
-}
-
-void VintageLimiterDsp::SlidingMax::reset()
-{
-    count = 0;
-    head = size = 0;
-}
-
-double VintageLimiterDsp::SlidingMax::push (double value)
-{
-    const size_t cap = buffer.size();
-
-    // 後ろから、新しい値以下のものを捨てる（もう最大になることはない）
-    while (size > 0 && buffer[(head + size - 1) % cap].second <= value)
-        --size;
-
-    buffer[(head + size) % cap] = { count, value };
-    ++size;
-
-    // 窓から外れた古いものを前から捨てる
-    while (buffer[head].first <= count - window)
-    {
-        head = (head + 1) % cap;
-        --size;
-    }
-
-    ++count;
-    return buffer[head].second;
-}
-
-//==============================================================================
 void VintageLimiterDsp::prepare (double sr)
 {
     sampleRate = sr > 0.0 ? sr : 48000.0;

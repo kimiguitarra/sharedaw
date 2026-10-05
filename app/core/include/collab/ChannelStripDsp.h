@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "Project.h"
+#include "SlidingMax.h"
 
 namespace collab
 {
@@ -69,6 +70,7 @@ private:
 
     // コンプ
     double envDb = 0.0;          // 平滑化したゲインリダクション（dB）
+    SlidingMax peakHold;         // FET の検出（直近 10 ms の最大値）
     double rmsSquare = 0.0;      // オプティカルの検出（RMS）
     double optoMemory = 0.0;     // オプティカル: 圧縮が続いた度合い（0〜1）。大きいほどリリースが遅い
     double makeupGain = 1.0;

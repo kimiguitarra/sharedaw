@@ -184,37 +184,49 @@ TEST_CASE ("newer overlapping audio clip hides the older one with crossfades (Pr
 
 TEST_CASE ("pitch bends: value at a position, drawing a range, and split / trim / glue / stretch keep them in place")
 {
+    // 点の間は直線（Cubase のランプ）。最初の点より前は中央、最後の点より後はその値
     std::vector<PitchBend> bends { { 100, 4000 }, { 200, 0 } };
     CHECK (pitchBendAt (bends, 0) == 0);
-    CHECK (pitchBendAt (bends, 150) == 4000);
+    CHECK (pitchBendAt (bends, 100) == 4000);
+    CHECK (pitchBendAt (bends, 150) == 2000);
     CHECK (pitchBendAt (bends, 250) == 0);
 
-    // 描く: 50〜120 を上書き。後ろは元の値（4000）に戻り、200 で中央へ
+    // 鳴らすときは直線を細かいイベントで埋める
+    const auto dense = densePitchBends ({ { 0, 0 }, { 100, 8000 } }, 20);
+    CHECK (dense.size() == 6);
+    CHECK (dense[2] == PitchBend { 40, 3200 });
+
+    // 描く: 50〜120 を上書き。後ろは元の値に戻る
+    bends = { { 100, 4000 }, { 200, 4000 }, { 300, 0 } };
     replacePitchBends (bends, 50, 120, { { 50, 1000 }, { 80, 2000 }, { 120, 3000 } });
-    CHECK (pitchBendAt (bends, 60) == 1000);
-    CHECK (pitchBendAt (bends, 100) == 2000);
+    CHECK (pitchBendAt (bends, 50) == 1000);
+    CHECK (pitchBendAt (bends, 80) == 2000);
     CHECK (pitchBendAt (bends, 121) == 4000);
-    CHECK (pitchBendAt (bends, 250) == 0);
+    CHECK (pitchBendAt (bends, 250) == 2000);
+    CHECK (pitchBendAt (bends, 300) == 0);
 
     // 消す（中央で描く）と、イベントはまとまる
     replacePitchBends (bends, 0, 300, { { 0, 0 } });
     CHECK (bends.empty());
 
-    MidiClip c { "c", 1000, 960 * 4, {}, { { 0, 0 }, { 960, 8191 }, { 1920, -8192 }, { 2880, 0 } } };
-    c.pitchBends.erase (c.pitchBends.begin());
+    // 直線の途中で分割・トリムしても、形は変わらない
+    MidiClip c { "c", 1000, 960 * 4, {}, { { 960, 8191 }, { 1920, -8192 }, { 2880, 0 } } };
 
     auto split = splitMidiClip (c, 1000 + 1500, "d", [] { return std::string ("n"); });
     REQUIRE (split);
-    CHECK (split->first.pitchBends == std::vector<PitchBend> { { 960, 8191 } });
-    CHECK (split->second.pitchBends.front() == PitchBend { 0, 8191 });   // 分けた所での値から始まる
-    CHECK (pitchBendAt (split->second.pitchBends, 1920 - 1500) == -8192);
+
+    for (Tick t : { 960, 1200, 1499 })
+        CHECK (std::abs (pitchBendAt (split->first.pitchBends, t) - pitchBendAt (c.pitchBends, t)) <= 1);
+
+    for (Tick t : { 1500, 1700, 1920, 2400, 3000 })
+        CHECK (std::abs (pitchBendAt (split->second.pitchBends, t - 1500) - pitchBendAt (c.pitchBends, t)) <= 1);
 
     auto glued = glueMidiClips (split->first, split->second);
     for (Tick t : { 0, 500, 1000, 1600, 2000, 3000 })
-        CHECK (pitchBendAt (glued.pitchBends, t) == pitchBendAt (c.pitchBends, t));
+        CHECK (std::abs (pitchBendAt (glued.pitchBends, t) - pitchBendAt (c.pitchBends, t)) <= 20);
 
     auto trimmed = trimMidiClipStart (c, 1000 + 1200, 10);
-    CHECK (pitchBendAt (trimmed.pitchBends, 0) == 8191);
+    CHECK (std::abs (pitchBendAt (trimmed.pitchBends, 0) - pitchBendAt (c.pitchBends, 1200)) <= 1);
     CHECK (pitchBendAt (trimmed.pitchBends, 1920 - 1200) == -8192);
 
     auto stretched = stretchMidiClip (c, 0.5);
@@ -235,7 +247,7 @@ TEST_CASE ("recorded MIDI continues an existing clip")
     CHECK (clips[0].lengthTick == 3840 * 2);
     REQUIRE (clips[0].notes.size() == 2);
     CHECK (clips[0].notes[1].tick == 3840 + 960);
-    CHECK (pitchBendAt (clips[0].pitchBends, 3840 + 1000) == 4000);
+    CHECK (pitchBendAt (clips[0].pitchBends, 3840 + 960) == 4000);
     CHECK (pitchBendAt (clips[0].pitchBends, 3840 + 1500) == 0);
 
     // 前に伸ばすときは元のノートの位置を保つ

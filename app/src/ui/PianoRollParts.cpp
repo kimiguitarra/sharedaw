@@ -176,128 +176,158 @@ const collab::Note* VelocityLane::noteAt (float x) const
 }
 
 //==============================================================================
+float VelocityLane::bendY (int value) const
+{
+    const float mid = (float) getHeight() * 0.5f, half = (float) getHeight() * 0.5f - 6.0f;
+    return mid - half * (float) value / 8192.0f;
+}
+
+int VelocityLane::bendValueAt (float y, bool free) const
+{
+    const float mid = (float) getHeight() * 0.5f, half = (float) getHeight() * 0.5f - 6.0f;
+    const int value = juce::jlimit (collab::kPitchBendMin, collab::kPitchBendMax, juce::roundToInt ((mid - y) / half * 8192.0f));
+
+    if (free)
+        return value;
+
+    // 半音の線（ベンド幅 ±2 半音）の近く（6 ピクセル）なら、その線に合わせる
+    for (int st : { -2, -1, 0, 1, 2 })
+        if (std::abs (bendY (st * 4096) - y) <= 6.0f)
+            return juce::jlimit (collab::kPitchBendMin, collab::kPitchBendMax, st * 4096);
+
+    return value;
+}
+
+int VelocityLane::bendPointAt (const collab::MidiClip& clip, juce::Point<float> p) const
+{
+    int best = -1;
+    float bestDistance = 8.0f;
+
+    for (size_t i = 0; i < clip.pitchBends.size(); ++i)
+    {
+        const auto& b = clip.pitchBends[i];
+        const juce::Point<float> q ((float) owner.axis().tickToX ((double) (clip.startTick + b.tick)), bendY (b.value));
+
+        if (const float d = q.getDistanceFrom (p); d < bestDistance)
+        {
+            bestDistance = d;
+            best = (int) i;
+        }
+    }
+
+    return best;
+}
+
+void VelocityLane::setBends (std::vector<collab::PitchBend> bends, const juce::String& description)
+{
+    std::stable_sort (bends.begin(), bends.end(), [] (auto& a, auto& b) { return a.tick < b.tick; });
+    owner.editNotes (description, [bends] (collab::MidiClip& c) { c.pitchBends = bends; }, mergeId);
+}
+
 void VelocityLane::paintPitchBend (juce::Graphics& g, const collab::MidiClip& clip)
 {
     const auto& axis = owner.axis();
-    const float mid = (float) getHeight() * 0.5f, half = (float) getHeight() * 0.5f - 4.0f;
-    auto yFor = [&] (int value) { return mid - half * (float) value / 8192.0f; };
 
-    // 中央と ±1・±2 半音（ベンド幅 ±2 半音のとき）の目安
-    for (int st : { -2, -1, 1, 2 })
+    // 半音ごとの線（ベンド幅 ±2 半音）と目盛り
+    for (int st : { -2, -1, 0, 1, 2 })
     {
-        g.setColour (Theme::overlay (st % 2 == 0 ? 0.10f : 0.05f));
-        g.drawHorizontalLine ((int) yFor (st * 4096), 0.0f, (float) getWidth());
+        const float y = bendY (st * 4096);
+        g.setColour (Theme::overlay (st == 0 ? 0.32f : 0.16f));
+        g.drawHorizontalLine ((int) y, 0.0f, (float) getWidth());
+        g.setColour (Theme::textDim);
+        g.setFont (juce::FontOptions (10.5f));
+        g.drawText (st > 0 ? "+" + juce::String (st) : juce::String (st), juce::Rectangle<float> (3.0f, y - 6.0f, 20.0f, 12.0f),
+                    juce::Justification::centredLeft);
     }
 
-    g.setColour (Theme::overlay (0.25f));
-    g.drawHorizontalLine ((int) mid, 0.0f, (float) getWidth());
-    g.setColour (Theme::textDim);
-    g.setFont (juce::FontOptions (10.5f));
-    g.drawText ("+2", juce::Rectangle<float> (4.0f, yFor (8191) - 1.0f, 20.0f, 12.0f), juce::Justification::centredLeft);
-    g.drawText ("-2", juce::Rectangle<float> (4.0f, yFor (-8192) - 11.0f, 20.0f, 12.0f), juce::Justification::centredLeft);
-
-    // クリップの範囲だけ、階段状に（値は次のイベントまで続く）
+    // クリップの範囲: 点の間は直線
     const float x0 = (float) axis.tickToX ((double) clip.startTick);
     const float x1 = (float) axis.tickToX ((double) clip.endTick());
     auto* track = owner.getTrack();
     const auto colour = track != nullptr ? Theme::parseColour (track->color) : Theme::accent;
+    const float mid = bendY (0);
 
     juce::Path line, area;
-    float x = x0;
-    int value = 0;
-    line.startNewSubPath (x0, yFor (0));
-    area.startNewSubPath (x0, mid);
-    area.lineTo (x0, yFor (0));
+    bool started = false;
 
-    for (auto& b : clip.pitchBends)
+    for (float x = juce::jmax (0.0f, x0); x <= juce::jmin ((float) getWidth(), x1) + 2.0f; x += 2.0f)
     {
-        if (b.tick < 0 || b.tick >= clip.lengthTick)
-            continue;
+        const auto tick = (collab::Tick) std::llround (axis.xToTick (juce::jmin (x, x1))) - clip.startTick;
+        const float y = bendY (collab::pitchBendAt (clip.pitchBends, tick));
 
-        const float bx = (float) axis.tickToX ((double) (clip.startTick + b.tick));
-        line.lineTo (bx, yFor (value));
-        area.lineTo (bx, yFor (value));
-        value = b.value;
-        line.lineTo (bx, yFor (value));
-        area.lineTo (bx, yFor (value));
-        x = bx;
+        if (! started)
+        {
+            line.startNewSubPath (x, y);
+            area.startNewSubPath (x, mid);
+            area.lineTo (x, y);
+            started = true;
+        }
+        else
+        {
+            line.lineTo (x, y);
+            area.lineTo (x, y);
+        }
     }
 
-    juce::ignoreUnused (x);
-    line.lineTo (x1, yFor (value));
-    area.lineTo (x1, yFor (value));
-    area.lineTo (x1, mid);
-    area.closeSubPath();
-
-    g.setColour (colour.withAlpha (0.25f));
-    g.fillPath (area);
-    g.setColour (colour);
-    g.strokePath (line, juce::PathStrokeType (1.8f));
-}
-
-collab::Tick VelocityLane::bendTickAt (float x) const
-{
-    auto* clip = owner.getClip();
-
-    if (clip == nullptr)
-        return 0;
-
-    const auto tick = (collab::Tick) std::llround (owner.axis().xToTick (x)) - clip->startTick;
-    return juce::jlimit<collab::Tick> (0, std::max<collab::Tick> (0, clip->lengthTick - 1), tick);
-}
-
-int VelocityLane::bendValueAt (float y) const
-{
-    const float mid = (float) getHeight() * 0.5f, half = (float) getHeight() * 0.5f - 4.0f;
-    const int value = juce::jlimit (collab::kPitchBendMin, collab::kPitchBendMax, juce::roundToInt ((mid - y) / half * 8192.0f));
-    return std::abs (value) < 250 ? 0 : value;   // 中央の近くは中央に吸い付く
-}
-
-void VelocityLane::drawBendTo (juce::Point<float> p)
-{
-    // 前の位置からなめらかにつなぐ（細かすぎないよう 2 ピクセルごと）
-    const auto from = lastDraw;
-    const int steps = juce::jmax (1, (int) (std::abs (p.x - from.x) / 2.0f));
-
-    for (int i = 1; i <= steps; ++i)
+    if (started)
     {
-        const auto q = from + (p - from) * ((float) i / (float) steps);
-        drawn[bendTickAt (q.x)] = erasing ? 0 : bendValueAt (q.y);
+        area.lineTo (juce::jmin ((float) getWidth(), x1), mid);
+        area.closeSubPath();
+        g.setColour (colour.withAlpha (0.25f));
+        g.fillPath (area);
+        g.setColour (colour.darker (0.2f));
+        g.strokePath (line, juce::PathStrokeType (1.8f));
     }
 
-    drawn[bendTickAt (p.x)] = erasing ? 0 : bendValueAt (p.y);
-    lastDraw = p;
+    // 点（マウスの下・動かしている点は明るく、値を半音で出す）
+    const auto at = bendIndex >= 0 ? bendLast : bendHover;
+    int labelIndex = -1;
 
-    if (drawn.empty())
-        return;
-
-    std::vector<collab::PitchBend> points;
-
-    for (auto& [tick, value] : drawn)
-        points.push_back ({ tick, value });
-
-    const auto from_ = drawn.begin()->first, to_ = drawn.rbegin()->first;
-    const auto original = originalBends;
-
-    owner.editNotes ("ピッチベンド"_ju, [original, points, from_, to_] (collab::MidiClip& c)
+    for (size_t i = 0; i < clip.pitchBends.size(); ++i)
     {
-        c.pitchBends = original;
-        collab::replacePitchBends (c.pitchBends, from_, to_, points);
-    }, mergeId);
+        const auto& b = clip.pitchBends[i];
+        const juce::Point<float> c ((float) axis.tickToX ((double) (clip.startTick + b.tick)), bendY (b.value));
+        const bool hot = c.getDistanceFrom (at) < 9.0f;
+        g.setColour (hot ? Theme::selection : colour.brighter (0.4f));
+        g.fillEllipse (juce::Rectangle<float> (8.0f, 8.0f).withCentre (c));
+        g.setColour (Theme::background);
+        g.drawEllipse (juce::Rectangle<float> (8.0f, 8.0f).withCentre (c), 1.0f);
+
+        if (hot)
+            labelIndex = (int) i;
+    }
+
+    if (labelIndex >= 0)
+    {
+        const auto& b = clip.pitchBends[(size_t) labelIndex];
+        const float x = (float) axis.tickToX ((double) (clip.startTick + b.tick));
+        const double semis = (double) b.value / 4096.0;
+        const auto text = (semis > 0 ? "+" : "") + juce::String (semis, 2);
+        auto box = juce::Rectangle<float> (46.0f, 16.0f).withPosition (x + 7.0f, juce::jlimit (0.0f, (float) getHeight() - 16.0f, bendY (b.value) - 18.0f));
+        g.setColour (Theme::panel.withAlpha (0.92f));
+        g.fillRoundedRectangle (box, 4.0f);
+        g.setColour (Theme::text);
+        g.setFont (juce::FontOptions (12.5f, juce::Font::bold));
+        g.drawText (text, box, juce::Justification::centred);
+    }
 }
 
 void VelocityLane::mouseDoubleClick (const juce::MouseEvent&)
 {
-    if (! bendMode)
-        return;
-
-    owner.editNotes ("ピッチベンドを全部消す"_ju, [] (collab::MidiClip& c) { c.pitchBends.clear(); });
+    // ピッチベンドの点はダブルクリックで消す（mouseDown で扱う）
 }
 
-void VelocityLane::mouseMove (const juce::MouseEvent&)
+void VelocityLane::mouseMove (const juce::MouseEvent& e)
 {
     if (bendMode)
-        return setMouseCursor (juce::MouseCursor::CrosshairCursor);
+    {
+        bendHover = e.position;
+        repaint();
+        auto* clip = owner.getClip();
+        const bool onPoint = clip != nullptr && bendPointAt (*clip, e.position) >= 0;
+        return setMouseCursor (onPoint ? juce::MouseCursor::DraggingHandCursor
+                                       : owner.ctx.state.pencil() ? Theme::pencilCursor() : juce::MouseCursor::CrosshairCursor);
+    }
 
     setMouseCursor (owner.selectedNotes.empty() ? juce::MouseCursor::NormalCursor : juce::MouseCursor::UpDownResizeCursor);
 }
@@ -308,15 +338,63 @@ void VelocityLane::mouseDown (const juce::MouseEvent& e)
     {
         auto* clip = owner.getClip();
 
-        if (clip == nullptr || e.getNumberOfClicks() > 1)
+        if (clip == nullptr)
             return;
 
         mergeId = juce::Uuid().toString();
         originalBends = clip->pitchBends;
-        drawn.clear();
-        erasing = e.mods.isAltDown() || e.mods.isPopupMenu();
-        lastDraw = e.position;
-        drawBendTo (e.position);
+        bendLast = e.position;
+        bendDownTick = owner.axis().xToTick (e.position.x);
+        bendIndex = -1;
+        const int index = bendPointAt (*clip, e.position);
+        auto bends = clip->pitchBends;
+
+        if (e.mods.isPopupMenu())
+        {
+            juce::PopupMenu m;
+            m.addItem ("この点を消す"_ju, index >= 0, false, [this, bends, index]() mutable
+            {
+                bends.erase (bends.begin() + index);
+                mergeId = {};
+                setBends (bends, "ピッチベンドの点を削除"_ju);
+            });
+            m.addItem ("ピッチベンドを全部消す"_ju, ! bends.empty(), false, [this]
+            {
+                mergeId = {};
+                setBends ({}, "ピッチベンドを全部消す"_ju);
+            });
+            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
+            return;
+        }
+
+        // 点をダブルクリックで消す
+        if (e.getNumberOfClicks() > 1)
+        {
+            if (index >= 0)
+            {
+                bends.erase (bends.begin() + index);
+                setBends (bends, "ピッチベンドの点を削除"_ju);
+            }
+
+            return;
+        }
+
+        if (index >= 0)
+        {
+            bendIndex = index;   // 点を動かす
+            return;
+        }
+
+        // 押した所（時間はグリッド、高さは半音の線の近くなら線）に点を置き、そのままドラッグで動かせる
+        const auto tick = juce::jlimit<collab::Tick> (0, std::max<collab::Tick> (0, clip->lengthTick - 1),
+                                                      owner.snap (owner.axis().xToTick (e.position.x), false, e.mods) - clip->startTick);
+        const collab::PitchBend added { tick, bendValueAt (e.position.y, e.mods.isAltDown()) };
+        std::erase_if (bends, [&] (auto& b) { return b.tick == added.tick; });
+        bends.push_back (added);
+        std::stable_sort (bends.begin(), bends.end(), [] (auto& a2, auto& b) { return a2.tick < b.tick; });
+        setBends (bends, "ピッチベンドの点を追加"_ju);
+        originalBends = bends;
+        bendIndex = (int) (std::find (bends.begin(), bends.end(), added) - bends.begin());
         return;
     }
 
@@ -345,9 +423,23 @@ void VelocityLane::mouseDrag (const juce::MouseEvent& e)
 {
     if (bendMode)
     {
-        if (! drawn.empty())
-            drawBendTo (e.position);
+        auto* clip = owner.getClip();
 
+        if (clip == nullptr || bendIndex < 0 || bendIndex >= (int) originalBends.size())
+            return;
+
+        // 点を動かす（時間はグリッド、Alt で自由に。高さは半音の線に吸い付く）
+        bendLast = e.position;
+        auto bends = originalBends;
+        const auto orig = bends[(size_t) bendIndex];
+        const auto absolute = (double) (clip->startTick + orig.tick) + (owner.axis().xToTick (e.position.x) - bendDownTick);
+        const collab::PitchBend moved { juce::jlimit<collab::Tick> (0, std::max<collab::Tick> (0, clip->lengthTick - 1),
+                                                                    owner.snap (absolute, false, e.mods) - clip->startTick),
+                                        bendValueAt (juce::jlimit (0.0f, (float) getHeight(), e.position.y), e.mods.isAltDown()) };
+        bends.erase (bends.begin() + bendIndex);
+        std::erase_if (bends, [&] (auto& b) { return b.tick == moved.tick; });
+        bends.push_back (moved);
+        setBends (bends, "ピッチベンドの点を移動"_ju);
         return;
     }
 
@@ -373,7 +465,8 @@ void VelocityLane::mouseDrag (const juce::MouseEvent& e)
 
 void VelocityLane::mouseUp (const juce::MouseEvent&)
 {
-    drawn.clear();
+    bendIndex = -1;
+    repaint();
     originalVelocities.clear();
     owner.ctx.document.endMerge();
 }
@@ -411,7 +504,11 @@ void AudioClipGrid::paint (juce::Graphics& g)
         const double start = (double) clip->sourceOffsetSamples / collab::kSampleRate;
         const double end = start + (double) clip->lengthSamples / collab::kSampleRate;
         AudioFiles::drawWaveform (g, *thumb, r.reduced (0.0f, 6.0f), start, end,
-                                  juce::Decibels::decibelsToGain ((float) clip->gainDb) * owner.ctx.state.waveformZoom, Theme::clipWave (colour));
+                                  juce::Decibels::decibelsToGain ((float) clip->gainDb) * owner.ctx.state.waveformZoom, Theme::clipWave (colour),
+                                  [this, hash = clip->audioHash] (double a, double b, juce::AudioBuffer<float>& buf)
+                                  {
+                                      return owner.ctx.audioCache.readSamples (owner.ctx.document.getProjectDir(), hash, a, b, buf);
+                                  });
         AudioFiles::drawTransients (g, owner.ctx.audioCache.getTransients (owner.ctx.document.getProjectDir(), clip->audioHash),
                                     r, start, end);
     }
@@ -452,5 +549,8 @@ void AudioClipGrid::mouseDown (const juce::MouseEvent& e)
 
 void AudioClipGrid::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
 {
+    if (owner.ctx.state.waveformWheel (e, w))
+        return;
+
     owner.handleWheel (e, w, this);
 }

@@ -222,7 +222,8 @@ void TrackLanes::paint (juce::Graphics& g)
         if (row.getBottom() < 0 || row.getY() > getHeight())
             continue;
 
-        g.setColour (t.id == ctx.state.selectedTrackId ? Theme::lane.brighter (0.06f) : (i % 2 ? Theme::laneAlt : Theme::lane));
+        const auto laneColour = t.id == ctx.state.selectedTrackId ? Theme::lane.brighter (0.06f) : (i % 2 ? Theme::laneAlt : Theme::lane);
+        g.setColour (laneColour);
         g.fillRect (row);
         TimeGrid::drawGrid (g, row, axis, map, &ctx.state.grid);
         g.setColour (Theme::background);
@@ -243,16 +244,46 @@ void TrackLanes::paint (juce::Graphics& g)
                            colour, ctx.state.isClipSelected (c.id));
         }
 
-        for (auto& c : t.audioClips)
+        // オーディオは半透明（後ろのグリッドが見える）。後ろ（先に並んでいる）のテイクと重なる所は、下にテイクがあることを斜線で示す
+        for (size_t k = 0; k < t.audioClips.size(); ++k)
         {
+            const auto& c = t.audioClips[k];
             const float x1 = (float) axis.tickToX ((double) c.startTick);
             const float x2 = (float) axis.tickToX ((double) collab::audioClipEndTick (c, map));
 
             if (x2 < 0 || x1 > (float) getWidth())
                 continue;
 
-            paintAudioClip (g, c, juce::Rectangle<float> (x1, (float) lane.getY() + 3.0f, juce::jmax (2.0f, x2 - x1), (float) lane.getHeight() - 7.0f),
-                            colour, ctx.state.isClipSelected (c.id));
+            const auto r = juce::Rectangle<float> (x1, (float) lane.getY() + 3.0f, juce::jmax (2.0f, x2 - x1), (float) lane.getHeight() - 7.0f);
+
+            // 下のテイクが透けないよう、この範囲はレーンとグリッドを描き直してから重ねる
+            {
+                juce::Graphics::ScopedSaveState save (g);
+                g.reduceClipRegion (r.toNearestInt());
+                g.setColour (laneColour);
+                g.fillRect (r);
+                TimeGrid::drawGrid (g, lane, axis, map, &ctx.state.grid);
+            }
+
+            paintAudioClip (g, c, r, colour, ctx.state.isClipSelected (c.id));
+
+            for (size_t j = 0; j < k; ++j)
+            {
+                const auto& under = t.audioClips[j];
+                const float u1 = juce::jmax (x1, (float) axis.tickToX ((double) under.startTick));
+                const float u2 = juce::jmin (x2, (float) axis.tickToX ((double) collab::audioClipEndTick (under, map)));
+
+                if (u2 - u1 < 1.0f)
+                    continue;
+
+                const auto hidden = r.withLeft (u1).withRight (u2);
+                juce::Graphics::ScopedSaveState save (g);
+                g.reduceClipRegion (hidden.toNearestInt());
+                g.setColour (Theme::text.withAlpha (0.16f));
+
+                for (float sx = hidden.getX() - hidden.getHeight(); sx < hidden.getRight(); sx += 7.0f)
+                    g.drawLine (sx, hidden.getBottom(), sx + hidden.getHeight(), hidden.getY(), 1.0f);
+            }
         }
 
         // 録音中: 入ってきている音をその場で描く（オーディオは入力の大きさ、MIDI は弾いたノート）
@@ -422,8 +453,8 @@ void TrackLanes::paintMidiClip (juce::Graphics& g, const collab::MidiClip& c, ju
 void TrackLanes::paintAudioClip (juce::Graphics& g, const collab::AudioClip& c, juce::Rectangle<float> r,
                                  juce::Colour colour, bool selected)
 {
-    // 不透明（重なったとき、上の新しいテイクで下が隠れる。Pro Tools と同じく鳴るのも上だけ）
-    const auto body = Theme::clipBody (colour);
+    // 半透明（後ろのグリッドが見える）。重なった下のテイクは、呼ぶ側で背景を描き直して隠す（鳴るのも上だけ）
+    const auto body = Theme::clipBody (colour).withMultipliedAlpha (0.55f);
     g.setColour (body);
     g.fillRoundedRectangle (r, 3.0f);
 
@@ -456,7 +487,10 @@ void TrackLanes::paintAudioClip (juce::Graphics& g, const collab::AudioClip& c, 
         const double start = (double) c.sourceOffsetSamples / collab::kSampleRate;
         const double end = start + (double) c.lengthSamples / collab::kSampleRate;
         AudioFiles::drawWaveform (g, *thumb, wave, start, end, juce::Decibels::decibelsToGain ((float) c.gainDb) * ctx.state.waveformZoom,
-                                  Theme::clipWave (colour));
+                                  Theme::clipWave (colour), [this, hash = c.audioHash] (double a, double b, juce::AudioBuffer<float>& buf)
+                                  {
+                                      return ctx.audioCache.readSamples (ctx.document.getProjectDir(), hash, a, b, buf);
+                                  });
         AudioFiles::drawTransients (g, ctx.audioCache.getTransients (ctx.document.getProjectDir(), c.audioHash), wave, start, end);
     }
     else
@@ -564,7 +598,7 @@ void TrackLanes::mouseMove (const juce::MouseEvent& e)
             const auto param = ctx.state.shownAutomation (t.id);
             const bool onPoint = automationPointAt (t, param, e.position, automationArea (row)) >= 0;
             return setMouseCursor (onPoint ? juce::MouseCursor::DraggingHandCursor
-                                           : ctx.state.pencil() ? Theme::pencilCursor() : juce::MouseCursor::CrosshairCursor);
+                                           : ctx.state.pencil() ? Theme::pencilCursor() : juce::MouseCursor::CrosshairCursor);   // どちらも点を置く
         }
     }
 
@@ -619,9 +653,6 @@ void TrackLanes::showClipMenu (const collab::Track& track, const std::string& cl
         m.addItem ("ピアノロールで開く"_ju, [this] { if (onOpenClip) onOpenClip(); });
 
     m.addItem ("再生位置で分割"_ju, [this] { ctx.splitAtPlayhead(); });
-
-    if (audio)
-        m.addSubMenu ("クロスフェード"_ju, ctx.crossfadeMenu (trackId));
 
     if (audio)
     {
@@ -1242,6 +1273,9 @@ void TrackLanes::createMidiClip (const std::string& trackId, int bar, bool thenD
 
 void TrackLanes::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
 {
+    if (ctx.state.waveformWheel (e, w))
+        return;
+
     if (onWheel)
         onWheel (e, w);
 }
@@ -1411,7 +1445,7 @@ void TrackLanes::paintAutomation (juce::Graphics& g, const collab::Track& t, con
         g.drawDashedLine ({ 0.0f, y, area.getRight(), y }, dashes, 2, 1.5f);
         g.setColour (Theme::textDim);
         g.setFont (juce::FontOptions (13.5f));
-        g.drawText (AutomationView::paramName (param) + juce::String::fromUTF8 ("：クリックで点を追加、鉛筆でドラッグして描く"),   // utf8-std
+        g.drawText (AutomationView::paramName (param) + juce::String::fromUTF8 ("：クリックで点を追加（グリッドに合わせる）"),   // utf8-std
                     area.reduced (8.0f, 2.0f).removeFromTop (16.0f), juce::Justification::centredLeft, true);
         return;
     }
@@ -1554,17 +1588,7 @@ void TrackLanes::automationMouseDown (const juce::MouseEvent& e, int trackIndex)
         return;
     }
 
-    if (ctx.state.pencil())
-    {
-        // 鉛筆: ドラッグした所に描く
-        d.original = points;
-        d.freehand = true;
-        automationDrag = d;
-        automationMouseDrag (e);
-        return;
-    }
-
-    // 選択ツール: 押した所に点を足して、そのままドラッグで動かせる
+    // 鉛筆・選択とも（Cubase と同じ）: 押した所（時間はグリッド）に点を置いて、そのままドラッグで動かせる
     const collab::AutomationPoint added { snap (ctx.state.timeline.xToTick (e.position.x), e.mods), automationValue (param, e.position.y, area) };
     collab::replaceAutomation (points, added.tick, added.tick, { added }, collab::automationRange (param));
     setAutomation (t.id, param, points, "オートメーションの点を追加"_ju, mergeId);

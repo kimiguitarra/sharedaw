@@ -84,7 +84,14 @@ std::optional<std::pair<MidiClip, MidiClip>> splitMidiClip (const MidiClip& c, T
         if (b.tick < rel)
             left.pitchBends.push_back (b);
 
-    if (const int v = pitchBendAt (c.pitchBends, rel); v != 0 && std::none_of (c.pitchBends.begin(), c.pitchBends.end(), [rel] (auto& b) { return b.tick == rel; }))
+    // 直線の途中で切るときは、左の終わり・右の頭に、その位置の値の点を置く（形を変えない）
+    const bool later = std::any_of (c.pitchBends.begin(), c.pitchBends.end(), [rel] (auto& b) { return b.tick >= rel; });
+
+    if (later && ! left.pitchBends.empty() && left.pitchBends.back().tick < rel - 1)
+        left.pitchBends.push_back ({ rel - 1, pitchBendAt (c.pitchBends, rel - 1) });
+
+    if (const int v = pitchBendAt (c.pitchBends, rel); (v != 0 || (later && ! left.pitchBends.empty()))
+         && std::none_of (c.pitchBends.begin(), c.pitchBends.end(), [rel] (auto& b) { return b.tick == rel; }))
         right.pitchBends.push_back ({ 0, v });
 
     for (auto b : c.pitchBends)
@@ -143,7 +150,10 @@ MidiClip trimMidiClipStart (const MidiClip& c, Tick newStart, Tick minLength)
     const int startValue = pitchBendAt (c.pitchBends, delta);
     std::vector<PitchBend> bends;
 
-    if (startValue != 0)
+    const bool crossing = std::any_of (c.pitchBends.begin(), c.pitchBends.end(), [delta] (auto& b) { return b.tick < delta; })
+                          && std::any_of (c.pitchBends.begin(), c.pitchBends.end(), [delta] (auto& b) { return b.tick > delta; });
+
+    if (startValue != 0 || crossing)   // 直線の途中から始まるときも、その値の点を頭に置く
         bends.push_back ({ 0, startValue });
 
     for (auto b : c.pitchBends)
@@ -174,6 +184,10 @@ MidiClip glueMidiClips (const MidiClip& a, const MidiClip& b)
 
     for (auto pb : a.pitchBends)
         bends.push_back ({ pb.tick + a.startTick - start, pb.value });
+
+    // a の最後の値は b の頭まで続き、b の頭で b の値になる（点の間は直線なので、b の頭の手前にも点を置く）
+    if (! a.pitchBends.empty() && b.startTick - start - 1 > a.pitchBends.back().tick + a.startTick - start)
+        bends.push_back ({ b.startTick - start - 1, a.pitchBends.back().value });
 
     if (! a.pitchBends.empty() || ! b.pitchBends.empty())
         bends.push_back ({ b.startTick - start, pitchBendAt (b.pitchBends, 0) });
@@ -408,17 +422,42 @@ std::vector<AudibleSegment> audibleSegments (const std::vector<AudioClip>& clips
 
 int pitchBendAt (const std::vector<PitchBend>& bends, Tick tick)
 {
-    int value = 0;
+    if (bends.empty() || tick < bends.front().tick)
+        return 0;
 
-    for (auto& b : bends)
+    for (size_t i = 0; i + 1 < bends.size(); ++i)
     {
-        if (b.tick > tick)
-            break;
+        const auto& a = bends[i];
+        const auto& b = bends[i + 1];
 
-        value = b.value;
+        if (tick >= a.tick && tick < b.tick)
+        {
+            if (b.tick == a.tick)
+                return b.value;
+
+            const double t = (double) (tick - a.tick) / (double) (b.tick - a.tick);
+            return (int) std::lround (a.value + (b.value - a.value) * t);
+        }
     }
 
-    return value;
+    return bends.back().value;
+}
+
+std::vector<PitchBend> densePitchBends (const std::vector<PitchBend>& bends, Tick stepTicks)
+{
+    std::vector<PitchBend> result;
+    stepTicks = std::max<Tick> (1, stepTicks);
+
+    for (size_t i = 0; i < bends.size(); ++i)
+    {
+        result.push_back (bends[i]);
+
+        if (i + 1 < bends.size() && bends[i + 1].value != bends[i].value)
+            for (Tick t = bends[i].tick + stepTicks; t < bends[i + 1].tick; t += stepTicks)
+                result.push_back ({ t, pitchBendAt (bends, t) });
+    }
+
+    return result;
 }
 
 void replacePitchBends (std::vector<PitchBend>& bends, Tick from, Tick to, const std::vector<PitchBend>& points)
@@ -439,16 +478,28 @@ void replacePitchBends (std::vector<PitchBend>& bends, Tick from, Tick to, const
 
     std::stable_sort (bends.begin(), bends.end(), [] (auto& a, auto& b) { return a.tick < b.tick; });
 
-    // 前と同じ値のイベントは省く（最初は 0 = 中央から始まる）
-    std::vector<PitchBend> compact;
-    int current = 0;
+    // 同じ tick は後のものだけ残す
+    std::vector<PitchBend> unique;
 
     for (auto& b : bends)
-        if (b.value != current)
-        {
-            compact.push_back (b);
-            current = b.value;
-        }
+    {
+        if (! unique.empty() && unique.back().tick == b.tick)
+            unique.back() = b;
+        else
+            unique.push_back (b);
+    }
+
+    // 形が変わらない点は省く（点の間は直線なので、前と後ろが同じ値のときだけ。最初の点より前は 0 = 中央）
+    std::vector<PitchBend> compact;
+
+    for (size_t i = 0; i < unique.size(); ++i)
+    {
+        const int before = compact.empty() ? 0 : compact.back().value;
+        const int after = i + 1 < unique.size() ? unique[i + 1].value : unique[i].value;
+
+        if (! (unique[i].value == before && unique[i].value == after))
+            compact.push_back (unique[i]);
+    }
 
     bends = compact;
 }

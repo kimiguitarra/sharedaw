@@ -346,7 +346,7 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdWaveBigger:
         case cmdWaveSmaller:
             // 表示だけ（クリップの音量や書き出しは変わらない）。1 倍〜16 倍
-            state.waveformZoom = juce::jlimit (1.0f, 16.0f, state.waveformZoom * (info.commandID == cmdWaveBigger ? 1.5f : 1.0f / 1.5f));
+            state.waveformZoom = juce::jlimit (1.0f, 64.0f, state.waveformZoom * (info.commandID == cmdWaveBigger ? 1.5f : 1.0f / 1.5f));
 
             if (state.waveformZoom < 1.05f)
                 state.waveformZoom = 1.0f;

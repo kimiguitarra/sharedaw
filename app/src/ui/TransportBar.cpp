@@ -221,16 +221,6 @@ ToolBar::ToolBar (AppContext& c) : ctx (c)
         };
     }
 
-    // そのトラックのテイクのつなぎ（くっついた・重なったクリップのクロスフェードの長さと形）
-    crossfadeButton.setTooltip ("クロスフェード"_ju);
-    crossfadeButton.setWantsKeyboardFocus (false);
-    crossfadeButton.onClick = [this]
-    {
-        if (auto sel = selectedAudioClip())
-            ctx.crossfadeMenu (sel->first).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&crossfadeButton));
-    };
-    addChildComponent (crossfadeButton);
-
     keyLabel.setTooltip ("キー"_ju);
     keyLabel.setMouseCursor (juce::MouseCursor::PointingHandCursor);
     keyLabel.addMouseListener (this, false);
@@ -307,7 +297,7 @@ void ToolBar::refreshClip()
     const bool show = sel.has_value();
     bool layoutChanged = false;
 
-    for (auto* c : std::initializer_list<juce::Component*> { &clipTitle, &clipGainLabel, &fadeInLabel, &fadeOutLabel, &crossfadeButton })
+    for (auto* c : std::initializer_list<juce::Component*> { &clipTitle, &clipGainLabel, &fadeInLabel, &fadeOutLabel })
         if (c->isVisible() != show)
         {
             c->setVisible (show);
@@ -327,9 +317,6 @@ void ToolBar::refreshClip()
 
         if (! fadeOutLabel.isBeingEdited())
             fadeOutLabel.setText ("out " + ms (c.fadeOutSamples), juce::dontSendNotification);
-
-        if (auto* t = ctx.document.getProject().findTrack (sel->first))
-            crossfadeButton.setButtonText ("X-fade " + juce::String (juce::roundToInt (t->crossfadeMs)) + " ms");
     }
 
     if (layoutChanged)
@@ -443,9 +430,7 @@ void ToolBar::resized()
         clipGainLabel.setBounds (area.removeFromLeft (84));
         fadeInLabel.setBounds (area.removeFromLeft (90));
         fadeOutLabel.setBounds (area.removeFromLeft (96));
-        area.removeFromLeft (4);
-        crossfadeButton.setBounds (area.removeFromLeft (120).reduced (0, 3));
-        groups.push_back (clipTitle.getBounds().getUnion (crossfadeButton.getBounds()).expanded (4, 1));
+        groups.push_back (clipTitle.getBounds().getUnion (fadeOutLabel.getBounds()).expanded (4, 1));
     }
 }
 

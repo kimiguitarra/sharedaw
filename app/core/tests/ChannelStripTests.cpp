@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
@@ -264,4 +265,56 @@ TEST_CASE ("track input and output channels round-trip through JSON")
     back = parseProject (serialiseProject (p));
     CHECK (back.tracks.back().crossfadeMs == doctest::Approx (50.0));
     CHECK (back.tracks.back().crossfadeShape == "sCurve");
+}
+
+TEST_CASE ("compressor does not colour a steady tone (no added harmonics)")
+{
+    const double sr = 48000.0, pi = 3.14159265358979323846;
+
+    auto toneAmplitude = [sr, pi] (const std::vector<float>& x, double f)
+    {
+        double re = 0.0, im = 0.0;
+
+        for (size_t i = 0; i < x.size(); ++i)
+        {
+            re += x[i] * std::cos (2.0 * pi * f * (double) i / sr);
+            im -= x[i] * std::sin (2.0 * pi * f * (double) i / sr);
+        }
+
+        return 2.0 * std::sqrt (re * re + im * im) / (double) x.size();
+    };
+
+    for (auto type : { CompType::fet, CompType::opto })
+    {
+        ChannelStripDsp dsp;
+        dsp.prepare (sr);
+        ChannelStrip p;
+        p.comp.enabled = true;
+        p.comp.type = type;
+        p.comp.thresholdDb = -24.0;
+        p.comp.ratio = 4.0;
+        dsp.setParams (p);
+
+        const int n = (int) sr * 2;
+        std::vector<float> x ((size_t) n);
+
+        for (int i = 0; i < n; ++i)
+            x[(size_t) i] = (float) (0.5 * std::sin (2.0 * pi * 60.0 * i / sr));
+
+        for (int pos = 0; pos < n; pos += 512)
+        {
+            float* ch[1] = { x.data() + pos };
+            dsp.process (ch, 1, std::min (512, n - pos));
+        }
+
+        CHECK (dsp.getGainReductionDb() > 8.0f);
+
+        const std::vector<float> settled (x.begin() + (long) sr, x.end());
+        double harmonics = 0.0;
+
+        for (int k = 2; k <= 10; ++k)
+            harmonics += std::pow (toneAmplitude (settled, 60.0 * k), 2.0);
+
+        CHECK (std::sqrt (harmonics) / toneAmplitude (settled, 60.0) < 0.001);
+    }
 }

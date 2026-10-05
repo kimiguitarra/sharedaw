@@ -1048,32 +1048,3 @@ juce::PopupMenu AppContext::stretchMenu (std::function<void (double)> apply)
     return m;
 }
 
-//==============================================================================
-juce::PopupMenu AppContext::crossfadeMenu (const std::string& trackId)
-{
-    juce::PopupMenu m;
-    auto* t = document.getProject().findTrack (trackId);
-
-    if (t == nullptr)
-        return m;
-
-    auto shapeName = [] (const std::string& shape)
-    {
-        return shape == "linear" ? "直線"_ju : shape == "sCurve" ? "S 字"_ju : "等パワー"_ju;
-    };
-
-    m.addSectionHeader ("長さ"_ju);
-
-    for (double ms : { 0.0, 5.0, 10.0, 20.0, 50.0, 100.0, 250.0 })
-        m.addItem (juce::String ((int) ms) + " ms", true, std::abs (t->crossfadeMs - ms) < 0.01,
-                   [this, trackId, ms] { editTrack (trackId, "クロスフェードの長さ"_ju, [ms] (collab::Track& tr) { tr.crossfadeMs = ms; }); });
-
-    m.addSectionHeader ("形"_ju);
-
-    for (auto shape : { "equalPower", "linear", "sCurve" })
-        m.addItem (shapeName (shape),
-                   true, t->crossfadeShape == shape,
-                   [this, trackId, s = std::string (shape)] { editTrack (trackId, "クロスフェードの形"_ju, [s] (collab::Track& tr) { tr.crossfadeShape = s; }); });
-
-    return m;
-}

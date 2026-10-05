@@ -55,8 +55,14 @@ MidiClip glueMidiClips (const MidiClip& a, const MidiClip& b);
 */
 std::string addRecordedMidi (std::vector<MidiClip>& clips, MidiClip recorded, bool mergeIntoExisting);
 
-/** その位置（クリップ先頭からの tick）でのピッチベンドの値（直前のイベントの値。なければ 0 = 中央）。 */
+/**
+    その位置（クリップ先頭からの tick）でのピッチベンドの値。点と点の間は直線でつなぐ（Cubase のランプ）。
+    最初の点より前は 0（中央）、最後の点より後はその点の値。
+*/
 int pitchBendAt (const std::vector<PitchBend>&, Tick);
+
+/** 鳴らす・MIDI ファイルに書く用: 点の間の直線を、stepTicks ごとのイベントで埋めたもの。 */
+std::vector<PitchBend> densePitchBends (const std::vector<PitchBend>&, Tick stepTicks = 20);
 
 /**
     ピッチベンドを描く: from〜to（クリップ先頭からの tick）のイベントを points で置き換える。

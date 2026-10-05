@@ -62,7 +62,6 @@ struct AppContext
     juce::PopupMenu routingMenu (const std::string& trackId);
 
     /** 重なったテイクのつなぎ（クロスフェードの長さ・形）。オーディオトラックの右クリックメニュー用。 */
-    juce::PopupMenu crossfadeMenu (const std::string& trackId);
     juce::PopupMenu outputMenu (const std::string& trackId);
     juce::PopupMenu sendMenu (const std::string& trackId);
 

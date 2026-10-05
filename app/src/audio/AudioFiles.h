@@ -49,7 +49,8 @@ namespace AudioFiles
         start〜end は元ファイルの秒。拡大しても点々にならないよう、ピクセルごとの最大・最小を線でつないで塗る。
     */
     void drawWaveform (juce::Graphics&, juce::AudioThumbnail&, juce::Rectangle<float> area,
-                       double startSeconds, double endSeconds, float gain, juce::Colour);
+                       double startSeconds, double endSeconds, float gain, juce::Colour,
+                       std::function<bool (double fromSeconds, double toSeconds, juce::AudioBuffer<float>&)> readExact = {});
 
     /** 音の立ち上がりの位置に縦線を引く（area の左端 = startSeconds、右端 = endSeconds。transients が nullptr なら何もしない）。 */
     void drawTransients (juce::Graphics&, const std::vector<double>* transients, juce::Rectangle<float> area,
@@ -76,6 +77,12 @@ public:
 
     bool transientsAtPeak = false;
 
+    /**
+        実体の from〜to 秒をそのまま読む（大きく拡大して、波形の要約より細かく見るとき）。読めなければ false。
+        まとめて読むので、拡大した画面の幅ぶん（数千サンプル）くらいまでに使う。
+    */
+    bool readSamples (const juce::File& projectDir, const std::string& hash, double fromSeconds, double toSeconds, juce::AudioBuffer<float>&);
+
     /** 実体の長さ（サンプル）。ファイルがなければ 0。 */
     juce::int64 getLengthSamples (const juce::File& projectDir, const std::string& hash);
 
@@ -86,6 +93,7 @@ private:
     juce::AudioThumbnailCache thumbnailCache { 64 };
     std::map<std::string, std::unique_ptr<juce::AudioThumbnail>> thumbnails;
     std::map<std::string, juce::int64> lengths;
+    std::map<std::string, std::unique_ptr<juce::AudioFormatReader>> readers;
     struct Hits { std::vector<double> onsets, peaks; };
     std::map<std::string, Hits> transients;
 

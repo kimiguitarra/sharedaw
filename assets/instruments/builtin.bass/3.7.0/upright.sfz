@@ -1,0 +1,45 @@
+// ウッドベース（打ち込み向け）: Meatbass（Karoryfer Samples、CC0）のピチカートから、余計な倍音を減らし、
+// 音価いっぱい伸ばせるようにループしたもの（tools/make-bass-3-7.py）。弾いた瞬間だけ少し輪郭を足し、弾いた後は少しだけ小さくなり、その後は同じ大きさで鳴る。離すと止まる
+<group> note_polyphony=1 group=1 off_by=1 amp_veltrack=70 ampeg_attack=0.001 ampeg_release=0.18 eq2_freq=110 eq2_bw=1.2 eq2_gain=2
+<region> sample=upright/21_vl2.flac pitch_keycenter=21 tune=-2 lokey=0 hikey=22 lovel=0 hivel=70 loop_mode=loop_continuous loop_start=74970 loop_end=84660
+<region> sample=upright/21_vl3.flac pitch_keycenter=21 tune=-6 lokey=0 hikey=22 lovel=71 hivel=105 loop_mode=loop_continuous loop_start=66828 loop_end=74876
+<region> sample=upright/21_vl4.flac pitch_keycenter=21 tune=2 lokey=0 hikey=22 lovel=106 hivel=127 loop_mode=loop_continuous loop_start=58686 loop_end=68356
+<region> sample=upright/24_vl2.flac pitch_keycenter=24 tune=28 lokey=23 hikey=25 lovel=0 hivel=70 loop_mode=loop_continuous loop_start=74970 loop_end=81816
+<region> sample=upright/24_vl3.flac pitch_keycenter=24 tune=20 lokey=23 hikey=25 lovel=71 hivel=105 loop_mode=loop_continuous loop_start=74461 loop_end=81313
+<region> sample=upright/24_vl4.flac pitch_keycenter=24 tune=18 lokey=23 hikey=25 lovel=106 hivel=127 loop_mode=loop_continuous loop_start=62757 loop_end=69602
+<region> sample=upright/27_vl2.flac pitch_keycenter=27 tune=8 lokey=26 hikey=28 lovel=0 hivel=70 loop_mode=loop_continuous loop_start=45622 loop_end=52475
+<region> sample=upright/27_vl3.flac pitch_keycenter=27 tune=7 lokey=26 hikey=28 lovel=71 hivel=105 loop_mode=loop_continuous loop_start=39252 loop_end=46101
+<region> sample=upright/27_vl4.flac pitch_keycenter=27 tune=8 lokey=26 hikey=28 lovel=106 hivel=127 loop_mode=loop_continuous loop_start=49134 loop_end=55959
+<region> sample=upright/30_vl2.flac pitch_keycenter=30 tune=-4 lokey=29 hikey=31 lovel=0 hivel=70 loop_mode=loop_continuous loop_start=59160 loop_end=65826
+<region> sample=upright/30_vl3.flac pitch_keycenter=30 tune=-6 lokey=29 hikey=31 lovel=71 hivel=105 loop_mode=loop_continuous loop_start=50333 loop_end=56992
+<region> sample=upright/30_vl4.flac pitch_keycenter=30 tune=-12 lokey=29 hikey=31 lovel=106 hivel=127 loop_mode=loop_continuous loop_start=50285 loop_end=59786
+<region> sample=upright/33_vl2.flac pitch_keycenter=33 tune=1 lokey=32 hikey=34 lovel=0 hivel=70 loop_mode=loop_continuous loop_start=58686 loop_end=65925
+<region> sample=upright/33_vl3.flac pitch_keycenter=33 tune=0 lokey=32 hikey=34 lovel=71 hivel=105 loop_mode=loop_continuous loop_start=57332 loop_end=66191
+<region> sample=upright/33_vl4.flac pitch_keycenter=33 tune=5 lokey=32 hikey=34 lovel=106 hivel=127 loop_mode=loop_continuous loop_start=69551 loop_end=76825
+<region> sample=upright/36_vl2.flac pitch_keycenter=36 tune=5 lokey=35 hikey=37 lovel=0 hivel=70 loop_mode=loop_continuous loop_start=40714 loop_end=47473
+<region> sample=upright/36_vl3.flac pitch_keycenter=36 tune=6 lokey=35 hikey=37 lovel=71 hivel=105 loop_mode=loop_continuous loop_start=34615 loop_end=41378
+<region> sample=upright/36_vl4.flac pitch_keycenter=36 tune=10 lokey=35 hikey=37 lovel=106 hivel=127 loop_mode=loop_continuous loop_start=37440 loop_end=44218
+<region> sample=upright/39_vl2.flac pitch_keycenter=39 tune=0 lokey=38 hikey=40 lovel=0 hivel=70 loop_mode=loop_continuous loop_start=70544 loop_end=77372
+<region> sample=upright/39_vl3.flac pitch_keycenter=39 tune=2 lokey=38 hikey=40 lovel=71 hivel=105 loop_mode=loop_continuous loop_start=57504 loop_end=64326
+<region> sample=upright/39_vl4.flac pitch_keycenter=39 tune=0 lokey=38 hikey=40 lovel=106 hivel=127 loop_mode=loop_continuous loop_start=51801 loop_end=58615
+<region> sample=upright/42_vl2.flac pitch_keycenter=42 tune=-8 lokey=41 hikey=43 lovel=0 hivel=70 loop_mode=loop_continuous loop_start=73952 loop_end=80600
+<region> sample=upright/42_vl3.flac pitch_keycenter=42 tune=-8 lokey=41 hikey=43 lovel=71 hivel=105 loop_mode=loop_continuous loop_start=57797 loop_end=64456
+<region> sample=upright/42_vl4.flac pitch_keycenter=42 tune=0 lokey=41 hikey=43 lovel=106 hivel=127 loop_mode=loop_continuous loop_start=39528 loop_end=51927
+<region> sample=upright/45_vl2.flac pitch_keycenter=45 tune=8 lokey=44 hikey=46 lovel=0 hivel=70 loop_mode=loop_continuous loop_start=30530 loop_end=37365
+<region> sample=upright/45_vl3.flac pitch_keycenter=45 tune=7 lokey=44 hikey=46 lovel=71 hivel=105 loop_mode=loop_continuous loop_start=26573 loop_end=33464
+<region> sample=upright/45_vl4.flac pitch_keycenter=45 tune=11 lokey=44 hikey=46 lovel=106 hivel=127 loop_mode=loop_continuous loop_start=49483 loop_end=56360
+<region> sample=upright/48_vl2.flac pitch_keycenter=48 tune=6 lokey=47 hikey=49 lovel=0 hivel=70 loop_mode=loop_continuous loop_start=59580 loop_end=66336
+<region> sample=upright/48_vl3.flac pitch_keycenter=48 tune=3 lokey=47 hikey=49 lovel=71 hivel=105 loop_mode=loop_continuous loop_start=63511 loop_end=70272
+<region> sample=upright/48_vl4.flac pitch_keycenter=48 tune=2 lokey=47 hikey=49 lovel=106 hivel=127 loop_mode=loop_continuous loop_start=66156 loop_end=72905
+<region> sample=upright/51_vl2.flac pitch_keycenter=51 tune=14 lokey=50 hikey=52 lovel=0 hivel=70 loop_mode=loop_continuous loop_start=55786 loop_end=68365
+<region> sample=upright/51_vl3.flac pitch_keycenter=51 tune=16 lokey=50 hikey=52 lovel=71 hivel=105 loop_mode=loop_continuous loop_start=58909 loop_end=65765
+<region> sample=upright/51_vl4.flac pitch_keycenter=51 tune=17 lokey=50 hikey=52 lovel=106 hivel=127 loop_mode=loop_continuous loop_start=52387 loop_end=59254
+<region> sample=upright/54_vl2.flac pitch_keycenter=54 tune=0 lokey=53 hikey=55 lovel=0 hivel=70 loop_mode=loop_continuous loop_start=26460 loop_end=34475
+<region> sample=upright/54_vl3.flac pitch_keycenter=54 tune=0 lokey=53 hikey=55 lovel=71 hivel=105 loop_mode=loop_continuous loop_start=26460 loop_end=34475
+<region> sample=upright/54_vl4.flac pitch_keycenter=54 tune=0 lokey=53 hikey=55 lovel=106 hivel=127 loop_mode=loop_continuous loop_start=26460 loop_end=34475
+<region> sample=upright/57_vl2.flac pitch_keycenter=57 tune=10 lokey=56 hikey=58 lovel=0 hivel=70 loop_mode=loop_continuous loop_start=28691 loop_end=36951
+<region> sample=upright/57_vl3.flac pitch_keycenter=57 tune=10 lokey=56 hikey=58 lovel=71 hivel=105 loop_mode=loop_continuous loop_start=28156 loop_end=36416
+<region> sample=upright/57_vl4.flac pitch_keycenter=57 tune=10 lokey=56 hikey=58 lovel=106 hivel=127 loop_mode=loop_continuous loop_start=28156 loop_end=36416
+<region> sample=upright/60_vl2.flac pitch_keycenter=60 tune=14 lokey=59 hikey=127 lovel=0 hivel=70 loop_mode=loop_continuous loop_start=26460 loop_end=33090
+<region> sample=upright/60_vl3.flac pitch_keycenter=60 tune=14 lokey=59 hikey=127 lovel=71 hivel=105 loop_mode=loop_continuous loop_start=26460 loop_end=33090
+<region> sample=upright/60_vl4.flac pitch_keycenter=60 tune=14 lokey=59 hikey=127 lovel=106 hivel=127 loop_mode=loop_continuous loop_start=26460 loop_end=33090

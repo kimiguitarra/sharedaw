@@ -357,7 +357,7 @@ void PianoRollView::handleWheel (const juce::MouseEvent& e, const juce::MouseWhe
 
     if (e.mods.isCommandDown() || e.mods.isCtrlDown())
     {
-        ax.zoomAround (e.getEventRelativeTo (&grid).position.x, w.deltaY > 0 ? 1.15 : 1.0 / 1.15, 10.0, 2000.0);
+        ax.zoomAround (e.getEventRelativeTo (&grid).position.x, w.deltaY > 0 ? 1.15 : 1.0 / 1.15, 10.0);
     }
     else if (e.mods.isShiftDown() || std::abs (w.deltaX) > std::abs (w.deltaY) || shownAsAudio || showingStaff())
     {
@@ -425,7 +425,7 @@ void PianoRollView::clipChanged()
         {
             const auto start = (double) audio->startTick;
             const double len = juce::jmax ((double) collab::kPpq, (double) collab::audioClipEndTick (*audio, ctx.document.getTempoMap()) - start);
-            axis().pixelsPerQuarter = juce::jlimit (10.0, 2000.0, audioGrid.getWidth() * 0.9 / (len / collab::kPpq));
+            axis().pixelsPerQuarter = juce::jlimit (10.0, TimeAxis::maxPixelsPerQuarter, audioGrid.getWidth() * 0.9 / (len / collab::kPpq));
             axis().scrollTick = juce::jmax (0.0, start - len * 0.03);
             ctx.state.pianoRollAutoFitted = true;
         }

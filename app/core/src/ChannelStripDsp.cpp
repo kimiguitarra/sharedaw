@@ -135,6 +135,7 @@ double compGainReductionDb (double levelDb, double thresholdDb, double ratio, do
 void ChannelStripDsp::prepare (double sr)
 {
     sampleRate = sr > 0 ? sr : 48000.0;
+    peakHold.prepare ((int) (0.010 * sampleRate));
     setParams (params);
     reset();
 }
@@ -149,6 +150,7 @@ void ChannelStripDsp::reset()
         s = {};
 
     envDb = 0.0;
+    peakHold.reset();
     rmsSquare = 0.0;
     optoMemory = 0.0;
     gainReductionDb.store (0.0f);
@@ -230,7 +232,7 @@ void ChannelStripDsp::processComp (float* const* channels, int numChannels, int 
     const auto& c = params.comp;
     const bool opto = c.type == CompType::opto;
 
-    // FET: ピーク検出・速いアタック・ハードに近いニー。オプティカル: RMS 検出・ゆっくり・広いニー、
+    // どちらも音に色は付けない（量を変えるだけ）。FET: ピーク検出・速いアタック・ハードに近いニー。オプティカル: RMS 検出・ゆっくり・広いニー、
     // リリースは圧縮が続くほど遅くなる（LA-2A のように 2 段階で戻る感じ）
     const double knee = opto ? 10.0 : 2.0;
     const double attack = onePole (opto ? 0.010 : std::max (0.00002, c.attackMs * 0.001), sampleRate);
@@ -261,7 +263,8 @@ void ChannelStripDsp::processComp (float* const* channels, int numChannels, int 
         }
         else
         {
-            levelDb = 20.0 * std::log10 (peak + 1e-10);
+            // 10 ms の間の最大値を大きさにする（低い音の 1 周期の中で量を揺らさない＝歪ませない）
+            levelDb = 20.0 * std::log10 (peakHold.push (peak) + 1e-10);
         }
 
         const double target = compGainReductionDb (levelDb, c.thresholdDb, c.ratio, knee);
@@ -289,18 +292,8 @@ void ChannelStripDsp::processComp (float* const* channels, int numChannels, int 
         maxGr = std::max (maxGr, envDb);
         const double gain = std::pow (10.0, -envDb / 20.0) * makeupGain;
 
-        // FET は圧縮が深いほど少し歪む（色付け）
-        const double drive = opto ? 0.0 : std::min (envDb / 24.0, 1.0) * 0.2;
-
         for (int ch = 0; ch < numChannels; ++ch)
-        {
-            double y = channels[ch][i] * gain;
-
-            if (drive > 0.0)
-                y = (1.0 - drive) * y + drive * std::tanh (y);
-
-            channels[ch][i] = (float) y;
-        }
+            channels[ch][i] = (float) (channels[ch][i] * gain);
     }
 
     gainReductionDb.store ((float) maxGr, std::memory_order_relaxed);

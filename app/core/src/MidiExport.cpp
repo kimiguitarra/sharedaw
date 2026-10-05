@@ -211,7 +211,7 @@ std::vector<std::uint8_t> writeMidiFile (const Project& project, const TempoMap&
                 events.push_back ({ tick, 2, { (std::uint8_t) (0xe0 | channel), (std::uint8_t) (v & 0x7f), (std::uint8_t) ((v >> 7) & 0x7f) } });
             };
 
-            for (auto& b : clip.pitchBends)
+            for (auto& b : densePitchBends (clip.pitchBends))   // 点の間の直線は細かいイベントで
                 if (b.tick >= 0 && b.tick < clip.lengthTick)
                     bend (clip.startTick + b.tick, b.value);
 
