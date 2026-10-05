@@ -23,6 +23,7 @@ namespace PianoRollDetail
     inline constexpr int toolbarHeight = 30;
     inline constexpr int rulerHeight = 24;
     inline constexpr int velocityHeight = 70;
+    inline constexpr int pitchBendHeight = 64;
     inline constexpr int scrollBarSize = 12;
     inline constexpr float edgeGrab = 6.0f;
 

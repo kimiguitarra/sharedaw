@@ -61,14 +61,14 @@ private:
 };
 
 /**
-    ベロシティの表示・編集（選んだノートを上下にドラッグ）。
-    左上のボタンでピッチベンドに切り替える: ドラッグで描く、Alt か右ボタンでドラッグすると中央に戻す、ダブルクリックでクリップのベンドを全部消す。
+    ノートの下の段。ベロシティの段（選んだノートを上下にドラッグ）と、その下のピッチベンドの段
+    （ドラッグで描く、Alt か右ボタンでドラッグすると中央に戻す、ダブルクリックでクリップのベンドを全部消す）。
 */
 class VelocityLane  : public juce::Component,
                       public juce::SettableTooltipClient
 {
 public:
-    explicit VelocityLane (PianoRollView& o);
+    VelocityLane (PianoRollView& o, bool pitchBendLane);
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseMove (const juce::MouseEvent&) override;
@@ -77,16 +77,13 @@ public:
     void mouseUp (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
 
-    bool showsPitchBend() const noexcept    { return bendMode; }
-    void setShowsPitchBend (bool);
 
 private:
     PianoRollView& owner;
     juce::String mergeId;
 
     // ピッチベンド
-    bool bendMode = false;
-    juce::TextButton modeButton;
+    const bool bendMode;
     std::vector<collab::PitchBend> originalBends;
     std::map<collab::Tick, int> drawn;          // このドラッグで描いた点（クリップ先頭からの tick → 値）
     juce::Point<float> lastDraw;
@@ -153,7 +150,7 @@ public:
     void nudgeSelection (int direction);
 
     /** 下の段をピッチベンドの表示・編集にする（false でベロシティ）。 */
-    void showPitchBend (bool shouldShow)    { velocity.setShowsPitchBend (shouldShow); }
+    void showPitchBend (bool)               {}   // ピッチベンドの段はいつも出ている（ドラム以外）
     /** 選択中のノートを、いちばん早いノートを起点に factor 倍に伸び縮みさせる（位置と長さ）。 */
     void stretchSelection (double factor);
     /** 選択中のノートのベロシティを delta だけ変える。 */
@@ -236,7 +233,7 @@ private:
     Ruler ruler;
     PianoKeyboard keyboard { *this };
     NoteGrid grid { *this };
-    VelocityLane velocity { *this };
+    VelocityLane velocity { *this, false }, bendLane { *this, true };
     AudioClipGrid audioGrid { *this };
     PlayheadOverlay playhead;
     juce::ScrollBar hScroll { false }, vScroll { true };

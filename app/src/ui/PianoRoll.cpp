@@ -76,6 +76,7 @@ PianoRollView::PianoRollView (AppContext& c)
     addAndMakeVisible (keyboard);
     addAndMakeVisible (grid);
     addAndMakeVisible (velocity);
+    addAndMakeVisible (bendLane);
     addChildComponent (audioGrid);
     addAndMakeVisible (hScroll);
     addAndMakeVisible (vScroll);
@@ -244,6 +245,7 @@ void PianoRollView::resized()
     for (auto* c : std::initializer_list<juce::Component*> { &keyboard, &grid, &velocity, &vScroll, &snapToggle, &quantiseButton,
                                                              &nudgeLeftButton, &nudgeRightButton })
         c->setVisible (! shownAsAudio);
+    bendLane.setVisible (! shownAsAudio && ! shownAsDrums);   // ドラムにはピッチベンドの段を出さない
     audioGrid.setVisible (shownAsAudio);
 
     // 五線譜（ドラム・オーディオでは使わない）: 鍵盤とノートの欄の代わりに出す
@@ -292,7 +294,9 @@ void PianoRollView::resized()
     }
 
     const int stripHeight = topStrip != nullptr ? topStrip->preferredHeight() : 0;
-    vScroll.setBounds (area.removeFromRight (scrollBarSize).withTrimmedTop (rulerHeight + stripHeight).withTrimmedBottom (velocityHeight + scrollBarSize));
+    const int bendHeight = bendLane.isVisible() ? pitchBendHeight : 0;
+    vScroll.setBounds (area.removeFromRight (scrollBarSize).withTrimmedTop (rulerHeight + stripHeight)
+                         .withTrimmedBottom (velocityHeight + bendHeight + scrollBarSize));
 
     auto left = area.removeFromLeft (keyboardWidth());
     hScroll.setBounds (area.removeFromBottom (scrollBarSize));
@@ -308,6 +312,8 @@ void PianoRollView::resized()
         topStrip->setLeftWidth (left.getWidth());
         topStrip->setBounds (left.getX(), row.getY(), row.getRight() - left.getX(), stripHeight);
     }
+    bendLane.setBounds (area.removeFromBottom (bendHeight));
+    left.removeFromBottom (bendHeight);
     velocity.setBounds (area.removeFromBottom (velocityHeight));
     left.removeFromBottom (velocityHeight);
     grid.setBounds (area);
@@ -315,7 +321,7 @@ void PianoRollView::resized()
     staff.setLeftWidth (left.getWidth());
     staff.setBounds (left.getX(), area.getY(), area.getRight() - left.getX(), area.getHeight());
 
-    playhead.setBounds (ruler.getX(), ruler.getY(), ruler.getWidth(), velocity.getBottom() - ruler.getY());
+    playhead.setBounds (ruler.getX(), ruler.getY(), ruler.getWidth(), juce::jmax (velocity.getBottom(), bendLane.getBottom()) - ruler.getY());
     playhead.refresh();
     updateScrollBars();
 }

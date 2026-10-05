@@ -369,7 +369,18 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
     }, "nudge and velocity in the piano roll" });
     steps->push_back ({ 300, [] (MainComponent& m)
     {
-        // ピッチベンド: 下の段を切り替えて描き（ドラッグと同じ編集）、画面を保存し、元に戻す
+        // ピッチベンド: ドラム以外の MIDI クリップを選んで、下のピッチベンドの段に描き（ドラッグと同じ編集）、画面を保存し、元に戻す
+        for (auto& t : m.document.getProject().tracks)
+            if (t.type == collab::TrackType::midi && ! t.midiClips.empty()
+                 && ! (t.instrument && t.instrument->id == "builtin.drums"))
+            {
+                m.state.selectedTrackId = t.id;
+                m.state.selectClip (t.midiClips.front().id);
+                m.state.changed();
+                break;
+            }
+
+        m.pianoRoll.resized();   // ドラムからほかの楽器に変わったので、段を並べ直す（ふだんは変更の通知で行う）
         auto* clip = m.ctx.selectedClip();
 
         if (clip == nullptr)

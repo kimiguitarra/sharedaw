@@ -75,28 +75,13 @@ void PianoKeyboard::mouseWheelMove (const juce::MouseEvent& e, const juce::Mouse
 }
 
 //==============================================================================
-VelocityLane::VelocityLane (PianoRollView& o) : owner (o)
+VelocityLane::VelocityLane (PianoRollView& o, bool pitchBendLane) : owner (o), bendMode (pitchBendLane)
 {
-    modeButton.setWantsKeyboardFocus (false);
-    modeButton.onClick = [this] { setShowsPitchBend (! bendMode); };
-    addAndMakeVisible (modeButton);
-    setShowsPitchBend (false);
-}
-
-void VelocityLane::setShowsPitchBend (bool shouldShow)
-{
-    bendMode = shouldShow;
-    modeButton.setButtonText (bendMode ? "ピッチベンド"_ju : "ベロシティ"_ju);
-    modeButton.setTooltip (bendMode ? "ベロシティの表示に切り替える"_ju : "ピッチベンドの表示に切り替える"_ju);
     setTooltip (bendMode ? "ドラッグでピッチベンドを描く（真ん中＝0。上下の端で ±2 半音）。Alt か右ボタンでドラッグすると中央に戻す、ダブルクリックでこのクリップのベンドを全部消す"_ju
                          : "ノートを選んでから、上下にドラッグでベロシティを変えます（選んだノートはまとめて）"_ju);
-    repaint();
 }
 
-void VelocityLane::resized()
-{
-    modeButton.setBounds (getWidth() - 96, 3, 92, 18);   // 右上（ノートの少ない所）
-}
+void VelocityLane::resized() {}
 
 void VelocityLane::paint (juce::Graphics& g)
 {
@@ -106,6 +91,12 @@ void VelocityLane::paint (juce::Graphics& g)
 
     g.setColour (Theme::background);
     g.drawHorizontalLine (0, 0.0f, (float) getWidth());
+
+    // 段の名前（右上。ノートの少ない所）
+    g.setColour (Theme::textDim.withAlpha (0.8f));
+    g.setFont (juce::FontOptions (13.0f));
+    g.drawText (bendMode ? "ピッチベンド"_ju : "ベロシティ"_ju, getLocalBounds().removeFromTop (18).withTrimmedRight (8),
+                juce::Justification::centredRight);
 
     if (clip == nullptr)
         return;
