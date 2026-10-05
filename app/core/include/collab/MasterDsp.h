@@ -14,11 +14,14 @@ namespace collab
 /**
     ヴィンテージ系のリミッター（Ozone の Vintage Limiter の操作感を目標にしたもの）。
     1) THRESHOLD の分だけ入力を持ち上げる
-    2) 音楽的にかかる段（ソフトニーのピーク検出。CHARACTER で速さ、モードで性格が変わる）
+    2) 音楽的にかかる段（ソフトニー。CHARACTER で速さ、モードで性格が変わる）
        - Analog: やわらかいニー、かかり続けるほどリリースが遅くなる（プログラム依存）
        - Tube:   Analog に真空管風の偶数次の倍音を少し足す（かかるほど濃くなる）
        - Modern: ニーが狭く速い、色付けなし
-    3) 先読み（約 1.5 ms）のブリックウォールで CEILING を必ず守る
+    3) 先読み（5 ms）のブリックウォールで CEILING を必ず守る
+
+    歪ませないために: 大きさは 25 ms の間の最大値で見る（低音の 1 周期の中で量が上下しない）。
+    ブリックウォールは先読みの間にゆっくり下げ、戻りもなめらかにする（波形の山ごとに量が動かない）。
 */
 class VintageLimiterDsp
 {
@@ -41,22 +44,36 @@ public:
     float getGainReductionDb() const noexcept      { return gainReductionDb.load (std::memory_order_relaxed); }
 
     /** 先読みによる遅れ（サンプル数）。 */
-    int getLatencySamples() const noexcept          { return lookahead - 1; }
+    int getLatencySamples() const noexcept          { return lookahead; }
 
 private:
+    /** 直近 window 個の最大値（最小値は値を負にして使う）を、1 サンプルごとに O(1) で求める。 */
+    struct SlidingMax
+    {
+        void prepare (int window);
+        void reset();
+        double push (double value);   // 値を足して、窓の中の最大値を返す
+
+        int window = 1;
+        long long count = 0;
+        std::vector<std::pair<long long, double>> buffer;   // 単調減少の列（輪っか）
+        size_t head = 0, size = 0;
+    };
+
     double sampleRate = 48000.0;
     MasterLimiter params;
 
     double inputGain = 1.0, ceilingGain = 1.0, ceilingDb = -1.0, knee = 6.0;
-    double attackCoef = 0.0, releaseCoef = 0.0;
-    double envDb = 0.0, memory = 0.0;
+    double attackCoef = 0.0, releaseCoef = 0.0, wallReleaseCoef = 0.0;
+    double envDb = 0.0, memory = 0.0, wallGain = 1.0;
     double dcState[maxChannels] {}, dcPrev[maxChannels] {};
 
-    int lookahead = 72;
+    int lookahead = 240;
+    SlidingMax levelHold, wallMin;
     std::vector<float> delay[maxChannels];
-    std::vector<double> required, hold;
+    std::vector<double> wallHistory;   // 先読みの間の平均を取るための、窓の最小値の履歴
+    double wallSum = 0.0;
     int writePos = 0;
-    double holdSum = 0.0;
     std::atomic<float> gainReductionDb { 0.0f };
 
     void updateCoefficients();

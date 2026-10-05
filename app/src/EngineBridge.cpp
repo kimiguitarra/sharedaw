@@ -1092,11 +1092,8 @@ void EngineBridge::syncInstrument (const collab::Track& t, Binding& b)
             b.problem = "内蔵音源の読み込みに失敗しました"_ju;
     }
 
-    // 内蔵音源は 8 dB 下げて鳴らす（音源の素材が大きく、ドラム・ベース・ピアノを 0 dB で重ねるとマスターが 0 dBFS を超えて、
-    // オーディオインターフェースで頭が切れて歪んでいた。全部の内蔵音源を同じだけ下げるので、バランスは変わらない）
-    constexpr float builtinHeadroomDb = -8.0f;
     auto resolved = collab::resolveInstrumentParams (*manifest, params);
-    b.synth->setGainAndPan ((float) resolved.volumeDb + builtinHeadroomDb, (float) resolved.pan);
+    b.synth->setGainAndPan ((float) resolved.volumeDb, (float) resolved.pan);
 }
 
 //==============================================================================

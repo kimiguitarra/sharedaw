@@ -30,16 +30,53 @@ namespace
 }
 
 //==============================================================================
+void VintageLimiterDsp::SlidingMax::prepare (int w)
+{
+    window = std::max (1, w);
+    buffer.assign ((size_t) window + 1, {});
+    reset();
+}
+
+void VintageLimiterDsp::SlidingMax::reset()
+{
+    count = 0;
+    head = size = 0;
+}
+
+double VintageLimiterDsp::SlidingMax::push (double value)
+{
+    const size_t cap = buffer.size();
+
+    // 後ろから、新しい値以下のものを捨てる（もう最大になることはない）
+    while (size > 0 && buffer[(head + size - 1) % cap].second <= value)
+        --size;
+
+    buffer[(head + size) % cap] = { count, value };
+    ++size;
+
+    // 窓から外れた古いものを前から捨てる
+    while (buffer[head].first <= count - window)
+    {
+        head = (head + 1) % cap;
+        --size;
+    }
+
+    ++count;
+    return buffer[head].second;
+}
+
+//==============================================================================
 void VintageLimiterDsp::prepare (double sr)
 {
     sampleRate = sr > 0.0 ? sr : 48000.0;
-    lookahead = std::max (8, (int) std::lround (0.0015 * sampleRate));
+    lookahead = std::max (8, (int) std::lround (0.005 * sampleRate));
 
     for (auto& d : delay)
-        d.assign ((size_t) lookahead, 0.0f);
+        d.assign ((size_t) lookahead + 1, 0.0f);
 
-    required.assign ((size_t) lookahead, 1.0);
-    hold.assign ((size_t) lookahead, 1.0);
+    wallHistory.assign ((size_t) lookahead, 1.0);
+    levelHold.prepare ((int) std::lround (0.025 * sampleRate));   // 40 Hz の 1 周期
+    wallMin.prepare (lookahead);
     updateCoefficients();
     reset();
 }
@@ -49,11 +86,13 @@ void VintageLimiterDsp::reset()
     for (auto& d : delay)
         std::fill (d.begin(), d.end(), 0.0f);
 
-    std::fill (required.begin(), required.end(), 1.0);
-    std::fill (hold.begin(), hold.end(), 1.0);
-    holdSum = (double) lookahead;
+    std::fill (wallHistory.begin(), wallHistory.end(), 1.0);
+    wallSum = (double) wallHistory.size();
+    levelHold.reset();
+    wallMin.reset();
     writePos = 0;
     envDb = memory = 0.0;
+    wallGain = 1.0;
 
     for (int ch = 0; ch < maxChannels; ++ch)
         dcState[ch] = dcPrev[ch] = 0.0;
@@ -75,20 +114,23 @@ void VintageLimiterDsp::updateCoefficients()
     inputGain = dbToGain (-std::min (0.0, params.thresholdDb));
     ceilingDb = std::clamp (params.ceilingDb, -12.0, 0.0);
     ceilingGain = dbToGain (ceilingDb);
-    knee = modern ? 1.5 : 6.0;
+    knee = modern ? 2.0 : 6.0;
 
-    // アタック 10 ms → 0.5 ms、リリース 900 ms → 40 ms（Modern はさらに速め）
-    const double attackMs = 10.0 * std::pow (0.05, c) * (modern ? 0.5 : 1.0);
-    const double releaseMs = 900.0 * std::pow (40.0 / 900.0, c) * (modern ? 0.6 : 1.0);
+    // アタック 10 ms → 1 ms、リリース 900 ms → 60 ms（Modern は速め）
+    const double attackMs = 10.0 * std::pow (0.1, c) * (modern ? 0.6 : 1.0);
+    const double releaseMs = 900.0 * std::pow (60.0 / 900.0, c) * (modern ? 0.6 : 1.0);
     attackCoef = coefficientFor (attackMs * 0.001, sampleRate);
     releaseCoef = coefficientFor (releaseMs * 0.001, sampleRate);
+
+    // ブリックウォールの戻り（速すぎると低音の山ごとに量が動いて歪む）
+    wallReleaseCoef = coefficientFor ((modern ? 0.05 : 0.08), sampleRate);
 }
 
 void VintageLimiterDsp::process (float* const* channels, int numChannels, int numSamples)
 {
     numChannels = std::min (numChannels, maxChannels);
 
-    if (numChannels <= 0 || required.empty())
+    if (numChannels <= 0 || wallHistory.empty())
         return;
 
     const bool tubeMode = params.mode == LimiterMode::tube;
@@ -96,6 +138,7 @@ void VintageLimiterDsp::process (float* const* channels, int numChannels, int nu
     const double memoryUp = 1.0 / (2.0 * sampleRate), memoryDown = 1.0 / (6.0 * sampleRate);
     const double dcCoef = 1.0 - 2.0 * pi * 5.0 / sampleRate;   // 真空管の片寄りで出る直流を取る
     const int L = lookahead;
+    const int size = (int) delay[0].size();   // L + 1
     double maxGr = 0.0;
 
     for (int i = 0; i < numSamples; ++i)
@@ -109,7 +152,8 @@ void VintageLimiterDsp::process (float* const* channels, int numChannels, int nu
 
             if (tubeMode)
             {
-                v = tube (v, std::min (1.0, 0.25 + envDb / 12.0));
+                // 真空管風の色付け（かかるほど少し濃く。前より控えめ）
+                v = tube (v, std::min (1.0, 0.08 + envDb / 30.0) * 0.4);
 
                 const double hp = v - dcPrev[ch] + dcCoef * dcState[ch];
                 dcPrev[ch] = v;
@@ -121,8 +165,9 @@ void VintageLimiterDsp::process (float* const* channels, int numChannels, int nu
             peak = std::max (peak, std::abs (v));
         }
 
-        // 1) 音楽的にかかる段（CEILING の手前からソフトニーで）
-        const double levelDb = 20.0 * std::log10 (peak + 1e-12);
+        // 1) 音楽的にかかる段: 大きさは 25 ms の間の最大値（1 周期の中で量を動かさない）
+        const double held = levelHold.push (peak);
+        const double levelDb = 20.0 * std::log10 (held + 1e-12);
         const double target = compGainReductionDb (levelDb, ceilingDb, 30.0, knee);
 
         if (target > envDb)
@@ -141,7 +186,8 @@ void VintageLimiterDsp::process (float* const* channels, int numChannels, int nu
 
         const double g1 = dbToGain (-envDb);
 
-        // 2) 先読みのブリックウォール: 窓の最小値を保持して、同じ長さで平均する（必ず CEILING 以下になる）
+        // 2) 先読みのブリックウォール: 先読みの間の最小の必要量を、先読みの長さで平均してゆっくり下げ（その音が出る時には必ず届く）、
+        //    戻りはなめらかに（80 ms）
         double peak2 = 0.0;
 
         for (int ch = 0; ch < numChannels; ++ch)
@@ -150,30 +196,28 @@ void VintageLimiterDsp::process (float* const* channels, int numChannels, int nu
             peak2 = std::max (peak2, std::abs (x[ch]));
         }
 
-        required[(size_t) writePos] = peak2 > ceilingGain ? ceilingGain / peak2 : 1.0;
+        const double required = peak2 > ceilingGain ? ceilingGain / peak2 : 1.0;
+        const double minimum = -wallMin.push (-required);
+        const size_t slot = (size_t) (writePos % L);
+        wallSum += minimum - wallHistory[slot];
+        wallHistory[slot] = minimum;
+        const double attacked = std::min (1.0, wallSum / L);
 
-        double minimum = 1.0;
+        wallGain = attacked < wallGain ? attacked : attacked + (wallGain - attacked) * wallReleaseCoef;
 
-        for (int k = 0; k < L; ++k)
-            minimum = std::min (minimum, required[(size_t) k]);
-
-        holdSum += minimum - hold[(size_t) writePos];
-        hold[(size_t) writePos] = minimum;
-        const double g2 = std::min (1.0, holdSum / L);
-
-        // 遅延（L - 1 サンプル）した音にかける
-        const int readPos = (writePos + 1) % L;
+        // L サンプル遅らせた音にかける
+        const int readPos = (writePos + 1) % size;
 
         for (int ch = 0; ch < numChannels; ++ch)
         {
             auto& d = delay[ch];
             d[(size_t) writePos] = (float) x[ch];
-            const double out = d[(size_t) readPos] * g2;
+            const double out = d[(size_t) readPos] * wallGain;
             channels[ch][i] = (float) std::clamp (out, -ceilingGain, ceilingGain);
         }
 
-        writePos = (writePos + 1) % L;
-        maxGr = std::max (maxGr, envDb - 20.0 * std::log10 (std::max (1e-6, g2)));
+        writePos = (writePos + 1) % size;
+        maxGr = std::max (maxGr, envDb - 20.0 * std::log10 (std::max (1e-6, wallGain)));
     }
 
     gainReductionDb.store ((float) maxGr, std::memory_order_relaxed);
@@ -183,19 +227,23 @@ void VintageLimiterDsp::processBypassed (float* const* channels, int numChannels
 {
     numChannels = std::min (numChannels, maxChannels);
 
-    if (numChannels <= 0 || required.empty())
+    if (numChannels <= 0 || wallHistory.empty())
         return;
 
     const int L = lookahead;
+    const int size = (int) delay[0].size();
 
     for (int i = 0; i < numSamples; ++i)
     {
         // 先読みの窓は「かけない」で埋めておく（オンに戻したときに古い値が残らないように）
-        required[(size_t) writePos] = 1.0;
-        holdSum += 1.0 - hold[(size_t) writePos];
-        hold[(size_t) writePos] = 1.0;
+        const size_t slot = (size_t) (writePos % L);
+        wallSum += 1.0 - wallHistory[slot];
+        wallHistory[slot] = 1.0;
+        wallMin.push (-1.0);
+        levelHold.push (0.0);
+        wallGain = 1.0;
 
-        const int readPos = (writePos + 1) % L;
+        const int readPos = (writePos + 1) % size;
 
         for (int ch = 0; ch < numChannels; ++ch)
         {
@@ -204,7 +252,7 @@ void VintageLimiterDsp::processBypassed (float* const* channels, int numChannels
             channels[ch][i] = d[(size_t) readPos];
         }
 
-        writePos = (writePos + 1) % L;
+        writePos = (writePos + 1) % size;
     }
 
     envDb = 0.0;

@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
@@ -189,4 +190,56 @@ TEST_CASE ("Key track round-trips through JSON, diffs as its own scope and answe
     REQUIRE (d.changes.size() == 2);
     CHECK (d.changes[0].scopeKind == ScopeKind::key);
     CHECK (d.changes[0].summary.find ("G") != std::string::npos);
+}
+
+TEST_CASE ("limiter does not distort a steady bass tone (gain does not follow each cycle)")
+{
+    const double sr = 48000.0;
+
+    auto toneAmplitude = [sr] (const std::vector<float>& x, double f)
+    {
+        double re = 0.0, im = 0.0;
+
+        for (size_t i = 0; i < x.size(); ++i)
+        {
+            const double ph = 2.0 * 3.14159265358979323846 * f * (double) i / sr;
+            re += x[i] * std::cos (ph);
+            im -= x[i] * std::sin (ph);
+        }
+
+        return 2.0 * std::sqrt (re * re + im * im) / (double) x.size();
+    };
+
+    for (auto mode : { LimiterMode::analog, LimiterMode::modern })
+    {
+        VintageLimiterDsp lim;
+        lim.prepare (sr);
+        MasterLimiter p;
+        p.enabled = true;
+        p.thresholdDb = -10.0;   // 約 8 dB かかる
+        p.mode = mode;
+        lim.setParams (p);
+
+        const int n = (int) sr * 3;
+        std::vector<float> l ((size_t) n), r ((size_t) n);
+
+        for (int i = 0; i < n; ++i)
+            l[(size_t) i] = r[(size_t) i] = (float) (0.7 * std::sin (2.0 * 3.14159265358979323846 * 55.0 * i / sr));
+
+        for (int pos = 0; pos < n; pos += 512)
+        {
+            float* ch[2] = { l.data() + pos, r.data() + pos };
+            lim.process (ch, 2, std::min (512, n - pos));
+        }
+
+        const std::vector<float> settled (l.begin() + (long) sr, l.end());   // 落ち着いた後の 2 秒
+        const double fundamental = toneAmplitude (settled, 55.0);
+        double harmonics = 0.0;
+
+        for (int k = 2; k <= 10; ++k)
+            harmonics += std::pow (toneAmplitude (settled, 55.0 * k), 2.0);
+
+        CHECK (lim.getGainReductionDb() > 6.0f);
+        CHECK (std::sqrt (harmonics) / fundamental < 0.002);   // THD 0.2 % 未満（前の作りは約 2 %）
+    }
 }
