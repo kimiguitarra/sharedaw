@@ -839,6 +839,113 @@ juce::Result SyncManager::fetchRevisions (nlohmann::json& list)
     return juce::Result::ok();
 }
 
+juce::Result SyncManager::findLastUpload (const std::string& scopeId, LastUpload& result, const SyncProgress& progress)
+{
+    result = {};
+    auto client = makeClient();
+    auto r = client.get ("/projects/" + toJuce (meta.projectId) + "/revisions");
+
+    if (! r.ok())
+        return juce::Result::fail (r.message());
+
+    const auto& list = r.body;   // 新しい順
+
+    if (! list.is_array() || list.empty())
+        return juce::Result::ok();
+
+    // リビジョンのプロジェクトは一度読んだら覚えておく（中身はハッシュで決まるので変わらない）
+    auto load = [&] (size_t index, const collab::Project*& out) -> juce::Result
+    {
+        const auto hash = list[index].value ("projectJsonHash", std::string());
+
+        if (auto it = revisionCache.find (hash); it != revisionCache.end())
+        {
+            out = &it->second;
+            return juce::Result::ok();
+        }
+
+        collab::Project p;
+
+        if (auto res = downloadRevision (client, meta.projectId, list[index].value ("number", 0), p); res.failed())
+            return res;
+
+        out = &(revisionCache[hash] = std::move (p));
+        return juce::Result::ok();
+    };
+
+    auto inProject = [&scopeId] (const collab::Project& p)
+    {
+        if (p.findTrack (scopeId) != nullptr)
+            return true;
+
+        for (auto& st : collab::syncStates (p, p, nullptr))   // トラック以外（マスター・コードなど）
+            if (st.id == scopeId)
+                return true;
+
+        return false;
+    };
+
+    const size_t limit = std::min<size_t> (list.size(), 60);   // それより古い所までは見ない
+    const collab::Project* newer = nullptr;
+
+    if (auto res = load (0, newer); res.failed())
+        return res;
+
+    result.onServer = inProject (*newer);
+
+    if (! result.onServer)
+        return juce::Result::ok();
+
+    for (size_t i = 0; i < limit; ++i)
+    {
+        if (progress && ! progress ("サーバーの履歴を調べています "_ju + juce::String ((int) i + 1) + " / " + juce::String ((int) limit),
+                                    (double) i / (double) limit))
+            return juce::Result::fail ("中止しました"_ju);
+
+        const collab::Project* current = nullptr;
+
+        if (auto res = load (i, current); res.failed())
+            return res;
+
+        auto take = [&] (bool created)
+        {
+            result.found = true;
+            result.created = created;
+            result.revision = list[i].value ("number", 0);
+            result.author = list[i].contains ("authorName") && list[i]["authorName"].is_string()
+                              ? toJuce (list[i]["authorName"].get<std::string>()) : juce::String ("?");
+            result.message = toJuce (list[i].value ("message", std::string()));
+            result.createdAt = toJuce (list[i].value ("createdAt", std::string()));
+        };
+
+        // いちばん古いリビジョンまで来た: ここで初めてアップされた
+        if (i + 1 >= list.size())
+        {
+            take (true);
+            break;
+        }
+
+        const collab::Project* older = nullptr;
+
+        if (auto res = load (i + 1, older); res.failed())
+            return res;
+
+        if (! inProject (*older))
+        {
+            take (true);
+            break;
+        }
+
+        if (! collab::diffProjects (*older, *current).forScope (scopeId).empty())
+        {
+            take (false);
+            break;
+        }
+    }
+
+    return juce::Result::ok();
+}
+
 juce::Result SyncManager::runRenameProject (const std::string& projectId, const juce::String& newName)
 {
     nlohmann::json body { { "name", toStd (newName.trim()) } };

@@ -536,6 +536,37 @@ void MainComponent::downloadProject (const std::string& projectId)
     });
 }
 
+void MainComponent::showLastUpload (const std::string& scopeId, const juce::String& name)
+{
+    if (! ensureSyncReady (true))
+        return;
+
+    SyncManager::LastUpload last;
+    auto r = SyncUI::runWithProgress ("サーバーの履歴を調べています"_ju,
+                                      [&] (const SyncProgress& p) { return sync.findLastUpload (scopeId, last, p); });
+
+    if (r.failed())
+        return Dialogs::showError ("調べられませんでした"_ju, r.getErrorMessage());
+
+    const auto title = "「"_ju + name + "」"_ju;
+
+    if (! last.onServer)
+        return Dialogs::showInfo (title, "サーバーにはまだありません（この PC だけにあります）。"_ju);
+
+    if (! last.found)
+        return Dialogs::showInfo (title, "最近 60 回のアップでは変わっていません（それより前にアップされたものです）。"_ju);
+
+    const auto when = juce::Time::fromISO8601 (last.createdAt);
+    auto text = (last.created ? "最初にアップした人: "_ju : "最後に変えてアップした人: "_ju) + last.author + "\n"
+                + "日時: "_ju + (when.toMilliseconds() > 0 ? when.formatted ("%Y/%m/%d %H:%M") : last.createdAt) + "\n"
+                + "リビジョン: "_ju + juce::String (last.revision);
+
+    if (last.message.isNotEmpty())
+        text << "\n" << "コメント: "_ju << last.message;
+
+    Dialogs::showInfo (title, text);
+}
+
 void MainComponent::showHistory()
 {
     if (! ensureSyncReady (true))

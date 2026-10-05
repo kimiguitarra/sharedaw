@@ -140,6 +140,18 @@ public:
 
     juce::Result fetchRevisions (nlohmann::json& list);
 
+    /** そのトラック（など）を最後に変えたアップ。サーバーのリビジョンを新しい順にたどって探す。 */
+    struct LastUpload
+    {
+        bool onServer = false;   // サーバーの最新の版にあるか
+        bool found = false;      // 変えたリビジョンが見つかったか（古すぎると見つからない）
+        bool created = false;    // そのリビジョンで初めてアップされた
+        int revision = 0;
+        juce::String author, message, createdAt;
+    };
+
+    juce::Result findLastUpload (const std::string& scopeId, LastUpload& result, const SyncProgress& progress = {});
+
     /**
         サーバーから曲を削除する（作った人だけ）。成功したら、この PC のフォルダ（あれば）はサーバーとのつながりを外す
         （フォルダと曲の中身は残る。「この PC だけ」の曲になる）。
@@ -190,6 +202,7 @@ private:
 
     /** ヘッドのプロジェクトをダウンロードして、ベースからの差分を作る。 */
     /** サーバーのリビジョンのプロジェクト JSON を取ってきて読む（ハッシュが合わなければ失敗）。 */
+    std::map<std::string, collab::Project> revisionCache;   // プロジェクト JSON のハッシュ → 中身（findLastUpload 用）
     static juce::Result downloadRevision (const SyncClient&, const std::string& projectId, int revision, collab::Project& result);
     static juce::Result buildPreview (const SyncClient&, const std::string& projectId, int head,
                                       const std::optional<collab::Project>& base, PullPreview&);

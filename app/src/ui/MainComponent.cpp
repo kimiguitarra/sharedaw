@@ -51,6 +51,7 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     syncPanel.onUpload = [this] (const std::set<std::string>& excluded, const juce::String& message,
                                  const std::map<std::string, collab::Resolution>& choices) { uploadFromPanel (excluded, message, choices); };
     syncPanel.onJump = [this] (const collab::Change& c) { jumpTo (c); };
+    syncPanel.onWhoUploaded = [this] (const std::string& scopeId, const juce::String& name) { showLastUpload (scopeId, name); };
     sync.onIncomingRevisions = [this] (const std::vector<SyncManager::RevisionInfo>& revs) { onIncomingRevisions (revs); };
     syncPanel.setVisible (true);   // 畳むと右端の細い帯になる
 

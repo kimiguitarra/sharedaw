@@ -70,6 +70,7 @@ public:
         juce::Rectangle<int> r;
         collab::Change change;
         bool header = false;
+        bool who = false;   // 「最後にアップした人」を調べるリンク
         juce::String text;
 
         // 右のボタン: 自分の変更は「変更前にする」、戻したものは「変更後にする」
@@ -193,6 +194,17 @@ public:
                     y += 24;
                 }
 
+                // 誰がいつアップしたか（押したときだけサーバーの履歴を調べる）
+                if (owner.sync.isLinked() && ! st.localOnly && owner.onWhoUploaded)
+                {
+                    Detail who;
+                    who.r = { 26, y, width - 34, 24 };
+                    who.who = true;
+                    who.text = "最後にアップした人を見る…"_ju;
+                    row.details.push_back (who);
+                    y += 24;
+                }
+
                 y += 6;
             }
 
@@ -264,7 +276,7 @@ public:
                     g.fillRoundedRectangle (d.r.toFloat().expanded (4.0f, 0.0f), 4.0f);
                 }
 
-                g.setColour (d.header ? Theme::textDim : (d.dim ? Theme::textDim : Theme::text));
+                g.setColour (d.who ? Theme::accent : d.header ? Theme::textDim : (d.dim ? Theme::textDim : Theme::text));
                 g.setFont (juce::FontOptions (d.header ? 13.5f : 14.5f, d.header ? juce::Font::bold : juce::Font::plain));
                 g.drawText (d.text, d.r, juce::Justification::centredLeft, true);
 
@@ -340,6 +352,9 @@ public:
 
                 if (d.action == Detail::Action::restore && d.button.contains (pos))
                     return owner.restoreChange (d.revertedIndex);
+
+                if (d.who && d.r.contains (pos))
+                    return owner.onWhoUploaded (row.st.id, toJuce (row.st.name));
 
                 if (! d.header && d.r.contains (pos) && owner.onJump)
                     return owner.onJump (d.change);

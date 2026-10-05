@@ -1165,6 +1165,7 @@ private:
         --sync-pull <dir> [--keep-mine]      ダウンロードする（競合はサーバーの版。--keep-mine なら自分の版）
         --sync-open <projectId> <parentDir>
         --sync-status <dir>
+        --sync-who <dir> <トラック名>         そのトラックを最後に変えてアップした人・日時
     */
     int runSyncCommand (const juce::StringArray& args)
     {
@@ -1282,6 +1283,26 @@ private:
 
             sync->applyDownload (preview, choices);
             std::cout << "pulled: revision " << preview.head << " conflicts: " << conflicts << std::endl;
+            return 0;
+        }
+
+        if (command == "--sync-who")
+        {
+            if (args.size() < 3) return fail ("usage: --sync-who <dir> <track name>");
+            std::string scopeId;
+
+            for (auto& t : document->getProject().tracks)
+                if (toJuce (t.name) == args[2])
+                    scopeId = t.id;
+
+            if (scopeId.empty()) return fail ("no track " + args[2]);
+
+            SyncManager::LastUpload last;
+            if (auto r = sync->findLastUpload (scopeId, last); r.failed()) return fail (r.getErrorMessage());
+
+            std::cout << "who: onServer " << last.onServer << " found " << last.found << " created " << last.created
+                      << " revision " << last.revision << " author " << last.author << " at " << last.createdAt
+                      << " message " << last.message << std::endl;
             return 0;
         }
 

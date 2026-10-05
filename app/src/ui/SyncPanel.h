@@ -42,6 +42,9 @@ public:
 
     std::function<void (const collab::Change&)> onJump;
 
+    /** 開いた行の「最後にアップした人を見る」（スコープの ID と表示名）。 */
+    std::function<void (const std::string& scopeId, const juce::String& name)> onWhoUploaded;
+
     /** 他の人の変更を自動でダウンロードするか（この PC の設定）。 */
     bool autoPullEnabled() const;
 

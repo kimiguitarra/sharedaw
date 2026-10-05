@@ -127,6 +127,9 @@ private:
     /** 書き出し: パネルで形式（WAV・MP3・パラデータ・MIDI。いくつでも）と保存先・名前を選んで書き出す。 */
     void showExportPanel();
     void showAudioFiles();
+
+    /** そのトラックを最後にアップした人・日時（サーバーの履歴をたどる）。 */
+    void showLastUpload (const std::string& scopeId, const juce::String& name);
     void runExport (bool wav, bool mp3, bool stems, bool midi, const juce::File& folder, const juce::String& name);
 
     /** 書き出しの本体。書いたもの（done）と失敗（failed）を返す。 */
