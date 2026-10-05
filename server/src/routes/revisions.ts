@@ -69,6 +69,61 @@ route("GET", "/projects/:id/revisions", async (ctx, { id }) => {
   );
 });
 
+/**
+ * そのトラック（など）を最後に変えたリビジョン。新しい順にプロジェクト JSON を比べて探す（R2 から読むのでアプリでたどるより速い）。
+ * 見つからなければ found: false（古すぎる）。最新の版になければ onServer: false。
+ */
+route("GET", "/projects/:id/scopes/:scope/last-change", async (ctx, { id, scope }) => {
+  await requireMember(ctx, id);
+  const rows = await ctx.env.DB.prepare(
+    `SELECT r.number, u.display_name, r.message, r.project_json_hash, r.created_at
+     FROM revisions r LEFT JOIN users u ON u.id = r.author_id WHERE r.project_id = ? ORDER BY r.number DESC LIMIT 300`,
+  )
+    .bind(id)
+    .all<{ number: number; display_name: string | null; message: string | null; project_json_hash: string; created_at: string }>();
+
+  const list = rows.results;
+  const none = { onServer: false, found: false };
+  if (list.length === 0) return json(none);
+
+  const loaded = new Map<string, ProjectJson>();
+  const load = async (i: number) => {
+    const hash = list[i].project_json_hash;
+    let p = loaded.get(hash);
+    if (!p) {
+      p = await loadProjectJson(ctx.env, hash);
+      loaded.set(hash, p);
+    }
+    return p;
+  };
+
+  if (!changedScopes(null, await load(0)).some((c) => c.id === scope)) return json(none);
+
+  for (let i = 0; i < list.length; i++) {
+    const current = await load(i);
+    const older = i + 1 < list.length ? await load(i + 1) : null;
+    const change = changedScopes(older, current).find((c) => c.id === scope && !c.deleted);
+
+    if (change) {
+      const r = list[i];
+      return json({
+        onServer: true,
+        found: true,
+        created: !change.existedInParent,
+        revision: r.number,
+        authorName: r.display_name,
+        message: r.message ?? "",
+        createdAt: r.created_at,
+      });
+    }
+
+    // いちばん古い所までは見たが、そのリビジョンで初めてできたわけでもない（LIMIT で途中まで）
+    if (older === null) break;
+  }
+
+  return json({ onServer: true, found: false });
+});
+
 route("GET", "/projects/:id/revisions/:n", async (ctx, { id, n }) => {
   await requireMember(ctx, id);
   const row = await ctx.env.DB.prepare("SELECT number, project_json_hash FROM revisions WHERE project_id = ? AND number = ?")

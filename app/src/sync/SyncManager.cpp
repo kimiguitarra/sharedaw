@@ -843,6 +843,29 @@ juce::Result SyncManager::findLastUpload (const std::string& scopeId, LastUpload
 {
     result = {};
     auto client = makeClient();
+
+    // サーバーに聞く（サーバーが履歴を比べる。1 回のやりとりで済む）
+    {
+        auto last = client.get ("/projects/" + toJuce (meta.projectId) + "/scopes/" + toJuce (scopeId) + "/last-change");
+
+        if (last.ok() && last.body.is_object())
+        {
+            const auto& b = last.body;
+            result.onServer = b.value ("onServer", false);
+            result.found = b.value ("found", false);
+            result.created = b.value ("created", false);
+            result.revision = b.value ("revision", 0);
+            result.author = b.contains ("authorName") && b["authorName"].is_string() ? toJuce (b["authorName"].get<std::string>()) : juce::String ("?");
+            result.message = toJuce (b.value ("message", std::string()));
+            result.createdAt = toJuce (b.value ("createdAt", std::string()));
+            return juce::Result::ok();
+        }
+
+        // 古いサーバー（Worker を貼り直す前）はこの問い合わせを知らない: 下でアプリが履歴をたどる（遅い）
+        if (last.status != 404)
+            return juce::Result::fail (last.message());
+    }
+
     auto r = client.get ("/projects/" + toJuce (meta.projectId) + "/revisions");
 
     if (! r.ok())

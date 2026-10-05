@@ -254,6 +254,31 @@ describe("tracks, blobs and locks", () => {
     expect((await push(alice, pid, project, 2)).status).toBe(409);
   });
 
+  it("tells who last changed a track", async () => {
+    const project = clone(fullFixture) as any;
+    project.tracks[2].clips[0].audioHash = await upload(alice, new Uint8Array([1, 2, 3, 4]));
+    project.tracks[1].render.audioHash = await upload(alice, new Uint8Array([5, 6, 7]));
+    expect((await push(alice, pid, project, 0)).status).toBe(201);
+
+    const bobs = clone(project);
+    bobs.tracks[0].volumeDb = -10;
+    expect((await push(bob, pid, bobs, 1, { message: "bob" })).status).toBe(201);
+
+    const third = clone(bobs);
+    third.tracks[1].volumeDb = -3;
+    expect((await push(alice, pid, third, 2)).status).toBe(201);
+
+    const drumsChange = await bob("GET", `/projects/${pid}/scopes/${drums}/last-change`);
+    expect(drumsChange.status).toBe(200);
+    expect(drumsChange.data).toMatchObject({ onServer: true, found: true, created: false, revision: 2, authorName: "Bob", message: "bob" });
+
+    const gtChange = await bob("GET", `/projects/${pid}/scopes/${gt}/last-change`);
+    expect(gtChange.data).toMatchObject({ onServer: true, found: true, created: true, revision: 1, authorName: "Alice" });
+
+    const missing = await bob("GET", `/projects/${pid}/scopes/not-a-track/last-change`);
+    expect(missing.data).toEqual({ onServer: false, found: false });
+  });
+
   it("verifies uploaded blob hashes", async () => {
     const wrongHash = "0".repeat(64);
     const put = await alice("PUT", `/blobs/${wrongHash}/data`, undefined, "hello");

@@ -3072,6 +3072,46 @@ route("GET", "/projects/:id/revisions", async (ctx, { id }) => {
     }))
   );
 });
+route("GET", "/projects/:id/scopes/:scope/last-change", async (ctx, { id, scope }) => {
+  await requireMember(ctx, id);
+  const rows = await ctx.env.DB.prepare(
+    `SELECT r.number, u.display_name, r.message, r.project_json_hash, r.created_at
+     FROM revisions r LEFT JOIN users u ON u.id = r.author_id WHERE r.project_id = ? ORDER BY r.number DESC LIMIT 300`
+  ).bind(id).all();
+  const list = rows.results;
+  const none = { onServer: false, found: false };
+  if (list.length === 0) return json(none);
+  const loaded = /* @__PURE__ */ new Map();
+  const load = /* @__PURE__ */ __name(async (i) => {
+    const hash2 = list[i].project_json_hash;
+    let p = loaded.get(hash2);
+    if (!p) {
+      p = await loadProjectJson(ctx.env, hash2);
+      loaded.set(hash2, p);
+    }
+    return p;
+  }, "load");
+  if (!changedScopes(null, await load(0)).some((c) => c.id === scope)) return json(none);
+  for (let i = 0; i < list.length; i++) {
+    const current = await load(i);
+    const older = i + 1 < list.length ? await load(i + 1) : null;
+    const change = changedScopes(older, current).find((c) => c.id === scope && !c.deleted);
+    if (change) {
+      const r = list[i];
+      return json({
+        onServer: true,
+        found: true,
+        created: !change.existedInParent,
+        revision: r.number,
+        authorName: r.display_name,
+        message: r.message ?? "",
+        createdAt: r.created_at
+      });
+    }
+    if (older === null) break;
+  }
+  return json({ onServer: true, found: false });
+});
 route("GET", "/projects/:id/revisions/:n", async (ctx, { id, n }) => {
   await requireMember(ctx, id);
   const row = await ctx.env.DB.prepare("SELECT number, project_json_hash FROM revisions WHERE project_id = ? AND number = ?").bind(id, requirePositiveInt(n, "\u30EA\u30D3\u30B8\u30E7\u30F3\u756A\u53F7")).first();
