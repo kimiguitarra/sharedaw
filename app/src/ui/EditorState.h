@@ -200,11 +200,30 @@ struct EditorState  : public juce::ChangeBroadcaster
     std::set<std::string> hiddenTracks;
     bool isHidden (const std::string& trackId) const   { return hiddenTracks.count (trackId) > 0; }
 
+    /** 表示しているオートメーションのレーン（トラック ID → パラメーター "volume" / "pan"）。トラックの下に高さ automationLaneHeight で出す。 */
+    std::map<std::string, std::string> automationShown;
+    static constexpr int automationLaneHeight = 60;
+
+    std::string shownAutomation (const std::string& trackId) const
+    {
+        auto it = automationShown.find (trackId);
+        return it != automationShown.end() ? it->second : std::string();
+    }
+
+    int automationHeight (const std::string& trackId) const   { return shownAutomation (trackId).empty() ? 0 : automationLaneHeight; }
+
+    /** トラックの行の高さ（クリップの段 + オートメーションのレーン）。 */
     int trackHeight (const std::string& trackId) const
     {
         if (isHidden (trackId))
             return 0;
 
+        return clipLaneHeight (trackId) + automationHeight (trackId);
+    }
+
+    /** クリップの段の高さ（ヘッダーの下の端のドラッグで変える高さ）。 */
+    int clipLaneHeight (const std::string& trackId) const
+    {
         auto it = trackHeights.find (trackId);
         return it != trackHeights.end() ? juce::jlimit (minTrackHeight, maxTrackHeight, it->second) : defaultTrackHeight;
     }

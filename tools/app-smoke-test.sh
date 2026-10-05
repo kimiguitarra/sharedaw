@@ -73,7 +73,8 @@ echo "== smoke test"
 HOME="$work/home" run_with_timeout "${SMOKE_TIMEOUT:-300}" ${SMOKE_WRAPPER:-} "$exe" --smoke-test "$work/demo" > "$work/smoke.log" 2>&1 || status=$?
 grep -v "Assertion failure" "$work/smoke.log" || true
 
-if [ "$status" -ne 0 ] || ! grep -q "SMOKE TEST PASSED" "$work/smoke.log" || ! grep -q "export panel: ok" "$work/smoke.log" || ! grep -q "audio files: ok" "$work/smoke.log"; then
+if [ "$status" -ne 0 ] || ! grep -q "SMOKE TEST PASSED" "$work/smoke.log" || ! grep -q "export panel: ok" "$work/smoke.log" || ! grep -q "audio files: ok" "$work/smoke.log" \
+   || ! grep -q "automation edit: ok" "$work/smoke.log"; then
     echo "smoke test failed (exit status $status)"
     exit 1
 fi

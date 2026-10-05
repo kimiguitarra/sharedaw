@@ -258,6 +258,7 @@ private:
         ChannelStripPlugin* strip = nullptr;
         juce::String sfzText;
         std::string clipsKey;
+        std::string automationKey;   // 音量・パンのオートメーション（変わったときだけ作り直す）
         juce::uint32 clipsRebuiltAt = 0;   // クリップを作り直した時刻（直後の試し弾きは少し待つ）
         juce::String problem;
         int missingAudio = 0;
@@ -308,6 +309,7 @@ private:
         te::AudioTrack* oldDest = nullptr;
         float oldDb = 0.0f, oldPan = 0.0f;
         bool oldMute = false, stripWasEnabled = false;
+        juce::Array<te::AutomationCurve::AutomationPoint> volumeCurve, panCurve;   // バウンスの間だけ外すオートメーション
         std::vector<bool> sendsWereEnabled;
 
         JUCE_DECLARE_NON_COPYABLE (ScopedIsolatedTrack)
@@ -431,6 +433,7 @@ private:
     te::AudioTrack::Ptr createTrack();
     SfizzPlugin* addSynth (te::AudioTrack&);
     void syncTrack (const collab::Track&, Binding&, bool tempoChanged);
+    void syncAutomation (const collab::Track&, Binding&, bool tempoChanged);
     void syncInstrument (const collab::Track&, Binding&);
     void syncEffects (const collab::Track&, Binding&);
     void syncEffects (const std::vector<collab::Effect>&, Binding&, te::Plugin* insertBefore);

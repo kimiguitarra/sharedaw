@@ -1,6 +1,9 @@
 #include <doctest/doctest.h>
 
 #include "collab/ProjectJson.h"
+#include "collab/Automation.h"
+#include "collab/ProjectDiff.h"
+#include <algorithm>
 #include "collab/Uuid.h"
 #include "TestUtils.h"
 
@@ -135,4 +138,40 @@ TEST_CASE ("pitch bends round-trip as [tick, value] pairs")
 
     t.midiClips[0].pitchBends = { { 0, 9000 } };   // 範囲外はスキーマで弾く
     CHECK_THROWS (parseProject (serialiseProject (p)));
+}
+
+TEST_CASE ("automation lanes: values between points, drawing, JSON round trip and diff")
+{
+    using namespace collab;
+    std::vector<AutomationPoint> pts { { 0, -6.0 }, { 960, 0.0 } };
+    CHECK (automationValueAt (pts, -10, 1.0) == doctest::Approx (-6.0));
+    CHECK (automationValueAt (pts, 480, 1.0) == doctest::Approx (-3.0));
+    CHECK (automationValueAt (pts, 5000, 1.0) == doctest::Approx (0.0));
+    CHECK (automationValueAt ({}, 10, 1.5) == doctest::Approx (1.5));
+
+    // 描くと範囲の点を置き換え、範囲に収める
+    replaceAutomation (pts, 400, 1000, { { 480, 99.0 }, { 720, -3.0 } }, automationRange ("volume"));
+    REQUIRE (pts.size() == 3);
+    CHECK (pts[1].value == doctest::Approx (6.0));
+    CHECK (pts[2].tick == 720);
+
+    auto p = parseProject (fixture ("minimal.project.json"));
+    Track t;
+    t.id = generateUuid();
+    t.name = "Bass";
+    t.type = TrackType::audio;
+    setAutomation (t, "pan", { { 0, -1.0 }, { 1920, 1.0 } });
+    setAutomation (t, "volume", pts);
+    REQUIRE (t.automation.size() == 2);
+    CHECK (t.automation[0].param == "volume");   // いつも同じ順
+    p.tracks.push_back (t);
+
+    const auto back = parseProject (serialiseProject (p));
+    CHECK (back.tracks[0].automation == p.tracks[0].automation);
+
+    auto changed = p;
+    setAutomation (changed.tracks[0], "pan", {});
+    CHECK (changed.tracks[0].automation.size() == 1);
+    const auto diff = diffProjects (p, changed);
+    CHECK (std::any_of (diff.changes.begin(), diff.changes.end(), [] (auto& c) { return c.part == "automation"; }));
 }

@@ -229,6 +229,23 @@ namespace
             o["crossfade"] = xf;
         }
 
+        if (! t.automation.empty())
+        {
+            ojson lanes = ojson::array();
+
+            for (auto& l : t.automation)
+            {
+                ojson points = ojson::array();
+
+                for (auto& p : l.points)
+                    points.push_back (ojson::array ({ p.tick, p.value }));
+
+                lanes.push_back ({ { "param", l.param }, { "points", points } });
+            }
+
+            o["automation"] = lanes;
+        }
+
         if (! t.sends.empty())
         {
             ojson sends = ojson::array();
@@ -655,6 +672,20 @@ Project projectFromJson (const json& j)
                 t.crossfadeMs = getOr<double> (*xf, "ms", 10.0);
                 t.crossfadeShape = getOr<std::string> (*xf, "shape", "equalPower");
             }
+
+            if (auto it = tj.find ("automation"); it != tj.end())
+                for (auto& lj : *it)
+                {
+                    AutomationLane lane;
+                    lane.param = get<std::string> (lj, "param");
+
+                    if (auto pts = lj.find ("points"); pts != lj.end())
+                        for (auto& pj : *pts)
+                            lane.points.push_back ({ pj.at (0).get<Tick>(), pj.at (1).get<double>() });
+
+                    if (! lane.points.empty())
+                        t.automation.push_back (lane);
+                }
 
             if (auto it = tj.find ("sends"); it != tj.end())
                 for (auto& sj : *it)

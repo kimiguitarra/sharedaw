@@ -17,6 +17,7 @@ add_library(collab_core STATIC
     src/MasterDsp.cpp
     src/ChordPlayback.cpp
     src/ClipEditing.cpp
+    src/Automation.cpp
     src/Stretch.cpp
     src/GmDrumMap.cpp
     src/MidiExport.cpp

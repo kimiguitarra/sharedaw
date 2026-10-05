@@ -26,6 +26,15 @@ MidiClip* Track::findMidiClip (const std::string& clipId)
     return const_cast<MidiClip*> (std::as_const (*this).findMidiClip (clipId));
 }
 
+const AutomationLane* Track::findAutomation (const std::string& param) const
+{
+    for (auto& l : automation)
+        if (l.param == param)
+            return &l;
+
+    return nullptr;
+}
+
 const Track* Project::findTrack (const std::string& trackId) const
 {
     for (auto& t : tracks)

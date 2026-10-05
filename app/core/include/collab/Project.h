@@ -354,6 +354,27 @@ struct Send
     bool operator== (const Send&) const = default;
 };
 
+/** オートメーションの点（曲の先頭からの tick と値）。 */
+struct AutomationPoint
+{
+    Tick tick = 0;
+    double value = 0.0;
+
+    bool operator== (const AutomationPoint&) const = default;
+};
+
+/**
+    トラックのオートメーション（Cubase のオートメーションのレーン）。点の間は直線でつなぎ、最初の点より前・最後の点より後はその点の値。
+    param: "volume"（音量 dB、-60〜+6）・"pan"（パン -1〜1）。点があるあいだは、ミキサーの値の代わりにこの値になる。
+*/
+struct AutomationLane
+{
+    std::string param;
+    std::vector<AutomationPoint> points;   // tick の順
+
+    bool operator== (const AutomationLane&) const = default;
+};
+
 struct Track
 {
     std::string id;
@@ -377,12 +398,15 @@ struct Track
     std::string crossfadeShape = "equalPower";
     std::vector<Send> sends;
     std::optional<Render> render;
+    std::vector<AutomationLane> automation;  // 点のあるレーンだけ（param ごとに 1 つ）
 
     std::vector<MidiClip> midiClips;        // type == midi
     std::vector<AudioClip> audioClips;      // type == audio
 
     const MidiClip* findMidiClip (const std::string& clipId) const;
     MidiClip* findMidiClip (const std::string& clipId);
+
+    const AutomationLane* findAutomation (const std::string& param) const;
 
     bool operator== (const Track&) const = default;
 };

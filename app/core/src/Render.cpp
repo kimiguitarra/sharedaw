@@ -115,6 +115,7 @@ namespace
         to.output = from.output;
         to.sends = from.sends;
         to.outputChannels = from.outputChannels;
+        to.automation = from.automation;
     }
 }
 

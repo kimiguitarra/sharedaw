@@ -76,6 +76,33 @@ private:
     bool createdByPencil = false;
 
     Hit findHit (juce::Point<float>) const;
+
+    // オートメーションのレーン（トラックの行の下の段）。点をクリックで追加・ドラッグで移動・ダブルクリックで削除、鉛筆でドラッグして描く
+    struct AutomationDrag
+    {
+        std::string trackId, param;
+        std::vector<collab::AutomationPoint> original;
+        int pointIndex = -1;                      // 動かしている点（original の番号）
+        bool freehand = false;                    // 鉛筆で描いている
+        std::map<collab::Tick, double> drawn;
+        juce::Point<float> last;
+        double downTick = 0;
+    };
+
+    std::optional<AutomationDrag> automationDrag;
+    int automationHoverTrack = -1;
+    juce::Point<float> automationHover;
+
+    juce::Rectangle<float> automationArea (int trackIndex) const;   // 出していなければ空
+    float automationY (const std::string& param, double value, juce::Rectangle<float> area) const;
+    double automationValue (const std::string& param, float y, juce::Rectangle<float> area) const;
+    int automationPointAt (const collab::Track&, const std::string& param, juce::Point<float>, juce::Rectangle<float> area) const;
+    void paintAutomation (juce::Graphics&, const collab::Track&, const std::string& param, juce::Rectangle<float> area) const;
+    void automationMouseDown (const juce::MouseEvent&, int trackIndex);
+    void automationMouseDrag (const juce::MouseEvent&);
+    void showAutomationMenu (const std::string& trackId, const std::string& param);
+    void setAutomation (const std::string& trackId, const std::string& param, std::vector<collab::AutomationPoint>,
+                        const juce::String& description, const juce::String& merge = {});
     collab::Tick snap (double tick, const juce::ModifierKeys&) const;
 
     /**
@@ -133,6 +160,7 @@ public:
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
     void setPlayheadTick (double tick);
     void repaintLanes()                     { lanes.repaint(); }
+    TrackLanes& getLanes() noexcept         { return lanes; }   // 動作確認（--smoke-test）でマウスの操作を送る
 
     /** テンポ・拍子・コードのレーンにフォーカスがあれば、そこで選択中のものを削除する（削除したら true）。 */
     bool deleteLaneSelection();

@@ -555,7 +555,7 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdTrackHeight:
             if (auto* t = ctx.selectedTrack())
             {
-                const bool isMax = state.trackHeight (t->id) >= EditorState::maxTrackHeight;
+                const bool isMax = state.clipLaneHeight (t->id) >= EditorState::maxTrackHeight;
                 state.trackHeights[t->id] = isMax ? EditorState::minTrackHeight : EditorState::maxTrackHeight;
                 state.changed();
             }

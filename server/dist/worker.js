@@ -2546,6 +2546,30 @@ var project_schema_default = {
         }
       }
     },
+    automationLanes: {
+      description: "Automation lanes (only lanes with points). Points are [tick from the song start, value] in tick order; volume is dB (-60..6), pan is -1..1. While a lane has points it replaces the mixer value.",
+      type: "array",
+      items: {
+        type: "object",
+        required: ["param", "points"],
+        additionalProperties: false,
+        properties: {
+          param: { enum: ["volume", "pan"] },
+          points: {
+            type: "array",
+            items: {
+              type: "array",
+              items: [
+                { $ref: "#/definitions/tick" },
+                { type: "number", minimum: -60, maximum: 6 }
+              ],
+              minItems: 2,
+              additionalItems: false
+            }
+          }
+        }
+      }
+    },
     track: {
       oneOf: [
         {
@@ -2608,6 +2632,9 @@ var project_schema_default = {
             outputChannels: {
               description: "1 = mono (L+R summed before pan), 2 = stereo. Omitted when 2.",
               enum: [1, 2]
+            },
+            automation: {
+              $ref: "#/definitions/automationLanes"
             },
             sends: {
               type: "array",
@@ -2697,6 +2724,9 @@ var project_schema_default = {
               description: "1 = mono (L+R summed before pan), 2 = stereo. Omitted when 2.",
               enum: [1, 2]
             },
+            automation: {
+              $ref: "#/definitions/automationLanes"
+            },
             sends: {
               type: "array",
               items: {
@@ -2770,6 +2800,9 @@ var project_schema_default = {
             outputChannels: {
               description: "1 = mono (L+R summed before pan), 2 = stereo. Omitted when 2.",
               enum: [1, 2]
+            },
+            automation: {
+              $ref: "#/definitions/automationLanes"
             },
             sends: {
               type: "array",

@@ -234,6 +234,9 @@ namespace
         if (std::abs (a->crossfadeMs - b->crossfadeMs) > 1e-9 || a->crossfadeShape != b->crossfadeShape)
             add (Change::Category::track, "テイクのつなぎを変更", {}, "crossfade");
 
+        if (a->automation != b->automation)
+            add (Change::Category::track, "オートメーションを変更", {}, "automation");
+
         if (a->render != b->render)
             add (Change::Category::render, b->render ? "バウンスを更新" : "バウンスを削除", {}, "render");
 
@@ -894,6 +897,7 @@ Project applyChangeFrom (const Project& targetIn, const Project& source, const C
     else if (part == "io")         { t->inputChannels = s->inputChannels; t->outputChannels = s->outputChannels; }
     else if (part == "crossfade")  { t->crossfadeMs = s->crossfadeMs; t->crossfadeShape = s->crossfadeShape; }
     else if (part == "render")     t->render = s->render;
+    else if (part == "automation") t->automation = s->automation;
     else if (part == "midiClip")   copyItem (t->midiClips, s->midiClips, change.itemId);
     else if (part == "audioClip")  copyItem (t->audioClips, s->audioClips, change.itemId);
     else if (part == "midiClipRange")

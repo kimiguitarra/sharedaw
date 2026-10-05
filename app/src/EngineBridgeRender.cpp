@@ -102,6 +102,20 @@ EngineBridge::ScopedIsolatedTrack::ScopedIsolatedTrack (te::AudioTrack& t, std::
 
     if (volume != nullptr)
     {
+        // 音量・パンのオートメーションもバウンスには入れない（受け取った側で同じオートメーションがかかる）
+        auto take = [] (te::AutomatableParameter& param, juce::Array<te::AutomationCurve::AutomationPoint>& saved)
+        {
+            auto& curve = param.getCurve();
+
+            for (int i = 0; i < curve.getNumPoints(); ++i)
+                saved.add (curve.getPoint (i));
+
+            curve.clear();
+            param.updateStream();   // すぐに外す（Tracktion はふだん少し後で作り直す）
+        };
+
+        take (*volume->volParam, volumeCurve);
+        take (*volume->panParam, panCurve);
         oldDb = volume->getVolumeDb();
         oldPan = volume->getPan();
         volume->setVolumeDb (0.0f);
@@ -134,6 +148,14 @@ EngineBridge::ScopedIsolatedTrack::~ScopedIsolatedTrack()
 {
     if (volume != nullptr)
     {
+        for (auto [param, saved] : { std::pair (volume->volParam.get(), &volumeCurve), std::pair (volume->panParam.get(), &panCurve) })
+        {
+            for (auto& p : *saved)
+                param->getCurve().addPoint (p.time, p.value, p.curve);
+
+            param->updateStream();
+        }
+
         volume->setVolumeDb (oldDb);
         volume->setPan (oldPan);
     }

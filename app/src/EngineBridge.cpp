@@ -405,6 +405,77 @@ void EngineBridge::sync()
     }
 }
 
+void EngineBridge::syncAutomation (const collab::Track& t, Binding& b, bool tempoChanged)
+{
+    auto* vol = b.track->getVolumePlugin();
+
+    if (vol == nullptr)
+        return;
+
+    std::string key;
+
+    for (auto& lane : t.automation)
+    {
+        key += lane.param + ":";
+
+        for (auto& p : lane.points)
+            key += std::to_string (p.tick) + "=" + std::to_string (p.value) + ",";
+    }
+
+    if (key == b.automationKey && ! tempoChanged)
+        return;
+
+    const bool hadAutomation = ! b.automationKey.empty();
+    b.automationKey = key;
+    const auto& map = document.getTempoMap();
+
+    // 点は曲の秒の位置に置き、点の間は直線（Tracktion の値は、音量はフェーダーの位置 0〜1、パンは -1〜1）
+    auto apply = [&] (te::AutomatableParameter& param, const collab::AutomationLane* lane, auto toParam)
+    {
+        auto& curve = param.getCurve();
+        curve.clear();
+
+        if (lane != nullptr)
+        {
+            // 画面のとおり、点の間はこちらの値（dB など）で直線にする。Tracktion はパラメーターの値（フェーダーの位置）で直線に
+            // つなぐので、間に細かく点を足す（50 ms ごと）
+            for (size_t i = 0; i < lane->points.size(); ++i)
+            {
+                const auto& p = lane->points[i];
+                const double t0 = juce::jmax (0.0, map.tickToSeconds ((double) p.tick));
+                curve.addPoint (te::TimePosition::fromSeconds (t0), toParam (p.value), 0.0f);
+
+                if (i + 1 < lane->points.size())
+                {
+                    const auto& q = lane->points[i + 1];
+                    const double t1 = juce::jmax (0.0, map.tickToSeconds ((double) q.tick));
+                    const int steps = juce::jlimit (0, 400, (int) ((t1 - t0) / 0.05));
+
+                    if (std::abs (q.value - p.value) > 1e-9)
+                        for (int k = 1; k < steps; ++k)
+                        {
+                            const double f = (double) k / (double) steps;
+                            curve.addPoint (te::TimePosition::fromSeconds (t0 + (t1 - t0) * f), toParam (p.value + (q.value - p.value) * f), 0.0f);
+                        }
+                }
+            }
+        }
+
+        // Tracktion は少し後（タイマー）で再生用の値を作り直すので、すぐに作る（書き出しなどがすぐ後に続くことがある）
+        param.updateStream();
+    };
+
+    apply (*vol->volParam, t.findAutomation ("volume"), [] (double db) { return te::decibelsToVolumeFaderPosition ((float) db); });
+    apply (*vol->panParam, t.findAutomation ("pan"), [] (double pan) { return (float) juce::jlimit (-1.0, 1.0, pan); });
+
+    // オートメーションを消したら、ミキサーの値に戻す（最後に鳴っていた値のままにしない）
+    if (hadAutomation)
+    {
+        vol->setVolumeDb ((float) t.volumeDb);
+        vol->setPan ((float) t.pan);
+    }
+}
+
 void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChanged)
 {
     auto& track = *b.track;
@@ -420,6 +491,8 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
         if (std::abs (vol->getPan() - (float) t.pan) > 0.001f)
             vol->setPan ((float) t.pan);
     }
+
+    syncAutomation (t, b, tempoChanged);
 
     // 外部プラグインのトラックをバウンスしたトラックは、持ち主の PC では鳴らさない（元のトラックをそのまま鳴らす）
     if (const bool mute = t.mute || collab::isHiddenBounceTrack (document.getProject(), t); track.isMuted (false) != mute)

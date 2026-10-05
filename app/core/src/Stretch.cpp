@@ -95,6 +95,10 @@ void stretchProject (Project& p, const ProjectStretch& s)
 
         for (auto& c : t.audioClips)
             c.startTick = stretchTick (c.startTick, f);
+
+        for (auto& lane : t.automation)
+            for (auto& pt : lane.points)
+                pt.tick = stretchTick (pt.tick, f);
     }
 
     // 拍子: 新しい位置（tick）から小節番号を数え直す（前の拍子の小節の長さで割る。割り切れなければその次の小節）

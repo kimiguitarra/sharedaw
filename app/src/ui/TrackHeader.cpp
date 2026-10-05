@@ -1,4 +1,5 @@
 #include "TrackHeader.h"
+#include "AutomationView.h"
 
 #include "Dialogs.h"
 #include "InstrumentPanel.h"
@@ -51,6 +52,43 @@ TrackHeader::TrackHeader (AppContext& c, const std::string& id)
     soloButton.setTooltip ("ソロ"_ju);
     muteButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffe57373));
     soloButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffffd54f).darker (0.2f));
+    automationButton.setTooltip ("オートメーション（音量・パンを曲の途中で変える）"_ju);
+    automationButton.setClickingTogglesState (false);
+    automationButton.setWantsKeyboardFocus (false);
+    automationButton.setColour (juce::TextButton::buttonOnColourId, Theme::accent);
+    automationButton.onClick = [this]
+    {
+        auto& shown = ctx.state.automationShown;
+
+        if (shown.count (trackId) > 0)
+        {
+            shown.erase (trackId);
+        }
+        else
+        {
+            // 点のあるレーンがあればそれ、なければ音量
+            auto* t = ctx.document.getProject().findTrack (trackId);
+            shown[trackId] = t != nullptr && ! t->automation.empty() ? t->automation.front().param : std::string ("volume");
+        }
+
+        ctx.state.changed();
+    };
+    addAndMakeVisible (automationButton);
+
+    automationParam.setWantsKeyboardFocus (false);
+    automationParam.onChange = [this]
+    {
+        const auto params = collab::automationParams();
+        const int i = automationParam.getSelectedId() - 1;
+
+        if (i >= 0 && i < (int) params.size() && ctx.state.shownAutomation (trackId) != params[(size_t) i])
+        {
+            ctx.state.automationShown[trackId] = params[(size_t) i];
+            ctx.state.changed();
+        }
+    };
+    addChildComponent (automationParam);
+
     muteButton.onClick = [this] { editTrack ("ミュート"_ju, [] (collab::Track& t) { t.mute = ! t.mute; }); };
     soloButton.onClick = [this] { editTrack ("ソロ"_ju, [] (collab::Track& t) { t.solo = ! t.solo; }); };
 
@@ -74,6 +112,29 @@ void TrackHeader::update()
 
     nameLabel.setText (toJuce (t->name), juce::dontSendNotification);
     muteButton.setToggleState (t->mute, juce::dontSendNotification);
+
+    // オートメーション: 点のあるレーンがあれば「A」を目立たせる。レーンを出していればパラメーターの選択を出す
+    const auto shown = ctx.state.shownAutomation (trackId);
+    automationButton.setToggleState (! shown.empty(), juce::dontSendNotification);
+    automationButton.setColour (juce::TextButton::textColourOffId, t->automation.empty() ? Theme::textDim : Theme::accent);
+
+    if (automationParam.isVisible() != ! shown.empty())
+    {
+        automationParam.setVisible (! shown.empty());
+        resized();
+    }
+
+    if (! shown.empty())
+    {
+        automationParam.clear (juce::dontSendNotification);
+        const auto params = collab::automationParams();
+
+        for (size_t i = 0; i < params.size(); ++i)
+            automationParam.addItem (AutomationView::paramName (params[i]) + (t->findAutomation (params[i]) != nullptr ? " *" : ""), (int) i + 1);
+
+        const auto it = std::find (params.begin(), params.end(), shown);
+        automationParam.setSelectedId (it != params.end() ? (int) (it - params.begin()) + 1 : 0, juce::dontSendNotification);
+    }
     soloButton.setToggleState (t->solo, juce::dontSendNotification);
     if (t->type == collab::TrackType::audio)
         armButton.setToggleState (ctx.engine.getTrackInput (trackId).armed, juce::dontSendNotification);
@@ -180,11 +241,18 @@ void TrackHeader::paint (juce::Graphics& g)
         {
             g.setColour (done ? Theme::textDim : Theme::warning);
             g.setFont (juce::FontOptions (13.5f));
-            g.drawText (renderBadge, getLocalBounds().withTrimmedLeft (10).withTrimmedRight (10).removeFromBottom (32).removeFromTop (12),
+            g.drawText (renderBadge, getLocalBounds().withHeight (ctx.state.clipLaneHeight (trackId)).withTrimmedLeft (10).withTrimmedRight (10)
+                                       .removeFromBottom (32).removeFromTop (12),
                         juce::Justification::centredRight, true);
         }
     }
 
+    // オートメーションのレーンとの境目
+    if (ctx.state.automationHeight (trackId) > 0)
+    {
+        g.setColour (Theme::background.withAlpha (0.6f));
+        g.drawHorizontalLine (ctx.state.clipLaneHeight (trackId), 12.0f, (float) getWidth() - 6.0f);
+    }
 }
 
 void TrackHeader::resized()
@@ -196,6 +264,12 @@ void TrackHeader::resized()
     top.removeFromRight (3);
     muteButton.setBounds (top.removeFromRight (24));
     top.removeFromRight (3);
+    automationButton.setBounds (top.removeFromRight (24));
+    top.removeFromRight (3);
+
+    // オートメーションのレーン（下の段）: パラメーターの選択
+    if (const int laneHeight = ctx.state.automationHeight (trackId); laneHeight > 0)
+        automationParam.setBounds (getLocalBounds().removeFromBottom (laneHeight).reduced (14, 0).withSizeKeepingCentre (getWidth() - 28, 24));
 
     if (armButton.isVisible())
     {
@@ -231,7 +305,7 @@ void TrackHeader::mouseDown (const juce::MouseEvent& e)
         return showMenu();
 
     const auto p = e.getEventRelativeTo (this).getPosition();
-    dragStartHeight = getHeight();
+    dragStartHeight = ctx.state.clipLaneHeight (trackId);
     dragStartY = getY();
     drag = p.y >= getHeight() - resizeEdge ? Drag::resize : Drag::pending;
 }
@@ -250,7 +324,7 @@ void TrackHeader::mouseDrag (const juce::MouseEvent& e)
             if (std::abs (step - wanted) < std::abs (h - wanted))
                 h = step;
 
-        if (h != ctx.state.trackHeight (trackId))
+        if (h != ctx.state.clipLaneHeight (trackId))
         {
             ctx.state.trackHeights[trackId] = h;
             ctx.state.changed();

@@ -9,6 +9,8 @@
 #include "collab/ClipEditing.h"
 #include "Dialogs.h"
 #include "audio/AudioFiles.h"
+#include "AutomationView.h"
+#include "collab/Automation.h"
 
 #include <algorithm>
 #include <vector>
@@ -75,6 +77,10 @@ TrackLanes::Hit TrackLanes::findHit (juce::Point<float> p) const
     const auto& axis = ctx.state.timeline;
     const auto& map = ctx.document.getTempoMap();
     const float rowTopY = (float) (rowTop (hit.trackIndex) - scrollY) + 3.0f;
+
+    // オートメーションのレーンの上はクリップではない
+    if (automationArea (hit.trackIndex).contains (p))
+        return hit;
 
     for (auto it = track.midiClips.rbegin(); it != track.midiClips.rend(); ++it)
     {
@@ -223,6 +229,7 @@ void TrackLanes::paint (juce::Graphics& g)
         g.drawHorizontalLine (row.getBottom() - 1, 0.0f, (float) getWidth());
 
         const auto colour = Theme::parseColour (t.color);
+        const auto lane = row.withHeight (ctx.state.clipLaneHeight (t.id));   // クリップの段（下はオートメーションのレーン）
 
         for (auto& c : t.midiClips)
         {
@@ -232,7 +239,7 @@ void TrackLanes::paint (juce::Graphics& g)
             if (x2 < 0 || x1 > (float) getWidth())
                 continue;
 
-            paintMidiClip (g, c, juce::Rectangle<float> (x1, (float) row.getY() + 3.0f, x2 - x1, (float) row.getHeight() - 7.0f),
+            paintMidiClip (g, c, juce::Rectangle<float> (x1, (float) lane.getY() + 3.0f, x2 - x1, (float) lane.getHeight() - 7.0f),
                            colour, ctx.state.isClipSelected (c.id));
         }
 
@@ -244,13 +251,16 @@ void TrackLanes::paint (juce::Graphics& g)
             if (x2 < 0 || x1 > (float) getWidth())
                 continue;
 
-            paintAudioClip (g, c, juce::Rectangle<float> (x1, (float) row.getY() + 3.0f, juce::jmax (2.0f, x2 - x1), (float) row.getHeight() - 7.0f),
+            paintAudioClip (g, c, juce::Rectangle<float> (x1, (float) lane.getY() + 3.0f, juce::jmax (2.0f, x2 - x1), (float) lane.getHeight() - 7.0f),
                             colour, ctx.state.isClipSelected (c.id));
         }
 
         // 録音中: 入ってきている音をその場で描く（オーディオは入力の大きさ、MIDI は弾いたノート）
         if (auto it = ctx.engine.getLiveRecordings().find (t.id); it != ctx.engine.getLiveRecordings().end())
-            paintLiveRecording (g, it->second, juce::Rectangle<float> (0.0f, (float) row.getY() + 3.0f, (float) getWidth(), (float) row.getHeight() - 7.0f));
+            paintLiveRecording (g, it->second, juce::Rectangle<float> (0.0f, (float) lane.getY() + 3.0f, (float) getWidth(), (float) lane.getHeight() - 7.0f));
+
+        if (const auto param = ctx.state.shownAutomation (t.id); ! param.empty())
+            paintAutomation (g, t, param, automationArea ((int) i));
     }
 
     // ループ範囲
@@ -536,6 +546,28 @@ void TrackLanes::mouseMove (const juce::MouseEvent& e)
         repaint();
     }
 
+    // オートメーションのレーン: 点の上は移動のカーソル、ほかは追加（鉛筆なら描く）
+    {
+        const int row = rowAt (e.position.y);
+        const bool inLane = row >= 0 && automationArea (row).contains (e.position);
+
+        if (inLane || automationHoverTrack >= 0)
+        {
+            automationHoverTrack = inLane ? row : -1;
+            automationHover = e.position;
+            repaint();
+        }
+
+        if (inLane)
+        {
+            const auto& t = ctx.document.getProject().tracks[(size_t) row];
+            const auto param = ctx.state.shownAutomation (t.id);
+            const bool onPoint = automationPointAt (t, param, e.position, automationArea (row)) >= 0;
+            return setMouseCursor (onPoint ? juce::MouseCursor::DraggingHandCursor
+                                           : ctx.state.pencil() ? Theme::pencilCursor() : juce::MouseCursor::CrosshairCursor);
+        }
+    }
+
     if (ctx.state.tool != EditTool::select && ctx.state.tool != EditTool::pencil)
         return setMouseCursor (Theme::toolCursor (ctx.state.tool));
 
@@ -554,6 +586,12 @@ void TrackLanes::mouseMove (const juce::MouseEvent& e)
 
 void TrackLanes::mouseExit (const juce::MouseEvent&)
 {
+    if (automationHoverTrack >= 0)
+    {
+        automationHoverTrack = -1;
+        repaint();
+    }
+
     if (splitRow >= 0 || ghostRow >= 0)
     {
         splitRow = -1;
@@ -717,6 +755,11 @@ void TrackLanes::showClipMenu (const collab::Track& track, const std::string& cl
 void TrackLanes::mouseDown (const juce::MouseEvent& e)
 {
     grabKeyboardFocus();
+    automationDrag.reset();
+
+    if (const int row = rowAt (e.position.y); row >= 0 && automationArea (row).contains (e.position))
+        return automationMouseDown (e, row);
+
     auto hit = findHit (e.position);
     const auto& project = ctx.document.getProject();
     const auto tool = ctx.state.tool;
@@ -905,6 +948,9 @@ void TrackLanes::showLaneMenu (const collab::Track* track, collab::Tick at)
 
 void TrackLanes::mouseDrag (const juce::MouseEvent& e)
 {
+    if (automationDrag)
+        return automationMouseDrag (e);
+
     if (dragMode == DragMode::rubberBand)
     {
         band = juce::Rectangle<float> (bandStart, e.position);
@@ -1134,6 +1180,12 @@ void TrackLanes::mouseDrag (const juce::MouseEvent& e)
 
 void TrackLanes::mouseUp (const juce::MouseEvent&)
 {
+    if (automationDrag)
+    {
+        automationDrag.reset();
+        repaint();
+    }
+
     if (dragMode == DragMode::rubberBand)
         repaint();
 
@@ -1278,4 +1330,321 @@ void TrackLanes::normaliseClip (const std::string& trackId, const std::string& c
         });
         return;
     }
+}
+
+//==============================================================================
+juce::Rectangle<float> TrackLanes::automationArea (int index) const
+{
+    const auto& tracks = ctx.document.getProject().tracks;
+
+    if (index < 0 || index >= (int) tracks.size())
+        return {};
+
+    const auto& id = tracks[(size_t) index].id;
+    const int h = ctx.state.automationHeight (id);
+
+    if (h <= 0)
+        return {};
+
+    const int top = rowTop (index) - scrollY + ctx.state.clipLaneHeight (id);
+    return juce::Rectangle<int> (0, top, getWidth(), h - 1).toFloat();
+}
+
+float TrackLanes::automationY (const std::string& param, double value, juce::Rectangle<float> area) const
+{
+    const auto r = area.reduced (0.0f, 6.0f);
+    return r.getBottom() - (float) AutomationView::toNorm (param, value) * r.getHeight();
+}
+
+double TrackLanes::automationValue (const std::string& param, float y, juce::Rectangle<float> area) const
+{
+    const auto r = area.reduced (0.0f, 6.0f);
+    return AutomationView::fromNorm (param, (double) ((r.getBottom() - y) / juce::jmax (1.0f, r.getHeight())));
+}
+
+int TrackLanes::automationPointAt (const collab::Track& t, const std::string& param, juce::Point<float> p, juce::Rectangle<float> area) const
+{
+    const auto* lane = t.findAutomation (param);
+
+    if (lane == nullptr)
+        return -1;
+
+    int best = -1;
+    float bestDistance = 8.0f;
+
+    for (size_t i = 0; i < lane->points.size(); ++i)
+    {
+        const auto& pt = lane->points[i];
+        const juce::Point<float> q ((float) ctx.state.timeline.tickToX ((double) pt.tick), automationY (param, pt.value, area));
+
+        if (const float d = q.getDistanceFrom (p); d < bestDistance)
+        {
+            bestDistance = d;
+            best = (int) i;
+        }
+    }
+
+    return best;
+}
+
+void TrackLanes::paintAutomation (juce::Graphics& g, const collab::Track& t, const std::string& param, juce::Rectangle<float> area) const
+{
+    const auto& axis = ctx.state.timeline;
+    const auto colour = Theme::parseColour (t.color);
+    const auto* lane = t.findAutomation (param);
+
+    g.setColour (Theme::panel.withAlpha (0.55f));
+    g.fillRect (area);
+    g.setColour (Theme::background);
+    g.drawHorizontalLine ((int) area.getY(), 0.0f, area.getRight());
+
+    // 基準の線（音量は 0 dB、パンは C）
+    g.setColour (Theme::gridBeat.withAlpha (0.6f));
+    g.drawHorizontalLine ((int) automationY (param, 0.0, area), 0.0f, area.getRight());
+
+    if (lane == nullptr || lane->points.empty())
+    {
+        // 点がないとき: ミキサーの値を点線で、使い方を薄く
+        const float y = automationY (param, collab::mixerValue (t, param), area);
+        const float dashes[] = { 5.0f, 4.0f };
+        g.setColour (colour.withAlpha (0.7f));
+        g.drawDashedLine ({ 0.0f, y, area.getRight(), y }, dashes, 2, 1.5f);
+        g.setColour (Theme::textDim);
+        g.setFont (juce::FontOptions (13.5f));
+        g.drawText (AutomationView::paramName (param) + juce::String::fromUTF8 ("：クリックで点を追加、鉛筆でドラッグして描く"),   // utf8-std
+                    area.reduced (8.0f, 2.0f).removeFromTop (16.0f), juce::Justification::centredLeft, true);
+        return;
+    }
+
+    // 線（点の間は値で直線。音量は高さが dB に比例しないので、細かく区切って描く）
+    juce::Path line;
+    const float step = 3.0f;
+
+    for (float x = area.getX(); x <= area.getRight() + step; x += step)
+    {
+        const auto tick = (collab::Tick) std::llround (juce::jmax (0.0, axis.xToTick (x)));
+        const float y = automationY (param, collab::automationValueAt (lane->points, tick, 0.0), area);
+
+        if (x <= area.getX())
+            line.startNewSubPath (x, y);   // Path::isEmpty() は点だけでは true のままなので、最初の x で始める
+        else
+            line.lineTo (x, y);
+    }
+
+    g.setColour (colour.withAlpha (0.18f));
+    juce::Path fill (line);
+    fill.lineTo (area.getRight() + step, area.getBottom());
+    fill.lineTo (area.getX(), area.getBottom());
+    fill.closeSubPath();
+    g.fillPath (fill);
+    g.setColour (colour.darker (0.25f));
+    g.strokePath (line, juce::PathStrokeType (2.0f));
+
+    // 点
+    const int dragged = automationDrag && automationDrag->trackId == t.id && ! automationDrag->freehand ? automationDrag->pointIndex : -1;
+    int labelIndex = -1;
+
+    for (size_t i = 0; i < lane->points.size(); ++i)
+    {
+        const auto& p = lane->points[i];
+        const float x = (float) axis.tickToX ((double) p.tick);
+
+        if (x < -10.0f || x > area.getRight() + 10.0f)
+            continue;
+
+        const juce::Point<float> c (x, automationY (param, p.value, area));
+        const bool hot = automationHoverTrack >= 0 && c.getDistanceFrom (automationHover) < 8.0f;
+        g.setColour (hot ? Theme::selection : colour.brighter (0.5f));
+        g.fillEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre (c));
+        g.setColour (Theme::background);
+        g.drawEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre (c), 1.0f);
+
+        if (hot)
+            labelIndex = (int) i;
+    }
+
+    // 動かしている点・マウスの下の点の値
+    if (dragged >= 0 || labelIndex >= 0)
+    {
+        // 動かした後の点はどれか分からないので、マウスに一番近い点の値を出す
+        const auto at = automationDrag ? automationDrag->last : automationHover;
+        int nearest = -1;
+        float best = 1.0e9f;
+
+        for (size_t i = 0; i < lane->points.size(); ++i)
+        {
+            const juce::Point<float> c ((float) axis.tickToX ((double) lane->points[i].tick), automationY (param, lane->points[i].value, area));
+
+            if (const float d = c.getDistanceFrom (at); d < best)
+            {
+                best = d;
+                nearest = (int) i;
+            }
+        }
+
+        if (nearest >= 0)
+        {
+            const auto& p = lane->points[(size_t) nearest];
+            const juce::Point<float> c ((float) axis.tickToX ((double) p.tick), automationY (param, p.value, area));
+            const auto text = AutomationView::valueText (param, p.value);
+            auto box = juce::Rectangle<float> (70.0f, 18.0f).withPosition (c.x + 8.0f, juce::jlimit (area.getY(), area.getBottom() - 18.0f, c.y - 20.0f));
+            g.setColour (Theme::panel.withAlpha (0.92f));
+            g.fillRoundedRectangle (box, 4.0f);
+            g.setColour (Theme::text);
+            g.setFont (juce::FontOptions (13.5f, juce::Font::bold));
+            g.drawText (text, box, juce::Justification::centred);
+        }
+    }
+
+    // パラメーターの名前（左上）
+    g.setColour (Theme::textDim);
+    g.setFont (juce::FontOptions (13.0f));
+    g.drawText (AutomationView::paramName (param), area.reduced (8.0f, 2.0f).removeFromTop (16.0f), juce::Justification::centredLeft, true);
+}
+
+void TrackLanes::setAutomation (const std::string& trackId, const std::string& param, std::vector<collab::AutomationPoint> points,
+                                const juce::String& description, const juce::String& merge)
+{
+    ctx.editTrack (trackId, description, [param, points] (collab::Track& t) { collab::setAutomation (t, param, points); }, merge);
+}
+
+void TrackLanes::automationMouseDown (const juce::MouseEvent& e, int trackIndex)
+{
+    const auto& t = ctx.document.getProject().tracks[(size_t) trackIndex];
+    const auto param = ctx.state.shownAutomation (t.id);
+    const auto area = automationArea (trackIndex);
+
+    if (ctx.state.selectedTrackId != t.id)
+    {
+        ctx.state.selectedTrackId = t.id;
+        ctx.state.changed();
+    }
+
+    if (e.mods.isPopupMenu())
+        return showAutomationMenu (t.id, param);
+
+    const auto* lane = t.findAutomation (param);
+    std::vector<collab::AutomationPoint> points = lane != nullptr ? lane->points : std::vector<collab::AutomationPoint>();
+    const int index = automationPointAt (t, param, e.position, area);
+
+    // 点をダブルクリックで消す
+    if (e.getNumberOfClicks() > 1)
+    {
+        if (index >= 0)
+        {
+            points.erase (points.begin() + index);
+            setAutomation (t.id, param, points, "オートメーションの点を削除"_ju);
+        }
+
+        return;
+    }
+
+    AutomationDrag d;
+    d.trackId = t.id;
+    d.param = param;
+    d.last = e.position;
+    d.downTick = ctx.state.timeline.xToTick (e.position.x);
+    mergeId = juce::Uuid().toString();
+
+    if (index >= 0)
+    {
+        d.original = points;
+        d.pointIndex = index;
+        automationDrag = d;
+        return;
+    }
+
+    if (ctx.state.pencil())
+    {
+        // 鉛筆: ドラッグした所に描く
+        d.original = points;
+        d.freehand = true;
+        automationDrag = d;
+        automationMouseDrag (e);
+        return;
+    }
+
+    // 選択ツール: 押した所に点を足して、そのままドラッグで動かせる
+    const collab::AutomationPoint added { snap (ctx.state.timeline.xToTick (e.position.x), e.mods), automationValue (param, e.position.y, area) };
+    collab::replaceAutomation (points, added.tick, added.tick, { added }, collab::automationRange (param));
+    setAutomation (t.id, param, points, "オートメーションの点を追加"_ju, mergeId);
+
+    d.original = points;
+    d.pointIndex = (int) (std::find (points.begin(), points.end(), added) - points.begin());
+    automationDrag = d;
+    repaint();
+}
+
+void TrackLanes::automationMouseDrag (const juce::MouseEvent& e)
+{
+    auto& d = *automationDrag;
+    const int row = ctx.document.getProject().indexOfTrack (d.trackId);
+    const auto area = automationArea (row);
+
+    if (area.isEmpty())
+        return;
+
+    const auto range = collab::automationRange (d.param);
+    auto points = d.original;
+
+    if (d.freehand)
+    {
+        // 前の位置から今の位置まで、10 ピクセルごとに点を置く
+        const auto from = d.drawn.empty() ? e.position : d.last;
+        const float distance = std::abs (e.position.x - from.x);
+        const int steps = juce::jmax (1, (int) (distance / 10.0f));
+
+        for (int k = 0; k <= steps; ++k)
+        {
+            const auto pt = from + (e.position - from) * ((float) k / (float) steps);
+            const auto tick = (collab::Tick) std::llround (juce::jmax (0.0, ctx.state.timeline.xToTick (pt.x)));
+            d.drawn[tick] = automationValue (d.param, juce::jlimit (area.getY(), area.getBottom(), pt.y), area);
+        }
+
+        d.last = e.position;
+        std::vector<collab::AutomationPoint> drawn;
+
+        for (auto& [tick, value] : d.drawn)
+            drawn.push_back ({ tick, value });
+
+        collab::replaceAutomation (points, drawn.front().tick, drawn.back().tick, drawn, range);
+        setAutomation (d.trackId, d.param, points, "オートメーションを描く"_ju, mergeId);
+        return;
+    }
+
+    if (d.pointIndex < 0 || d.pointIndex >= (int) points.size())
+        return;
+
+    // 点を動かす（時間はスナップ、Alt で自由に。値はマウスの高さ）
+    d.last = e.position;
+    const auto moved = collab::AutomationPoint { snap ((double) points[(size_t) d.pointIndex].tick + (ctx.state.timeline.xToTick (e.position.x) - d.downTick), e.mods),
+                                                 automationValue (d.param, juce::jlimit (area.getY(), area.getBottom(), e.position.y), area) };
+    points.erase (points.begin() + d.pointIndex);
+    collab::replaceAutomation (points, moved.tick, moved.tick, { moved }, range);
+    setAutomation (d.trackId, d.param, points, "オートメーションの点を移動"_ju, mergeId);
+}
+
+void TrackLanes::showAutomationMenu (const std::string& trackId, const std::string& param)
+{
+    juce::PopupMenu m;
+    auto* t = ctx.document.getProject().findTrack (trackId);
+
+    for (auto& p : collab::automationParams())
+        m.addItem (AutomationView::paramName (p) + (t != nullptr && t->findAutomation (p) != nullptr ? " *" : ""), true, p == param, [this, trackId, p]
+        {
+            ctx.state.automationShown[trackId] = p;
+            ctx.state.changed();
+        });
+
+    m.addSeparator();
+    m.addItem ("このレーンの点を全部消す"_ju, t != nullptr && t->findAutomation (param) != nullptr, false, [this, trackId, param]
+    {
+        setAutomation (trackId, param, {}, "オートメーションを消す"_ju);
+    });
+    m.addItem ("レーンを隠す"_ju, [this, trackId]
+    {
+        ctx.state.automationShown.erase (trackId);
+        ctx.state.changed();
+    });
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
 }

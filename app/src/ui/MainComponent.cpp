@@ -1,5 +1,6 @@
 #include "MainComponent.h"
 #include "AudioFilesPanel.h"
+#include "collab/Automation.h"
 #include "collab/Render.h"
 #include "MainComponentCommands.h"
 
@@ -483,6 +484,79 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
         m.commandManager.invokeDirectly (cmdPlay, false);
         m.bridge.stop();
     }, "stop" });
+    steps->push_back ({ 100, [] (MainComponent& m)
+    {
+        // オートメーション: ベースのトラックに音量のレーンを出して点を置く（下のタイムラインの画面に写る）
+        for (auto& t : m.document.getProject().tracks)
+            if (t.name == "Bass")
+            {
+                m.state.automationShown[t.id] = "volume";
+                m.ctx.editTrack (t.id, "オートメーション"_ju, [] (collab::Track& tr)
+                {
+                    collab::setAutomation (tr, "volume", { { 0, -24.0 }, { collab::kPpq * 4, 0.0 }, { collab::kPpq * 6, -6.0 } });
+                });
+                m.state.changed();
+            }
+    }, "automation lane" });
+    steps->push_back ({ 100, [] (MainComponent& m)
+    {
+        // オートメーションのレーンをマウスで: クリックで点を足し、ドラッグで動かし、ダブルクリックで消す
+        auto& lanes = m.timeline.getLanes();
+        const auto& tracks = m.document.getProject().tracks;
+        int row = -1;
+
+        for (size_t i = 0; i < tracks.size(); ++i)
+            if (tracks[i].name == "Piano")
+                row = (int) i;
+
+        if (row < 0)
+            return;
+
+        const auto trackId = tracks[(size_t) row].id;
+        m.state.automationShown[trackId] = "pan";
+        m.state.tool = EditTool::select;
+        m.state.changed();
+
+        const int top = lanes.rowTop (row) - lanes.scrollY + m.state.clipLaneHeight (trackId);
+        const float y = (float) top + 10.0f;   // 上のほう = 右
+        const float x = (float) m.state.timeline.tickToX ((double) collab::kPpq * 4);
+        auto source = juce::Desktop::getInstance().getMainMouseSource();
+        auto event = [&] (juce::Point<float> p, int clicks, bool dragged)
+        {
+            const auto now = juce::Time::getCurrentTime();
+            return juce::MouseEvent (source, p, juce::ModifierKeys::leftButtonModifier, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                     &lanes, &lanes, now, { x, y }, now, clicks, dragged);
+        };
+
+        auto points = [&]
+        {
+            auto* t = m.document.getProject().findTrack (trackId);
+            auto* lane = t != nullptr ? t->findAutomation ("pan") : nullptr;
+            return lane != nullptr ? lane->points : std::vector<collab::AutomationPoint>();
+        };
+
+        lanes.mouseDown (event ({ x, y }, 1, false));
+        lanes.mouseUp (event ({ x, y }, 1, false));
+        const auto added = points();
+        const bool addedOk = added.size() == 1 && added[0].tick == collab::kPpq * 4 && added[0].value > 0.5;
+
+        lanes.mouseDown (event ({ x, y }, 1, false));
+        lanes.mouseDrag (event ({ x + 40.0f, y + 30.0f }, 1, true));
+        lanes.mouseUp (event ({ x + 40.0f, y + 30.0f }, 1, true));
+        const auto moved = points();
+        const bool movedOk = moved.size() == 1 && moved[0].tick > collab::kPpq * 4 && moved[0].value < added[0].value;
+
+        const float x2 = (float) m.state.timeline.tickToX ((double) moved[0].tick);
+        const float y2 = top + 6.0f + (1.0f - (float) ((moved[0].value + 1.0) / 2.0)) * ((float) EditorState::automationLaneHeight - 1.0f - 12.0f);
+        lanes.mouseDown (event ({ x2, y2 }, 2, false));
+        lanes.mouseUp (event ({ x2, y2 }, 2, false));
+        const bool deletedOk = points().empty();
+
+        std::cout << "automation edit: " << (addedOk && movedOk && deletedOk ? "ok" : "FAILED")
+                  << " (added " << addedOk << " moved " << movedOk << " deleted " << deletedOk << ")" << std::endl;
+        m.state.automationShown.erase (trackId);
+        m.state.changed();
+    }, "automation editing" });
     steps->push_back ({ 300, [] (MainComponent& m)
     {
         // 確認用: タイムラインの画面（波形・立ち上がりの線）を保存する
@@ -493,7 +567,11 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
             juce::FileOutputStream out (juce::File (dir).getChildFile ("timeline.png"));
             out.setPosition (0);
             out.truncate();
+            // 試験用の画面は小さいので、一時的に高くして全部のトラックを写す
+            const auto old = m.timeline.getBounds();
+            m.timeline.setSize (juce::jmax (old.getWidth(), 900), juce::jmax (old.getHeight(), 640));
             juce::PNGImageFormat().writeImageToStream (m.timeline.createComponentSnapshot (m.timeline.getLocalBounds()), out);
+            m.timeline.setBounds (old);
         }
     }, "timeline snapshot" });
     steps->push_back ({ 300, [] (MainComponent& m)
