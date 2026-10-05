@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include <array>
 #include <nlohmann/json.hpp>
 
 namespace collab
@@ -267,11 +268,23 @@ struct ChannelComp
     bool operator== (const ChannelComp&) const = default;
 };
 
+/** チャンネルの中の処理の塊（インサート・EQ・コンプ）。並べ替えられる。 */
+enum class StripBlock { inserts, eq, comp };
+
 struct ChannelStrip
 {
     ChannelEq eq;
     ChannelComp comp;
     bool compFirst = false;         // true なら Compressor → EQ の順（既定は EQ → Compressor）
+    int insertsAt = 0;              // インサートの位置: 0 = EQ・コンプの前（既定）、1 = 間、2 = 後
+
+    /** かける順番（3 つ）。 */
+    std::array<StripBlock, 3> order() const;
+    void setOrder (const std::array<StripBlock, 3>&);
+
+    /** インサートの前・後でかける分だけ（もう片方はオフ）。 */
+    ChannelStrip beforeInserts() const;
+    ChannelStrip afterInserts() const;
 
     bool isDefault() const          { return *this == ChannelStrip {}; }
     bool operator== (const ChannelStrip&) const = default;

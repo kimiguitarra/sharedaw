@@ -501,13 +501,12 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
     if (track.isSolo (false) != t.solo)
         track.setSolo (t.solo);
 
-    syncStrip (t, b);
-
     // 外部プラグインを使うトラックは、この環境でプラグインを鳴らせなければバウンスした音で再生する（§3.7）
     juce::String liveProblem;
     const bool external = collab::usesExternalPlugin (t);
     const bool renderMode = external && ! canPlayLive (t, liveProblem);
     b.renderMode = renderMode;
+    syncStrip (t, b);
 
     if (renderMode)
     {
@@ -579,11 +578,16 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
             ++b.missingAudio;
     }
 
-    // テイクの切り替わりはクロスフェード（下のクリップを少し延ばして、等パワーの形で入れ替える）
-    // つなぎは決まった形にする（直線・5 ms。調整はしない）
+    // テイクの切り替わり・くっついたつなぎ目は、5 ms 重ねて直線のクロスフェードで入れ替える（調整はしない）
     const auto shape = te::AudioFadeCurve::linear;
 
-    for (auto seg : collab::audibleSegments (t.audioClips, map, 0.005))
+    const auto sourceSeconds = [this] (const collab::AudioClip& c)
+    {
+        const auto file = AudioFiles::fileForHash (document.getProjectDir(), c.audioHash);
+        return file.existsAsFile() ? te::AudioFile (engine, file).getLength() : -1.0;
+    };
+
+    for (auto seg : collab::audibleSegments (t.audioClips, map, 0.005, sourceSeconds))
     {
         auto& c = t.audioClips[seg.clipIndex];
         auto file = AudioFiles::fileForHash (document.getProjectDir(), c.audioHash);
@@ -928,6 +932,7 @@ void EngineBridge::syncRouting (const collab::Project& project)
 
 void EngineBridge::syncStrip (const collab::Track& t, Binding& b)
 {
+    // 2 つ置く: インサートの前と後（インサートはこの間に並べる）。どちらにかけるかは並べた順番で決まる
     if (b.strip == nullptr)
     {
         auto plugin = edit->getPluginCache().createNewPlugin (ChannelStripPlugin::xmlTypeName, {});
@@ -937,18 +942,41 @@ void EngineBridge::syncStrip (const collab::Track& t, Binding& b)
         b.strip = dynamic_cast<ChannelStripPlugin*> (plugin.get());
     }
 
+    if (b.stripPre == nullptr && b.strip != nullptr && b.effects.empty())
+    {
+        auto plugin = edit->getPluginCache().createNewPlugin (ChannelStripPlugin::xmlTypeName, {});
+        b.track->pluginList.insertPlugin (plugin, b.track->pluginList.indexOf (b.strip), nullptr);
+        b.stripPre = dynamic_cast<ChannelStripPlugin*> (plugin.get());
+    }
+
+    // バウンスした音で鳴らすときは、インサートの前の分はもうバウンスに入っている
+    auto before = t.strip.beforeInserts();
+
+    if (b.renderMode)
+        before.eq.enabled = before.comp.enabled = false;
+
+    b.stripEqPre = b.stripPre != nullptr && before.eq.enabled;
+    b.stripCompPre = b.stripPre != nullptr && before.comp.enabled;
+
+    if (b.stripPre != nullptr)
+        b.stripPre->setStrip (before);
+
     if (b.strip != nullptr)
     {
-        b.strip->setStrip (t.strip);
+        b.strip->setStrip (b.stripPre != nullptr ? t.strip.afterInserts() : t.strip);
         b.strip->setMonoOutput (t.outputChannels == 1);
     }
+
+    if (spectrumTrackId == t.id)
+        setSpectrumTrack (t.id);
 }
 
 void EngineBridge::setSpectrumTrack (const std::string& trackId)
 {
     for (auto& [id, b] : bindings)
-        if (b.strip != nullptr)
-            b.strip->setSpectrumEnabled (id == trackId);
+        for (auto* p : { b.strip, b.stripPre })
+            if (p != nullptr)
+                p->setSpectrumEnabled (id == trackId && p == b.stripWithEq());
 
     spectrumTrackId = trackId;
 }
@@ -957,11 +985,11 @@ bool EngineBridge::getSpectrumSamples (float* dest, int numSamples, double& samp
 {
     auto it = bindings.find (spectrumTrackId);
 
-    if (it == bindings.end() || it->second.strip == nullptr)
+    if (it == bindings.end() || it->second.stripWithEq() == nullptr)
         return false;
 
-    sampleRate = it->second.strip->getSampleRate();
-    return it->second.strip->getLatestSamples (dest, numSamples);
+    sampleRate = it->second.stripWithEq()->getSampleRate();
+    return it->second.stripWithEq()->getLatestSamples (dest, numSamples);
 }
 
 EngineBridge::MasterStatus EngineBridge::pollMaster()
@@ -1008,7 +1036,44 @@ EngineBridge::MasterStatus EngineBridge::pollMaster()
 float EngineBridge::getTrackGainReductionDb (const std::string& trackId) const
 {
     auto it = bindings.find (trackId);
-    return it != bindings.end() && it->second.strip != nullptr ? it->second.strip->getGainReductionDb() : 0.0f;
+    return it != bindings.end() && it->second.stripWithComp() != nullptr ? it->second.stripWithComp()->getGainReductionDb() : 0.0f;
+}
+
+juce::String EngineBridge::describeChannel (const std::string& trackId) const
+{
+    auto it = bindings.find (trackId);
+
+    if (it == bindings.end())
+        return {};
+
+    const auto& b = it->second;
+    juce::StringArray parts;
+
+    for (auto* p : b.track->pluginList)
+    {
+        if (auto* strip = dynamic_cast<ChannelStripPlugin*> (p))
+        {
+            const auto& s = strip->getStrip();
+            juce::StringArray stages;
+
+            for (auto block : s.order())
+            {
+                if (block == collab::StripBlock::eq && s.eq.enabled)     stages.add ("eq");
+                if (block == collab::StripBlock::comp && s.comp.enabled) stages.add ("comp");
+            }
+
+            if (! stages.isEmpty())
+                parts.add (stages.joinIntoString (" "));
+        }
+        else
+        {
+            for (auto& e : b.effects)
+                if (e.plugin.get() == p)
+                    parts.add ("fx");
+        }
+    }
+
+    return parts.joinIntoString (" | ");
 }
 
 void EngineBridge::syncInstrument (const collab::Track& t, Binding& b)

@@ -19,6 +19,9 @@ bool usesExternalPlugin (const Track&);
     名前・色・音量・パン・ミュート・ソロは含めない（バウンス結果に影響しないため）。
     stateHash は stateRef（plugins-state/...）の内容のハッシュを返す関数。
 */
+/** バウンスに入る EQ・コンプ（インサートより前に並べた分だけ。ほかは既定値）。 */
+ChannelStrip bakedStrip (const ChannelStrip&);
+
 std::string trackSourceFingerprint (const Track&, const std::function<std::string (const std::string& stateRef)>& stateHash);
 
 enum class RenderStatus

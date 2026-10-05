@@ -133,6 +133,9 @@ public:
     /** トラックのコンプのゲインリダクション（dB、0 以上）。 */
     float getTrackGainReductionDb (const std::string& trackId) const;
 
+    /** 確認用: トラックのインサートと EQ・コンプの並び（例 "eq | fx | comp"）。 */
+    juce::String describeChannel (const std::string& trackId) const;
+
     //==============================================================================
     // 録音（§3.5）。入力の割り当て・録音待機・モニタリングはこの環境だけの設定なので JSON には入れない。
     struct TrackInput
@@ -258,7 +261,11 @@ private:
         te::AudioTrack::Ptr track;
         std::unique_ptr<Meter> meter;
         SfizzPlugin* synth = nullptr;
-        ChannelStripPlugin* strip = nullptr;
+        ChannelStripPlugin* strip = nullptr;        // インサートの後（モノ出力もここ）
+        ChannelStripPlugin* stripPre = nullptr;     // インサートの前（EQ・コンプをインサートより前に並べたとき）
+        ChannelStripPlugin* stripWithComp() const   { return stripCompPre ? stripPre : strip; }
+        ChannelStripPlugin* stripWithEq() const     { return stripEqPre ? stripPre : strip; }
+        bool stripCompPre = false, stripEqPre = false;
         juce::String sfzText;
         std::string clipsKey;
         std::string automationKey;   // 音量・パンのオートメーション（変わったときだけ作り直す）

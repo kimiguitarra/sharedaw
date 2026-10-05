@@ -286,6 +286,39 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
         m.menuItemsChanged();
         m.commandManager.commandStatusChanged();
     }, "rebuild menus" });
+    // チャンネルの並べ替え: 最初の MIDI のトラックに EQ・コンプ・内蔵エフェクトを入れ、インサートを EQ と Comp の間に
+    static collab::Track savedChannel;
+    steps->push_back ({ 300, [] (MainComponent& m)
+    {
+        for (auto& t : m.document.getProject().tracks)
+            if (! t.midiClips.empty())
+            {
+                savedChannel = t;
+                m.ctx.editTrack (t.id, "チャンネル"_ju, [] (collab::Track& tr)
+                {
+                    tr.strip.eq.enabled = tr.strip.comp.enabled = true;
+                    tr.strip.setOrder ({ collab::StripBlock::eq, collab::StripBlock::inserts, collab::StripBlock::comp });
+                });
+                m.ctx.addBuiltinEffect (t.id, collab::fx::Type::saturator);
+                break;
+            }
+    }, "channel order" });
+    steps->push_back ({ 300, [] (MainComponent& m)
+    {
+        const auto first = m.bridge.describeChannel (savedChannel.id);
+        m.ctx.editTrack (savedChannel.id, "チャンネル"_ju, [] (collab::Track& tr)
+        {
+            tr.strip.setOrder ({ collab::StripBlock::comp, collab::StripBlock::eq, collab::StripBlock::inserts });
+        });
+        m.bridge.sync();
+        const auto second = m.bridge.describeChannel (savedChannel.id);
+        std::cout << "channel order: " << (first == "eq | fx | comp" && second == "comp eq | fx" ? "ok" : "FAILED")
+                  << " (" << first << " / " << second << ")" << std::endl;
+        m.ctx.editTrack (savedChannel.id, "チャンネル"_ju, [] (collab::Track& tr)
+        {
+            tr.strip.setOrder ({ collab::StripBlock::eq, collab::StripBlock::inserts, collab::StripBlock::comp });
+        });
+    }, "channel order check" });
     steps->push_back ({ 800, [] (MainComponent& m)
     {
         // 最初の MIDI クリップを選んで、ピアノロールの画面とミキサーを開く
@@ -336,7 +369,18 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
         m.pianoRoll.setStaffBassClef (true);
         m.pianoRoll.setStaffMode (false);
     }, "staff view" });
-    steps->push_back ({ 1500, [] (MainComponent& m) { m.togglePianoFullScreen(); m.toggleMixer(); }, "close piano roll window and mixer" });
+    steps->push_back ({ 1500, [] (MainComponent& m)
+    {
+        m.togglePianoFullScreen();
+        m.toggleMixer();
+
+        // チャンネルの並べ替えの確認で変えた所を戻す
+        m.ctx.editTrack (savedChannel.id, "チャンネル"_ju, [] (collab::Track& tr)
+        {
+            tr.strip = savedChannel.strip;
+            tr.effects = savedChannel.effects;
+        });
+    }, "close piano roll window and mixer" });
     steps->push_back ({ 300, [] (MainComponent& m)
     {
         // ピアノロールの編集: 全部選んでナッジ・ベロシティを変え、元に戻す

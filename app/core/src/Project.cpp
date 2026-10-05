@@ -163,6 +163,65 @@ std::string markerTrackIdFor (const std::string& projectId)
     return derivedUuid ("markerTrack:" + projectId);
 }
 
+std::array<StripBlock, 3> ChannelStrip::order() const
+{
+    std::array<StripBlock, 2> dsp { StripBlock::eq, StripBlock::comp };
+
+    if (compFirst)
+        std::swap (dsp[0], dsp[1]);
+
+    const int at = std::clamp (insertsAt, 0, 2);
+    std::array<StripBlock, 3> result {};
+    int k = 0;
+
+    for (int i = 0; i < 3; ++i)
+        result[(size_t) i] = i == at ? StripBlock::inserts : dsp[(size_t) k++];
+
+    return result;
+}
+
+void ChannelStrip::setOrder (const std::array<StripBlock, 3>& o)
+{
+    int eqIndex = 0, compIndex = 0;
+
+    for (int i = 0; i < 3; ++i)
+    {
+        if (o[(size_t) i] == StripBlock::inserts) insertsAt = i;
+        if (o[(size_t) i] == StripBlock::eq)      eqIndex = i;
+        if (o[(size_t) i] == StripBlock::comp)    compIndex = i;
+    }
+
+    compFirst = compIndex < eqIndex;
+}
+
+ChannelStrip ChannelStrip::beforeInserts() const
+{
+    ChannelStrip s = *this;
+    const auto o = order();
+
+    for (int i = std::clamp (insertsAt, 0, 2); i < 3; ++i)
+    {
+        if (o[(size_t) i] == StripBlock::eq)   s.eq.enabled = false;
+        if (o[(size_t) i] == StripBlock::comp) s.comp.enabled = false;
+    }
+
+    return s;
+}
+
+ChannelStrip ChannelStrip::afterInserts() const
+{
+    ChannelStrip s = *this;
+    const auto o = order();
+
+    for (int i = 0; i < std::clamp (insertsAt, 0, 2); ++i)
+    {
+        if (o[(size_t) i] == StripBlock::eq)   s.eq.enabled = false;
+        if (o[(size_t) i] == StripBlock::comp) s.comp.enabled = false;
+    }
+
+    return s;
+}
+
 std::string compTypeName (CompType t)
 {
     return t == CompType::opto ? "opto" : "fet";

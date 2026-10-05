@@ -1073,6 +1073,13 @@
             "eqComp",
             "compEq"
           ]
+        },
+        "insertsAt": {
+          "enum": [
+            "first",
+            "middle",
+            "last"
+          ]
         }
       }
     },

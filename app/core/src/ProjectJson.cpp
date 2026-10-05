@@ -181,6 +181,9 @@ namespace
         if (s.compFirst)
             o["order"] = "compEq";
 
+        if (s.insertsAt == 1 || s.insertsAt == 2)
+            o["insertsAt"] = s.insertsAt == 1 ? "middle" : "last";
+
         return o;
     }
 
@@ -323,6 +326,8 @@ namespace
         }
 
         s.compFirst = getOr<std::string> (j, "order", "eqComp") == "compEq";
+        const auto insertsAt = getOr<std::string> (j, "insertsAt", "first");
+        s.insertsAt = insertsAt == "middle" ? 1 : insertsAt == "last" ? 2 : 0;
 
         return s;
     }

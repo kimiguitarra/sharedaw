@@ -285,6 +285,38 @@ TEST_CASE ("audio clips that touch are joined with a short crossfade across the 
     CHECK (segs[1].crossfadeIn);
     CHECK (segs[1].fadeOutSeconds == doctest::Approx (0.0));
 
+    // 元ファイルに余りがない（録ったテイクをそのまま）: 後ろのクリップを前にずらしてでも xf だけ重ねる
+    {
+        AudioClip ta { "a", 0, std::string (64, 'a'), "take1", 0, 48000, 0.0, 0, 0 };
+        AudioClip tb { "b", 1920, std::string (64, 'b'), "take2", 0, 48000, 0.0, 0, 0 };
+        AudioClip tc { "c", 3840, std::string (64, 'c'), "take3", 0, 48000, 0.0, 0, 0 };
+        const auto oneSecond = [] (const AudioClip&) { return 1.0; };
+        const auto takes = audibleSegments ({ ta, tb, tc }, map, xf, oneSecond);
+        REQUIRE (takes.size() == 3);
+
+        for (size_t i = 0; i + 1 < takes.size(); ++i)
+        {
+            const double endA = takes[i].startSeconds + takes[i].lengthSeconds;
+            CHECK (endA - takes[i + 1].startSeconds == doctest::Approx (xf));   // ちょうど xf 重なる
+            CHECK (takes[i].fadeOutSeconds == doctest::Approx (xf));
+            CHECK (takes[i + 1].fadeInSeconds == doctest::Approx (xf));
+            CHECK (takes[i + 1].offsetSeconds == doctest::Approx (0.0));         // ファイルの頭より前は読まない
+            CHECK (takes[i].offsetSeconds + takes[i].lengthSeconds <= 1.0 + 1e-9);   // 終わりより後も読まない
+        }
+
+        CHECK (takes[1].startSeconds == doctest::Approx (1.0 - xf));
+        CHECK (takes[2].startSeconds == doctest::Approx (2.0 - 2 * xf));
+
+        // 片側だけ余りがあれば、そちらから全部取る（ずらさない）
+        AudioClip trimmed = tb;
+        trimmed.sourceOffsetSamples = 4800;
+        trimmed.lengthSamples = 43200;
+        const auto oneSide = audibleSegments ({ ta, trimmed }, map, xf, oneSecond);
+        CHECK (oneSide[1].startSeconds == doctest::Approx (1.0 - xf));
+        CHECK (oneSide[1].offsetSeconds == doctest::Approx (0.1 - xf));
+        CHECK (oneSide[0].lengthSeconds == doctest::Approx (1.0));
+    }
+
     // 離れていればクロスフェードしない
     b.startTick = 1920 + 96;
     const auto apart = audibleSegments ({ a, b }, map, xf);

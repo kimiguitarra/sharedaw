@@ -21,6 +21,23 @@ bool usesExternalPlugin (const Track& t)
     return false;
 }
 
+ChannelStrip bakedStrip (const ChannelStrip& s)
+{
+    const auto before = s.beforeInserts();
+    ChannelStrip baked;
+
+    if (before.eq.enabled)
+        baked.eq = before.eq;
+
+    if (before.comp.enabled)
+        baked.comp = before.comp;
+
+    if (before.eq.enabled && before.comp.enabled)
+        baked.compFirst = before.compFirst;
+
+    return baked;
+}
+
 std::string trackSourceFingerprint (const Track& source, const std::function<std::string (const std::string&)>& stateHash)
 {
     // 影響しない項目をそろえてから、正規化した JSON のハッシュを取る
@@ -32,7 +49,7 @@ std::string trackSourceFingerprint (const Track& source, const std::function<std
     t.mute = false;
     t.solo = false;
     t.render.reset();
-    t.strip = {};   // EQ・コンプ・出力先・センドはバウンスに含めない
+    t.strip = bakedStrip (source.strip);   // EQ・コンプはインサートより前の分だけバウンスに含める。出力先・センドは含めない
     t.output.clear();
     t.sends.clear();
 
@@ -111,7 +128,8 @@ namespace
         to.volumeDb = from.volumeDb;
         to.pan = from.pan;
         to.mute = from.mute;
-        to.strip = from.strip;
+        to.strip = from.strip.afterInserts();   // インサートより前の EQ・コンプはバウンスに入っている
+        to.strip.insertsAt = 0;
         to.output = from.output;
         to.sends = from.sends;
         to.outputChannels = from.outputChannels;

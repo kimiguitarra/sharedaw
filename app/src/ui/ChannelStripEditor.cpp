@@ -2,6 +2,20 @@
 
 #include "Theme.h"
 
+namespace
+{
+    juce::String orderText (const std::array<collab::StripBlock, 3>& o)
+    {
+        juce::String text;
+
+        for (auto b : o)
+            text << (text.isEmpty() ? juce::String() : juce::String::fromUTF8 (" \xE2\x86\x92 "))
+                 << (b == collab::StripBlock::inserts ? "Inserts" : b == collab::StripBlock::eq ? "EQ" : "Comp");
+
+        return text;
+    }
+}
+
 //==============================================================================
 ChannelStripEditor::ChannelStripEditor (AppContext& c, std::string id, Section s)
     : ctx (c), trackId (std::move (id)), section (s)
@@ -22,7 +36,25 @@ ChannelStripEditor::ChannelStripEditor (AppContext& c, std::string id, Section s
     orderButton.setTooltip ("順番"_ju);
     orderButton.onClick = [this]
     {
-        edit ("EQ と Compressor の順番"_ju, [] (collab::ChannelStrip& st) { st.compFirst = ! st.compFirst; }, false);
+        // インサート・EQ・Compressor の並べ方（ミキサーでは見出しのドラッグでも変えられる）
+        using B = collab::StripBlock;
+        const std::array<std::array<B, 3>, 6> orders { {
+            { B::inserts, B::eq, B::comp }, { B::inserts, B::comp, B::eq }, { B::eq, B::inserts, B::comp },
+            { B::comp, B::inserts, B::eq }, { B::eq, B::comp, B::inserts }, { B::comp, B::eq, B::inserts } } };
+        auto* t = ctx.document.getProject().findTrack (trackId);
+
+        if (t == nullptr)
+            return;
+
+        juce::PopupMenu m;
+
+        for (auto& o : orders)
+            m.addItem (orderText (o), true, t->strip.order() == o, [this, o]
+            {
+                edit ("チャンネルの順番"_ju, [o] (collab::ChannelStrip& st) { st.setOrder (o); }, false);
+            });
+
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&orderButton));
     };
     addAndMakeVisible (orderButton);
 
@@ -148,8 +180,7 @@ void ChannelStripEditor::update()
         return;
 
     const auto& s = t->strip;
-    const auto arrow = juce::String::fromUTF8 (" \xE2\x86\x92 ");   // →
-    orderButton.setButtonText (s.compFirst ? "Comp" + arrow + "EQ" : "EQ" + arrow + "Comp");
+    orderButton.setButtonText (orderText (s.order()));
 
     if (eqGraph != nullptr)
     {
@@ -195,7 +226,7 @@ void ChannelStripEditor::resized()
         header.removeFromLeft (12);
     }
 
-    orderButton.setBounds (header.removeFromLeft (140).reduced (0, 1));
+    orderButton.setBounds (header.removeFromLeft (220).reduced (0, 1));
     resetButton.setBounds (header.removeFromRight (100).reduced (0, 1));
     r.removeFromTop (8);
 

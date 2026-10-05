@@ -2941,6 +2941,13 @@ var project_schema_default = {
             "eqComp",
             "compEq"
           ]
+        },
+        insertsAt: {
+          enum: [
+            "first",
+            "middle",
+            "last"
+          ]
         }
       }
     },

@@ -261,13 +261,14 @@ public:
         if (auto on = powerState())
             drawPower (g, header.removeFromRight (18).toFloat(), *on);
 
-        if (hasOrderSwap())
+        if (canReorder())
         {
-            // EQ と Compressor の順番を入れ替える（⇅）
-            swapArea = header.removeFromRight (18);
-            g.setColour (hoverSwap ? Theme::text : Theme::textDim);
-            g.setFont (juce::FontOptions (14.5f, juce::Font::bold));
-            g.drawText (juce::String::fromUTF8 ("\xE2\x87\x85"), swapArea, juce::Justification::centred);
+            // つかんで上下に動かせる印（≡）
+            g.setColour (hoverHeader || dragging ? Theme::text : Theme::textDim.withAlpha (0.6f));
+            const auto grip = header.removeFromRight (16).toFloat().withSizeKeepingCentre (9.0f, 7.0f);
+
+            for (int i = 0; i < 3; ++i)
+                g.fillRect (grip.getX(), grip.getY() + (float) i * 3.0f, grip.getWidth(), 1.2f);
         }
 
         const auto well = r.toFloat().reduced (2.0f, 0.0f).withTrimmedBottom (2.0f);
@@ -281,37 +282,47 @@ public:
             g.setColour (Theme::accent.withAlpha (0.8f));
             g.drawRoundedRectangle (well, 4.0f, 1.0f);
         }
+
+        // 並べ替えでつかんでいる間
+        if (dragging)
+        {
+            g.setColour (Theme::accent);
+            g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (0.5f), 5.0f, 1.5f);
+        }
     }
 
     void mouseMove (const juce::MouseEvent& e) override
     {
-        const bool body = e.y >= headerHeight, swap = hasOrderSwap() && swapArea.contains (e.getPosition());
+        const bool body = e.y >= headerHeight, header = canReorder() && ! body && ! onPower (e);
 
-        if (body != hoverBody || swap != hoverSwap)
+        if (body != hoverBody || header != hoverHeader)
         {
             hoverBody = body;
-            hoverSwap = swap;
+            hoverHeader = header;
             repaint();
         }
 
-        setMouseCursor ((opensEditor() && body) || swap || (powerState() && e.y < headerHeight && e.x >= getWidth() - 20)
-                            ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+        setMouseCursor (header ? juce::MouseCursor::DraggingHandCursor
+                        : (opensEditor() && body) || onPower (e) ? juce::MouseCursor::PointingHandCursor
+                                                                 : juce::MouseCursor::NormalCursor);
     }
 
     void mouseExit (const juce::MouseEvent&) override
     {
-        hoverBody = hoverSwap = false;
+        hoverBody = hoverHeader = false;
         repaint();
     }
 
     void mouseDown (const juce::MouseEvent& e) override
     {
+        headerPressed = false;
+
         if (e.y < headerHeight)
         {
-            if (powerState() && e.x >= getWidth() - 20)
+            if (onPower (e))
                 togglePower();
-            else if (hasOrderSwap() && swapArea.contains (e.getPosition()))
-                editTrack ("EQ と Compressor の順番"_ju, [] (collab::Track& t) { t.strip.compFirst = ! t.strip.compFirst; });
+            else if (canReorder())
+                headerPressed = true;   // 離したときに画面を開く（動かしたら並べ替え）
             else if (opensEditor())
                 bodyMouseDown (e, {});
 
@@ -320,6 +331,47 @@ public:
 
         bodyMouseDown (e, e.getPosition().translated (0, -headerHeight));
     }
+
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        if (! headerPressed)
+            return;
+
+        if (! dragging && e.getDistanceFromDragStart() > 4)
+        {
+            dragging = true;
+            repaint();
+        }
+
+        if (dragging && onReorderDrag)
+            onReorderDrag (*this, e.getEventRelativeTo (getParentComponent()).getPosition().y);
+    }
+
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        if (! headerPressed)
+            return;
+
+        headerPressed = false;
+
+        if (dragging)
+        {
+            dragging = false;
+            repaint();
+
+            if (onReorderEnd)
+                onReorderEnd (*this);
+        }
+        else if (opensEditor())
+        {
+            bodyMouseDown (e, {});
+        }
+    }
+
+    /** 見出しをつかんで上下に動かしたとき（y は親の座標）と、離したとき。 */
+    std::function<void (MixSection&, int y)> onReorderDrag;
+    std::function<void (MixSection&)> onReorderEnd;
+    bool reorderable = false;
 
     /** ドキュメントや状態が変わったとき。 */
     virtual void update()                               { repaint(); }
@@ -334,9 +386,9 @@ protected:
 
     virtual std::optional<bool> powerState() const      { return std::nullopt; }
     virtual bool opensEditor() const                    { return false; }   // クリックで画面が開く
-    virtual bool hasOrderSwap() const                   { return false; }   // 見出しに順番の入れ替え（⇅）
-    juce::Rectangle<int> swapArea;
-    bool hoverBody = false, hoverSwap = false;
+    bool canReorder() const                             { return reorderable; }   // 見出しをつかんで並べ替えられる
+    bool onPower (const juce::MouseEvent& e) const      { return powerState().has_value() && e.y < headerHeight && e.x >= getWidth() - 20; }
+    bool hoverBody = false, hoverHeader = false, headerPressed = false, dragging = false;
     virtual void togglePower()                          {}
     virtual void paintBody (juce::Graphics&, juce::Rectangle<int>) {}
     virtual void bodyMouseDown (const juce::MouseEvent&, juce::Point<int>) {}
@@ -442,7 +494,6 @@ public:
     EqSection (AppContext& c, std::string id) : MixSection (c, std::move (id), "EQ") { setTooltip ("EQ"_ju); }
 
     bool opensEditor() const override       { return true; }
-    bool hasOrderSwap() const override      { return true; }
 
     std::optional<bool> powerState() const override
     {
@@ -506,7 +557,6 @@ public:
     CompSection (AppContext& c, std::string id) : MixSection (c, std::move (id), "COMP") { setTooltip ("Compressor"_ju); }
 
     bool opensEditor() const override       { return true; }
-    bool hasOrderSwap() const override      { return true; }
 
     float gainReduction = 0.0f;
 
@@ -778,6 +828,14 @@ public:
         for (auto* s : std::initializer_list<MixSection*> { &inserts, &eq, &comp, &sends })
             addChildComponent (s);
 
+        // トラックのインサート・EQ・Compressor は、見出しをつかんで上下に並べ替えられる（かける順番）
+        for (auto* s : std::initializer_list<MixSection*> { &inserts, &eq, &comp })
+        {
+            s->reorderable = isTrack();
+            s->onReorderDrag = [this] (MixSection& section, int y) { reorderDrag (section, y); };
+            s->onReorderEnd = [this] (MixSection&) { reorderEnd(); };
+        }
+
         addChildComponent (masterSection);
         masterSection.setVisible (isMaster());
         inserts.setVisible (isTrack() || isMaster());   // マスターにも挿せる（リミッターの前）
@@ -955,9 +1013,9 @@ public:
             mute.setToggleState (t->mute, juce::dontSendNotification);
             solo.setToggleState (t->solo, juce::dontSendNotification);
 
-            if (t->strip.compFirst != laidOutCompFirst)
+            if (t->strip.order() != laidOutOrder && ! dragOrder)
             {
-                laidOutCompFirst = t->strip.compFirst;
+                laidOutOrder = t->strip.order();
                 resized();
             }
         }
@@ -1057,16 +1115,9 @@ public:
         area.removeFromTop (3);
 
         const auto insertsTop = area.getY();
-        inserts.setBounds (area.removeFromTop (headerHeight + rowHeight * insertRows + 2));
-        area.removeFromTop (3);
-        // EQ と Compressor はかける順番に並べる
-        const bool compFirst = isTrack() && laidOutCompFirst;
-        auto first = area.removeFromTop (compFirst ? headerHeight + rowHeight + 8 : headerHeight + 36);
-        area.removeFromTop (3);
-        auto second = area.removeFromTop (compFirst ? headerHeight + 36 : headerHeight + rowHeight + 8);
-        area.removeFromTop (3);
-        eq.setBounds (compFirst ? second : first);
-        comp.setBounds (compFirst ? first : second);
+        // インサート・EQ・Compressor はかける順番に並べる
+        blocksArea = area.withHeight (0);
+        area.removeFromTop (layoutBlocks (dragOrder ? *dragOrder : isTrack() ? laidOutOrder : collab::ChannelStrip().order()));
         sends.setBounds (area.removeFromTop (headerHeight + rowHeight * sendRows + 2));
         masterSection.setBounds (inserts.getX(), isMaster() ? inserts.getBottom() + 3 : insertsTop, inserts.getWidth(),
                                  headerHeight + rowHeight * 2 + 8 + 3 + 14 + 22 + 13 + 14 + 8);
@@ -1149,7 +1200,9 @@ private:
     SendSection sends;
     MasterSection masterSection;
     juce::Label value, panEdit;
-    bool laidOutCompFirst = false;
+    std::array<collab::StripBlock, 3> laidOutOrder = collab::ChannelStrip().order();
+    std::optional<std::array<collab::StripBlock, 3>> dragOrder;   // 並べ替えでつかんでいる間の並び
+    juce::Rectangle<int> blocksArea;   // インサート・EQ・Compressor を並べる所（上端と幅）
     PanBar pan;
     juce::Slider fader;
     juce::TextButton mute, solo;
@@ -1158,6 +1211,99 @@ private:
     juce::Colour colour = Theme::accent;
     juce::String name, number, detail, mergeId;
     juce::Rectangle<int> scaleArea, nameArea, detailArea;
+
+    MixSection& sectionFor (collab::StripBlock b)
+    {
+        return b == collab::StripBlock::inserts ? static_cast<MixSection&> (inserts)
+             : b == collab::StripBlock::eq      ? static_cast<MixSection&> (eq)
+                                                : static_cast<MixSection&> (comp);
+    }
+
+    static int heightOf (collab::StripBlock b)
+    {
+        return b == collab::StripBlock::inserts ? headerHeight + rowHeight * insertRows + 2
+             : b == collab::StripBlock::eq      ? headerHeight + 36
+                                                : headerHeight + rowHeight + 8;
+    }
+
+    /** 並びの順に上から置く。使った高さ（すき間を含む）を返す。 */
+    int layoutBlocks (const std::array<collab::StripBlock, 3>& order)
+    {
+        int y = blocksArea.getY();
+
+        for (auto b : order)
+        {
+            sectionFor (b).setBounds (blocksArea.getX(), y, blocksArea.getWidth(), heightOf (b));
+            y += heightOf (b) + 3;
+        }
+
+        return y - blocksArea.getY();
+    }
+
+    void reorderDrag (MixSection& section, int y)
+    {
+        auto current = dragOrder ? *dragOrder : laidOutOrder;
+        collab::StripBlock dragged = collab::StripBlock::inserts;
+
+        for (auto b : current)
+            if (&sectionFor (b) == &section)
+                dragged = b;
+
+        // ほかの 2 つの間のどこに入れると、見出しがマウスに一番近いか
+        std::vector<collab::StripBlock> others;
+
+        for (auto b : current)
+            if (b != dragged)
+                others.push_back (b);
+
+        std::array<collab::StripBlock, 3> best = current;
+        int bestDistance = std::numeric_limits<int>::max();
+
+        for (int k = 0; k <= 2; ++k)
+        {
+            std::array<collab::StripBlock, 3> candidate {};
+            int top = blocksArea.getY(), j = 0;
+
+            for (int i = 0; i < 3; ++i)
+            {
+                candidate[(size_t) i] = i == k ? dragged : others[(size_t) j++];
+
+                if (i < k)
+                    top += heightOf (candidate[(size_t) i]) + 3;
+            }
+
+            const int distance = std::abs (y - (top + headerHeight / 2));
+
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                best = candidate;
+            }
+        }
+
+        if (! dragOrder || *dragOrder != best)
+        {
+            dragOrder = best;
+            layoutBlocks (best);
+        }
+    }
+
+    void reorderEnd()
+    {
+        if (! dragOrder)
+            return;
+
+        const auto order = *dragOrder;
+        dragOrder.reset();
+
+        if (order != laidOutOrder)
+        {
+            laidOutOrder = order;
+            ctx.editTrack (trackId, "チャンネルの順番"_ju, [order] (collab::Track& t) { t.strip.setOrder (order); });
+        }
+
+        resized();
+    }
 
     juce::String instrumentName (const collab::Track& t) const
     {

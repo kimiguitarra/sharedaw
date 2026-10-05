@@ -318,3 +318,38 @@ TEST_CASE ("compressor does not colour a steady tone (no added harmonics)")
         CHECK (std::sqrt (harmonics) / toneAmplitude (settled, 60.0) < 0.001);
     }
 }
+
+TEST_CASE ("inserts, EQ and compressor can be put in any order")
+{
+    using B = StripBlock;
+    const std::array<std::array<B, 3>, 6> all { {
+        { B::inserts, B::eq, B::comp }, { B::inserts, B::comp, B::eq }, { B::eq, B::inserts, B::comp },
+        { B::comp, B::inserts, B::eq }, { B::eq, B::comp, B::inserts }, { B::comp, B::eq, B::inserts } } };
+
+    for (auto& o : all)
+    {
+        auto p = projectWithTrack();
+        REQUIRE (! p.tracks.empty());
+        auto& s = p.tracks[0].strip;
+        s.eq.enabled = s.comp.enabled = true;
+        s.setOrder (o);
+        CHECK (s.order() == o);
+
+        // JSON を通しても同じ（サーバーの検査も通る）
+        const auto back = parseProject (serialiseProject (p));
+        CHECK (back.tracks[0].strip.order() == o);
+
+        // EQ・コンプは、インサートより前に並んでいれば前の分、後なら後の分に入る
+        auto indexOf = [&o] (B b) { return (int) (std::find (o.begin(), o.end(), b) - o.begin()); };
+        const auto before = s.beforeInserts(), after = s.afterInserts();
+        CHECK (before.eq.enabled == (indexOf (B::eq) < s.insertsAt));
+        CHECK (after.eq.enabled == (indexOf (B::eq) > s.insertsAt));
+        CHECK (before.comp.enabled == (indexOf (B::comp) < s.insertsAt));
+        CHECK (after.comp.enabled == (indexOf (B::comp) > s.insertsAt));
+    }
+
+    // 既定（インサート → EQ → コンプ）は書き出さない
+    auto p = projectWithTrack();
+    p.tracks[0].strip.comp.enabled = true;
+    CHECK (serialiseProject (p).find ("insertsAt") == std::string::npos);
+}

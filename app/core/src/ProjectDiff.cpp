@@ -48,6 +48,16 @@ namespace
         bool valid() const    { return from >= 0; }
     };
 
+    std::string stripOrderSummary (const ChannelStrip& s)
+    {
+        std::string text;
+
+        for (auto b : s.order())
+            text += (text.empty() ? "" : " → ") + std::string (b == StripBlock::inserts ? "Inserts" : b == StripBlock::eq ? "EQ" : "Comp");
+
+        return text + " の順に変更";
+    }
+
     std::string instrumentName (const std::optional<Instrument>& i)
     {
         if (! i)
@@ -225,8 +235,8 @@ namespace
         if (a->strip.comp != b->strip.comp)
             add (Change::Category::track, a->strip.comp.enabled != b->strip.comp.enabled ? (b->strip.comp.enabled ? "コンプをオン" : "コンプをオフ") : "コンプを変更", {}, "comp");
 
-        if (a->strip.compFirst != b->strip.compFirst)
-            add (Change::Category::track, b->strip.compFirst ? "Comp → EQ の順に変更" : "EQ → Comp の順に変更", {}, "compFirst");
+        if (a->strip.order() != b->strip.order())
+            add (Change::Category::track, stripOrderSummary (b->strip), {}, "compFirst");
 
         if (a->inputChannels != b->inputChannels || a->outputChannels != b->outputChannels)
             add (Change::Category::track, "入出力（モノ / ステレオ）を変更", {}, "io");
@@ -899,7 +909,7 @@ Project applyChangeFrom (const Project& targetIn, const Project& source, const C
     else if (part == "sends")      t->sends = s->sends;
     else if (part == "eq")         t->strip.eq = s->strip.eq;
     else if (part == "comp")       t->strip.comp = s->strip.comp;
-    else if (part == "compFirst")  t->strip.compFirst = s->strip.compFirst;
+    else if (part == "compFirst")  { t->strip.compFirst = s->strip.compFirst; t->strip.insertsAt = s->strip.insertsAt; }
     else if (part == "io")         { t->inputChannels = s->inputChannels; t->outputChannels = s->outputChannels; }
     else if (part == "crossfade")  { t->crossfadeMs = s->crossfadeMs; t->crossfadeShape = s->crossfadeShape; }
     else if (part == "render")     t->render = s->render;
