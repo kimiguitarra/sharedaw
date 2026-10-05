@@ -690,7 +690,13 @@ std::vector<ScopeSyncState> syncStates (const Project& base, const Project& loca
             if (std::find (ids.begin(), ids.end(), id) == ids.end())
                 ids.push_back (id);
 
-    // ベースにだけある（両方で削除された）トラックは出さない
+    // この PC で消したトラック（ベースにはある）も、変更として出す（アップするとサーバーからも消える）。
+    // サーバーの新しい版がわかっていて、そこでも消えているもの（両方で消した）は出さない
+    for (auto& id : allScopeIds (base))
+        if (std::find (ids.begin(), ids.end(), id) == ids.end()
+             && (head == nullptr || isSpecialScope (*head, id) || head->findTrack (id) != nullptr))
+            ids.push_back (id);
+
     for (auto& id : ids)
     {
         ScopeSyncState st;

@@ -343,3 +343,31 @@ TEST_CASE ("master effects show as their own change and can be reverted alone")
         }
     }
 }
+
+TEST_CASE ("a track deleted on this PC is a change to upload, and the upload removes it from the server")
+{
+    const auto base = parseProject (fixture ("demo-project/project.json"));
+    REQUIRE (base.tracks.size() >= 2);
+    const auto gone = base.tracks.back().id;
+
+    auto local = base;
+    local.tracks.pop_back();
+
+    // サーバーの新しい版がわからない（ふつうの状態）: 消したトラックが「この PC の変更」として出る
+    const auto states = syncStates (base, local, nullptr);
+    auto it = std::find_if (states.begin(), states.end(), [&] (auto& s) { return s.id == gone; });
+    REQUIRE (it != states.end());
+    CHECK (it->mine);
+    CHECK_FALSE (it->inLocal);
+    CHECK (it->name == base.tracks.back().name);
+
+    // アップするとサーバーの版からも消える
+    const auto uploaded = uploadSnapshot (base, local, { gone });
+    CHECK (uploaded.findTrack (gone) == nullptr);
+    CHECK (uploaded.tracks.size() == base.tracks.size() - 1);
+
+    // サーバーでも消えていれば（両方で消した）出さない
+    auto head = local;
+    const auto both = syncStates (base, local, &head);
+    CHECK (std::none_of (both.begin(), both.end(), [&] (auto& s) { return s.id == gone; }));
+}
