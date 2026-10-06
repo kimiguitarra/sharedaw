@@ -114,6 +114,34 @@ void BuiltinEffectPlugin::applyToBuffer (const te::PluginRenderContext& fc)
     for (int ch = 0; ch < numChannels; ++ch)
         channels[ch] = buffer.getWritePointer (ch, fc.bufferStartSample);
 
+    // 表示用: 入力・出力のピークと、ゲインリダクションの最大（読まれるまで大きい方を残す）
+    auto peakOf = [&]
+    {
+        float p = 0.0f;
+
+        for (int ch = 0; ch < numChannels; ++ch)
+            p = juce::jmax (p, juce::FloatVectorOperations::findMaximum (channels[ch], fc.bufferNumSamples),
+                            -juce::FloatVectorOperations::findMinimum (channels[ch], fc.bufferNumSamples));
+
+        return p;
+    };
+
+    auto keepMax = [] (std::atomic<float>& a, float v)
+    {
+        auto old = a.load (std::memory_order_relaxed);
+
+        while (v > old && ! a.compare_exchange_weak (old, v, std::memory_order_relaxed)) {}
+    };
+
+    keepMax (inputPeak, peakOf());
     processor->process (channels, numChannels, fc.bufferNumSamples);
-    gainReductionDb.store (processor->getGainReductionDb(), std::memory_order_relaxed);
+    const float gr = processor->getGainReductionDb();
+    gainReductionDb.store (gr, std::memory_order_relaxed);
+    keepMax (outputPeak, peakOf());
+    keepMax (gainReductionHold, gr);
+}
+
+BuiltinEffectPlugin::Meter BuiltinEffectPlugin::takeMeter() noexcept
+{
+    return { inputPeak.exchange (0.0f), outputPeak.exchange (0.0f), gainReductionHold.exchange (0.0f) };
 }

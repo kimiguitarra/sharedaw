@@ -1322,6 +1322,17 @@ float EngineBridge::getEffectGainReductionDb (const std::string& trackId, const 
     return 0.0f;
 }
 
+EngineBridge::EffectMeter EngineBridge::takeEffectMeter (const std::string& trackId, const std::string& effectId) const
+{
+    if (auto* fx = dynamic_cast<BuiltinEffectPlugin*> (getExternalPlugin (trackId, effectId)))
+    {
+        const auto m = fx->takeMeter();
+        return { m.input, m.output, m.gainReductionDb };
+    }
+
+    return {};
+}
+
 bool EngineBridge::isPlayingRender (const std::string& trackId) const
 {
     auto it = bindings.find (trackId);

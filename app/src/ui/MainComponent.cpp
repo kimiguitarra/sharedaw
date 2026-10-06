@@ -283,6 +283,80 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
         m.menuItemsChanged();
         m.commandManager.commandStatusChanged();
     }, "rebuild menus" });
+    // 内蔵エフェクトの画面（バスコンプの VU メーター・ノイズゲートの流れる画面）: 鳴らしながら開いて、確認用に画面を保存する
+    static std::string fxTrackId;
+    static std::vector<std::unique_ptr<BuiltinEffectEditor>> fxEditors;
+    steps->push_back ({ 300, [] (MainComponent& m)
+    {
+        for (auto& t : m.document.getProject().tracks)
+            if (! t.midiClips.empty())
+            {
+                fxTrackId = t.id;
+                m.ctx.addBuiltinEffect (t.id, collab::fx::Type::busComp);
+                m.ctx.addBuiltinEffect (t.id, collab::fx::Type::noiseGate);
+                break;
+            }
+
+        m.commandManager.invokeDirectly (cmdPlay, false);
+    }, "effect editors: add" });
+    steps->push_back ({ 400, [] (MainComponent& m)
+    {
+        if (auto* t = m.document.getProject().findTrack (fxTrackId))
+            for (auto& e : t->effects)
+                if (e.builtin == "busComp" || e.builtin == "noiseGate")
+                {
+                    auto editor = std::make_unique<BuiltinEffectEditor> (m.ctx, fxTrackId, e.id);
+                    editor->setTopLeftPosition (0, 0);
+                    fxEditors.push_back (std::move (editor));
+                }
+    }, "effect editors: open" });
+    steps->push_back ({ 2500, [] (MainComponent& m)
+    {
+        const auto dir = juce::SystemStats::getEnvironmentVariable ("SHAREDAW_SMOKE_SHOTS", {});
+
+        // メーターの値が届くか: 2 小節を書き出して（このとき内蔵エフェクトも動く）、入力・出力・リダクションを読む
+        m.bridge.stop();
+        const juce::TemporaryFile temp (".wav");
+        m.bridge.renderToFile (temp.getFile(), collab::kPpq * 8, 0.0, 24, 48000.0);
+
+        if (auto* t = m.document.getProject().findTrack (fxTrackId))
+            for (auto& e : t->effects)
+                if (e.builtin == "noiseGate" || e.builtin == "busComp")
+                {
+                    const auto meter = m.bridge.takeEffectMeter (fxTrackId, e.id);
+                    std::cout << "effect meter " << e.builtin << ": in " << meter.input << " out " << meter.output
+                              << " gr " << meter.gainReductionDb << std::endl;
+                }
+
+        // 画面の確認用に、ドラムのような音（叩いて減衰、合間は小さなノイズ）を流して見せる
+        for (int k = 0; k < 300; ++k)
+        {
+            const float hit = std::exp (-(float) (k % 40) / 6.0f);
+            const float in = juce::jmax (0.0007f, 0.7f * hit);
+            const bool open = 20.0f * std::log10 (in) > -50.0f || (k % 40) < 14;
+            const float gr = open ? 0.0f : 40.0f;
+            for (auto& editor : fxEditors)
+                editor->pushMeter (in, in * std::pow (10.0f, -gr / 20.0f), editor->getTitle().startsWith ("Noise") ? gr : 6.0f * hit + 2.0f);
+        }
+
+        for (auto& editor : fxEditors)
+            if (dir.isNotEmpty())
+            {
+                juce::FileOutputStream out (juce::File (dir).getChildFile ((editor->getTitle().startsWith ("Noise") ? "gate" : "buscomp") + juce::String (".png")));
+                out.setPosition (0);
+                out.truncate();
+                juce::PNGImageFormat().writeImageToStream (editor->createComponentSnapshot (editor->getLocalBounds()), out);
+            }
+
+        std::cout << "effect editors: " << fxEditors.size() << std::endl;
+        fxEditors.clear();
+        m.commandManager.invokeDirectly (cmdPlay, false);
+        m.bridge.stop();
+        m.ctx.editTrack (fxTrackId, "smoke", [] (collab::Track& t)
+        {
+            std::erase_if (t.effects, [] (auto& e) { return e.builtin == "busComp" || e.builtin == "noiseGate"; });
+        });
+    }, "effect editors: snapshot" });
     // チャンネルの並べ替え: 最初の MIDI のトラックに EQ・コンプ・内蔵エフェクトを入れ、インサートを EQ と Comp の間に
     static collab::Track savedChannel;
     steps->push_back ({ 300, [] (MainComponent& m)

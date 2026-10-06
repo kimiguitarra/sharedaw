@@ -84,6 +84,10 @@ public:
     /** 内蔵エフェクト（バスコンプ）のゲインリダクション（dB）。画面のメーター用。 */
     float getEffectGainReductionDb (const std::string& trackId, const std::string& effectId) const;
 
+    /** 内蔵エフェクトの入力・出力のピーク（0〜1）とゲインリダクション（dB）。前回読んでからの最大（画面の表示用）。 */
+    struct EffectMeter { float input = 0.0f, output = 0.0f, gainReductionDb = 0.0f; };
+    EffectMeter takeEffectMeter (const std::string& trackId, const std::string& effectId) const;
+
     /**
         書き出しの後ろに足す余韻（秒）。trackId が空なら全トラック（とその送り先のバス）の最大。
         内蔵リバーブは DECAY から、外部プラグインは報告する長さから。最低 minimum 秒。

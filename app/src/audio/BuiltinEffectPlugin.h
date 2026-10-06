@@ -36,11 +36,16 @@ public:
     /** コンプのゲインリダクション（dB）。 */
     float getGainReductionDb() const noexcept;
 
+    /** 前回読んでから今までの、入力・出力のピーク（0〜1）とゲインリダクションの最大（dB）。読んだら戻す（画面の表示用）。 */
+    struct Meter { float input = 0.0f, output = 0.0f, gainReductionDb = 0.0f; };
+    Meter takeMeter() noexcept;
+
 private:
     juce::SpinLock lock;
     std::unique_ptr<collab::fx::Processor> processor, pendingProcessor;
     std::unique_ptr<collab::fx::Processor> retired;   // 外した古い処理（メッセージスレッドが setEffect で解放する）
     std::atomic<float> gainReductionDb { 0.0f };
+    std::atomic<float> inputPeak { 0.0f }, outputPeak { 0.0f }, gainReductionHold { 0.0f };
     std::optional<collab::fx::Type> type;
     nlohmann::json current, pending;
     std::atomic<bool> hasPending { false }, needsReset { false };
