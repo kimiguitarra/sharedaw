@@ -167,6 +167,51 @@ std::string hashFile (const juce::File& file)
     return sha.finishHex();
 }
 
+juce::Result writeReversed (const juce::File& projectDir, const std::string& hash, juce::int64 offsetSamples,
+                            juce::int64 lengthSamples, const juce::String& label, Imported& result)
+{
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (fileForHash (projectDir, hash)));
+
+    if (reader == nullptr)
+        return juce::Result::fail ("オーディオファイルが見つかりません"_ju);
+
+    offsetSamples = juce::jlimit<juce::int64> (0, reader->lengthInSamples, offsetSamples);
+    lengthSamples = juce::jlimit<juce::int64> (0, reader->lengthInSamples - offsetSamples, lengthSamples);
+
+    if (lengthSamples <= 0 || lengthSamples > (juce::int64) std::numeric_limits<int>::max())
+        return juce::Result::fail ("リバースできる長さではありません"_ju);
+
+    const int numChannels = juce::jlimit (1, 2, (int) reader->numChannels);
+    juce::AudioBuffer<float> buffer (numChannels, (int) lengthSamples);
+    reader->read (&buffer, 0, (int) lengthSamples, offsetSamples, true, numChannels > 1);
+    buffer.reverse (0, buffer.getNumSamples());
+
+    const auto audioDir = projectDir.getChildFile ("audio");
+    audioDir.createDirectory();
+    juce::TemporaryFile temp (audioDir.getChildFile ("reverse.wav"));
+
+    {
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::OutputStream> out (temp.getFile().createOutputStream());
+
+        if (out == nullptr)
+            return juce::Result::fail ("書き込めません: "_ju + temp.getFile().getFullPathName());
+
+        std::unique_ptr<juce::AudioFormatWriter> writer (wav.createWriterFor (out.get(), (double) collab::kSampleRate,
+                                                                              (unsigned int) numChannels, 32, {}, 0));
+        if (writer == nullptr)
+            return juce::Result::fail ("WAV を作成できません"_ju);
+
+        out.release();
+        writer->writeFromAudioSampleBuffer (buffer, 0, buffer.getNumSamples());
+    }
+
+    // 読み込みと同じ置き方（ハッシュ・名前）にする
+    return importFile (temp.getFile(), audioDir, result, label);
+}
+
 juce::Result importFile (const juce::File& source, const juce::File& audioDir, Imported& result, const juce::String& label)
 {
     juce::AudioFormatManager formats;

@@ -5,6 +5,7 @@
 
 #include "TimeGrid.h"
 #include "audio/AudioFiles.h"
+#include "collab/ChordPlayback.h"
 #include "collab/ClipEditing.h"
 #include "collab/GmDrumMap.h"
 #include "collab/Uuid.h"
@@ -122,6 +123,11 @@ void NoteGrid::paint (juce::Graphics& g)
 
     const auto base = track != nullptr ? Theme::parseColour (track->color) : Theme::accent;
 
+    // ベースは、コードが書いてある所でコードトーン以外の音に印を付ける
+    const bool bass = track != nullptr && ! drums
+                      && ((track->instrument && track->instrument->id == "builtin.bass")
+                          || toJuce (track->name).containsIgnoreCase ("bass") || toJuce (track->name).contains ("ベース"_ju));
+
     for (auto& n : clip->notes)
     {
         const float x1 = (float) axis.tickToX ((double) (clip->startTick + n.tick));
@@ -188,6 +194,20 @@ void NoteGrid::paint (juce::Graphics& g)
         g.fillRoundedRectangle (r, 2.0f);
         g.setColour (selected ? Theme::selection : juce::Colours::black.withAlpha (0.5f));
         g.drawRoundedRectangle (r, 2.0f, selected ? 2.0f : 1.0f);
+
+        if (bass)
+            if (const auto tones = collab::chordTonesAt (owner.ctx.document.getProject(), clip->startTick + n.tick);
+                tones && std::find (tones->begin(), tones->end(), ((n.pitch % 12) + 12) % 12) == tones->end())
+            {
+                // コードトーン以外: 赤い枠と、右上の赤い三角
+                const juce::Colour mark (0xffe53935);
+                g.setColour (mark);
+                g.drawRoundedRectangle (r.expanded (1.0f), 2.5f, 1.8f);
+                juce::Path corner;
+                const float size = juce::jmin (9.0f, r.getHeight());
+                corner.addTriangle (r.getRight() - size, r.getY(), r.getRight(), r.getY(), r.getRight(), r.getY() + size);
+                g.fillPath (corner);
+            }
 
         // 音名（C4 など）をノートの左端に
         if (r.getWidth() >= 20.0f)

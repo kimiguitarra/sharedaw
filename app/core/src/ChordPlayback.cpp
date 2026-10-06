@@ -67,6 +67,37 @@ std::vector<GeneratedNote> renderChordTrack (const Project& p, const TempoMap& m
     return notes;
 }
 
+std::optional<std::vector<int>> chordTonesAt (const Project& p, Tick tick)
+{
+    const ChordEvent* found = nullptr;
+
+    for (auto& e : p.chordTrack.events)
+        if (e.tick <= tick && (found == nullptr || e.tick >= found->tick))
+            found = &e;
+
+    if (found == nullptr || found->noChord || ! found->chord)
+        return std::nullopt;
+
+    const auto c = toChord (*found->chord);
+    const int root = chord::pitchClass (c.root);
+
+    if (root < 0)
+        return std::nullopt;
+
+    std::vector<int> tones { root };
+
+    for (int interval : chord::chordIntervals (c))
+        tones.push_back ((root + interval) % 12);
+
+    if (c.bass)
+        if (const int b = chord::pitchClass (*c.bass); b >= 0)
+            tones.push_back (b);
+
+    std::sort (tones.begin(), tones.end());
+    tones.erase (std::unique (tones.begin(), tones.end()), tones.end());
+    return tones;
+}
+
 std::optional<chord::Key> keyAt (const Project& p, const TempoMap& map, Tick tick)
 {
     const KeyEvent* found = nullptr;

@@ -717,7 +717,7 @@ void TrackLanes::showClipMenu (const collab::Track& track, const std::string& cl
             }
         }
 
-        m.addItem ("ノーマライズ（-1 dB）"_ju, [this, trackId, clipId] { normaliseClip (trackId, clipId); });
+        m.addItem ("リバース"_ju, [this, trackId, clipId] { reverseClip (trackId, clipId); });
         m.addItem ("クリップの音量…"_ju, [this, trackId, clipId]
         {
             double current = 0;
@@ -1331,11 +1331,11 @@ void TrackLanes::filesDropped (const juce::StringArray& paths, int x, int y)
     });
 }
 
-void TrackLanes::normaliseClip (const std::string& trackId, const std::string& clipId)
+void TrackLanes::reverseClip (const std::string& trackId, const std::string& clipId)
 {
     auto* t = ctx.document.getProject().findTrack (trackId);
 
-    if (t == nullptr)
+    if (t == nullptr || ! ctx.document.hasLocation())
         return;
 
     for (auto& c : t->audioClips)
@@ -1343,34 +1343,31 @@ void TrackLanes::normaliseClip (const std::string& trackId, const std::string& c
         if (c.id != clipId)
             continue;
 
-        auto* thumb = ctx.audioCache.getThumbnail (ctx.document.getProjectDir(), c.audioHash);
+        // クリップの範囲を逆にした新しい実体を作り、クリップをそれに差し替える（フェードも前後を入れ替える）
+        AudioFiles::Imported reversed;
+        const auto label = juce::File::createLegalFileName (toJuce (c.displayName.empty() ? t->name : c.displayName)) + "_reverse";
 
-        if (thumb == nullptr)
-            return;
-
-        // クリップの範囲（元ファイルの offset 〜 offset + length）のピーク
-        const double start = (double) c.sourceOffsetSamples / collab::kSampleRate;
-        const double end = start + (double) c.lengthSamples / collab::kSampleRate;
-        float peak = 0.0f;
-
-        for (int ch = 0; ch < thumb->getNumChannels(); ++ch)
+        if (auto r = AudioFiles::writeReversed (ctx.document.getProjectDir(), c.audioHash, c.sourceOffsetSamples, c.lengthSamples, label, reversed);
+            r.failed())
         {
-            float mn = 0.0f, mx = 0.0f;
-            thumb->getApproximateMinMax (start, end, ch, mn, mx);
-            peak = juce::jmax (peak, std::abs (mn), std::abs (mx));
+            Dialogs::showError ("リバース"_ju, r.getErrorMessage());
+            return;
         }
 
-        if (peak <= 1.0e-5f)
-            return;
+        const auto hash = reversed.hash;
+        const auto length = (collab::SampleCount) reversed.lengthSamples;
 
-        const double db = juce::jlimit (-60.0, 24.0, std::round ((-1.0 - juce::Decibels::gainToDecibels ((double) peak)) * 10.0) / 10.0);
-
-        ctx.document.perform ("ノーマライズ"_ju, [trackId, clipId, db] (collab::Project& p)
+        ctx.document.perform ("リバース"_ju, [trackId, clipId, hash, length] (collab::Project& p)
         {
             if (auto* track = p.findTrack (trackId))
                 for (auto& clip : track->audioClips)
                     if (clip.id == clipId)
-                        clip.gainDb = db;
+                    {
+                        clip.audioHash = hash;
+                        clip.sourceOffsetSamples = 0;
+                        clip.lengthSamples = length;
+                        std::swap (clip.fadeInSamples, clip.fadeOutSamples);
+                    }
         });
         return;
     }

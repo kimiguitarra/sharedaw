@@ -36,7 +36,6 @@ private:
 
     juce::Label nameLabel;
     juce::TextButton muteButton { "M" }, soloButton { "S" }, armButton;
-    juce::TextButton automationButton { "A" };   // オートメーションのレーンを出す・隠す
     juce::ComboBox automationParam;              // レーンに出すパラメーター（レーンの左）
     juce::String dragMergeId;
     juce::String problem;

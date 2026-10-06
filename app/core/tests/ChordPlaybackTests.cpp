@@ -99,3 +99,14 @@ TEST_CASE ("chord track: bar lines follow meter changes")
     for (auto& n : notes)
         CHECK (n.lengthTick == 2880);
 }
+
+TEST_CASE ("chord tones at a position: root, chord intervals, tensions and slash bass; none before the first chord or on N.C.")
+{
+    auto p = Project::createEmpty ("t");
+    p.chordTrack.events = { ev ("a", 3840, "Am7/G"), ev ("b", 3840 * 2, "G7(9)"), ev ("c", 3840 * 3, "X") };
+
+    CHECK_FALSE (chordTonesAt (p, 0));
+    CHECK (chordTonesAt (p, 3840) == std::vector<int> { 0, 4, 7, 9 });          // A C E G
+    CHECK (chordTonesAt (p, 3840 * 2 + 100) == std::vector<int> { 2, 5, 7, 9, 11 });   // G B D F + A
+    CHECK_FALSE (chordTonesAt (p, 3840 * 3));
+}

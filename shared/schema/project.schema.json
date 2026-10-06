@@ -621,13 +621,14 @@
           }
         },
         "pitchBends": {
-          "description": "Pitch wheel events as [tick relative to the clip start, value -8192..8191 (0 = centre)], in tick order.",
+          "description": "Pitch wheel points as [tick relative to the clip start, value -8192..8191 (0 = centre), optional curve -1..1 towards the next point (0 = straight)], in tick order. Two points may share a tick (a jump).",
           "type": "array",
           "items": {
             "type": "array",
             "items": [
               { "$ref": "#/definitions/tick" },
-              { "type": "integer", "minimum": -8192, "maximum": 8191 }
+              { "type": "integer", "minimum": -8192, "maximum": 8191 },
+              { "type": "number", "minimum": -1, "maximum": 1 }
             ],
             "minItems": 2,
             "additionalItems": false

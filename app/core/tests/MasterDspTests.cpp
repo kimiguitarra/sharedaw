@@ -183,6 +183,26 @@ TEST_CASE ("Master EQ round-trips through JSON, validates and diffs on its own")
     CHECK (d.changes[0].part == "masterEq");
 }
 
+TEST_CASE ("Pitch bend curves and same-tick points round-trip through JSON")
+{
+    auto p = parseProject (fixture ("full.project.json"));
+    collab::MidiClip* clip = nullptr;
+
+    for (auto& t : p.tracks)
+        if (! t.midiClips.empty())
+            clip = &t.midiClips.front();
+
+    REQUIRE (clip != nullptr);
+    clip->pitchBends = { { 0, 0 }, { 10, -4096, 0.35 }, { 10, -4096 }, { 400, 0 } };
+    const auto text = serialiseProject (p);
+    CHECK (validateProjectJson (nlohmann::json::parse (text)).empty());
+    auto q = parseProject (text);
+
+    for (auto& t : q.tracks)
+        if (! t.midiClips.empty())
+            CHECK (t.midiClips.front().pitchBends == clip->pitchBends);
+}
+
 TEST_CASE ("Key track round-trips through JSON, diffs as its own scope and answers keyAt")
 {
     auto p = parseProject (fixture ("full.project.json"));

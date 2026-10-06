@@ -29,6 +29,13 @@ namespace AudioFiles
     */
     juce::Result importFile (const juce::File& source, const juce::File& audioDir, Imported& result, const juce::String& label = {});
 
+    /**
+        実体の一部（offset から length サンプル）を逆再生にした新しい実体を作る（クリップのリバース）。
+        元の実体はそのまま（実体は不変）。result に新しい実体のハッシュと長さが入る。
+    */
+    juce::Result writeReversed (const juce::File& projectDir, const std::string& hash, juce::int64 offsetSamples,
+                                juce::int64 lengthSamples, const juce::String& label, Imported& result);
+
     /** ファイルの SHA-256（16進）。 */
     std::string hashFile (const juce::File&);
 

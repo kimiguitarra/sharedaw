@@ -124,13 +124,18 @@ namespace
 
         ojson o { { "id", c.id }, { "startTick", c.startTick }, { "lengthTick", c.lengthTick }, { "notes", notes } };
 
-        // ピッチベンド（録ると数が多いので [tick, 値] の組で短く）
+        // ピッチベンド（録ると数が多いので [tick, 値] の組で短く。カーブがあれば [tick, 値, カーブ]）
         if (! c.pitchBends.empty())
         {
             ojson bends = ojson::array();
 
             for (auto& b : c.pitchBends)
-                bends.push_back ({ b.tick, b.value });
+            {
+                if (b.curve != 0.0)
+                    bends.push_back ({ b.tick, b.value, b.curve });   // カーブがあるときだけ 3 つ目（古いアプリでも読める）
+                else
+                    bends.push_back ({ b.tick, b.value });
+            }
 
             o["pitchBends"] = bends;
         }
@@ -731,7 +736,8 @@ Project projectFromJson (const json& j)
 
                     if (auto pb = cj.find ("pitchBends"); pb != cj.end())
                         for (auto& bj : *pb)
-                            c.pitchBends.push_back ({ bj.at (0).get<Tick>(), bj.at (1).get<int>() });
+                            c.pitchBends.push_back ({ bj.at (0).get<Tick>(), bj.at (1).get<int>(),
+                                                      bj.size() > 2 ? std::clamp (bj.at (2).get<double>(), -1.0, 1.0) : 0.0 });
 
                     t.midiClips.push_back (std::move (c));
                 }

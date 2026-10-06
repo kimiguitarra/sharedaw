@@ -182,6 +182,32 @@ TEST_CASE ("newer overlapping audio clip hides the older one with crossfades (Pr
     CHECK (std::none_of (hidden.begin(), hidden.end(), [] (auto& s) { return s.clipIndex == 0; }));
 }
 
+TEST_CASE ("pitch bends: two points at the same tick jump, and a curve bends the ramp")
+{
+    // 半音下からしゃくり上げる: 0 → 同じ時刻に -1 半音（-4096）→ 480 tick で 0 へ
+    std::vector<PitchBend> bends { { 0, 0 }, { 960, 0 }, { 960, -4096 }, { 1440, 0 } };
+    CHECK (pitchBendAt (bends, 959) == 0);
+    CHECK (pitchBendAt (bends, 960) == -4096);
+    CHECK (pitchBendAt (bends, 1200) == -2048);
+    CHECK (pitchBendAt (bends, 1440) == 0);
+
+    // カーブ: 正はゆっくり始まる（真ん中ではまだ半分より下）、負は速く上がる
+    bends[2].curve = 0.5;
+    CHECK (pitchBendAt (bends, 1200) < -2048);
+    bends[2].curve = -0.5;
+    CHECK (pitchBendAt (bends, 1200) > -2048);
+    CHECK (pitchBendAt (bends, 1440) == 0);
+
+    // 真ん中で 75 % まで上がっているカーブを求める
+    const double c = pitchBendCurveFor (0.75);
+    CHECK (pitchBendCurve (0.5, c) == doctest::Approx (0.75));
+    CHECK (pitchBendCurveFor (0.5) == doctest::Approx (0.0));
+
+    // 鳴らすときもカーブどおり
+    const auto dense = densePitchBends (bends, 20);
+    CHECK (std::any_of (dense.begin(), dense.end(), [] (auto& b) { return b.tick == 1200 && b.value > -2048; }));
+}
+
 TEST_CASE ("pitch bends: value at a position, drawing a range, and split / trim / glue / stretch keep them in place")
 {
     // 点の間は直線（Cubase のランプ）。最初の点より前は中央、最後の点より後はその値

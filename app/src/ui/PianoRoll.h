@@ -88,6 +88,7 @@ private:
     const bool bendMode;
     std::vector<collab::PitchBend> originalBends;   // ドラッグを始めたときの点
     int bendIndex = -1;                             // 動かしている点（originalBends の番号）
+    int curveIndex = -1;                            // カーブを変えている区間（その区間の始まりの点の番号）
     double bendDownTick = 0;
     juce::Point<float> bendHover { -100.0f, -100.0f }, bendLast;
 
@@ -95,6 +96,10 @@ private:
     float bendY (int value) const;
     int bendValueAt (float y, bool free) const;
     int bendPointAt (const collab::MidiClip&, juce::Point<float>) const;
+    float bendFullScale() const;                    // 段の上下の端の値（±半音なら 4096）
+    /** 点と点の間（値が変わる区間）の真ん中にある、カーブを変えるつまみの位置。 */
+    std::optional<juce::Point<float>> curveHandle (const collab::MidiClip&, size_t segment) const;
+    int curveHandleAt (const collab::MidiClip&, juce::Point<float>) const;
     /** 鉛筆でクリックしたら置かれる点（マウスの位置から。置けないなら std::nullopt）。 */
     std::optional<collab::PitchBend> ghostBend (const collab::MidiClip&) const;
     void setBends (std::vector<collab::PitchBend>, const juce::String& description);
@@ -241,6 +246,8 @@ private:
     Theme::IconButton snapToggle { "snap" };
     juce::TextButton quantiseButton { "クオンタイズ"_ju };
     juce::TextButton nudgeLeftButton { juce::String::fromUTF8 ("\xe2\x97\x80") }, nudgeRightButton { juce::String::fromUTF8 ("\xe2\x96\xb6") };
+    juce::TextButton bendRange;                 // ピッチベンドの段の上下の範囲（鍵盤の下。押すと選ぶメニュー）
+    juce::Rectangle<int> velocityLabelArea, bendLabelArea;
     juce::TextButton staffButton { juce::String::fromUTF8 ("\xe2\x99\xaa") };   // ♪: 五線譜とピアノロールの切り替え
     StaffView staff { *this };
     juce::TextButton bassClefButton { juce::String::fromUTF8 ("\xf0\x9d\x84\xa2") };   // 𝄢: ヘ音記号の段を出す・出さない

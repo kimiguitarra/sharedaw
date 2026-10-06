@@ -27,6 +27,12 @@ ChordSymbol toChordSymbol (const chord::Chord&);
 /** その位置のキー（キートラックが空なら std::nullopt）。 */
 std::optional<chord::Key> keyAt (const Project&, const TempoMap&, Tick);
 
+/**
+    その位置（曲の頭からの tick）で鳴っているコードの構成音（ピッチクラス 0〜11。書いてあるテンションと分数コードのベースも含む）。
+    コードがない・ノーコード（N.C.）の所は std::nullopt。ベースの打ち込みで、コードトーン以外の音に印を付けるのに使う。
+*/
+std::optional<std::vector<int>> chordTonesAt (const Project&, Tick);
+
 /** コードトラックの終端（最後のコードは曲の末尾まで。曲がそれより短ければ次の小節線まで）。 */
 Tick chordTrackEndTick (const Project&, const TempoMap&);
 

@@ -143,6 +143,7 @@ struct EditorState  : public juce::ChangeBroadcaster
 
     bool autoScroll = true;                     // 再生中に再生位置を追ってスクロールする（F）
     bool autoArmSelected = true;                // 選んだトラックを自動で録音待機にする（* で録音できる）
+    int pitchBendViewSemitones = 1;             // ピッチベンドの段の上下の範囲（1 = ±半音、2 = ±1 音）
     bool pianoRollAutoFitted = false;           // ピアノロールがクリップに合わせて拡大率を変えた（タイムラインには連動させない）
     float waveformZoom = 1.0f;                  // 波形を表示の上だけ大きくする倍率（音量は変わらない。Shift+H / Shift+G、Alt+ホイール）
 
@@ -171,6 +172,23 @@ struct EditorState  : public juce::ChangeBroadcaster
     }
 
     std::string selectedTrackId;
+    // トラックの複数選択（Shift で範囲、Ctrl / Cmd で 1 つずつ）。selectedTrackId を含んでいるときだけ有効
+    // （ほかの所で selectedTrackId だけが変わったら、自然に 1 つの選択に戻る）
+    std::set<std::string> selectedTrackIds;
+
+    bool isTrackSelected (const std::string& id) const
+    {
+        return id == selectedTrackId || (selectedTrackIds.count (selectedTrackId) > 0 && selectedTrackIds.count (id) > 0);
+    }
+
+    /** ミュート・ソロ・録音待機などを押したときにまとめてかけるトラック（押したトラックが複数選択の中なら全部、そうでなければそれだけ）。 */
+    std::vector<std::string> tracksToActOn (const std::string& id) const
+    {
+        if (isTrackSelected (id) && selectedTrackIds.count (selectedTrackId) > 0 && selectedTrackIds.size() > 1)
+            return { selectedTrackIds.begin(), selectedTrackIds.end() };
+
+        return { id };
+    }
     std::string selectedClipId;             // 主に選んでいるクリップ（ピアノロールで開くもの）
     std::set<std::string> selectedClipIds;  // 選択中のクリップすべて（selectedClipId を含む）
 

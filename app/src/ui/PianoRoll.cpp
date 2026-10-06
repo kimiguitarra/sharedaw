@@ -65,6 +65,24 @@ PianoRollView::PianoRollView (AppContext& c)
         repaint();
     };
     addAndMakeVisible (staffButton);
+
+    bendRange.setTooltip ("ピッチベンドの段の上下の範囲"_ju);
+    bendRange.setWantsKeyboardFocus (false);
+    bendRange.setButtonText (ctx.state.pitchBendViewSemitones == 2 ? "±1音"_ju : "±半音"_ju);
+    bendRange.onClick = [this]
+    {
+        juce::PopupMenu m;
+
+        for (int range : { 1, 2 })
+            m.addItem (range == 1 ? "±半音"_ju : "±1音"_ju, true, ctx.state.pitchBendViewSemitones == range, [this, range]
+            {
+                ctx.state.pitchBendViewSemitones = range;
+                ctx.state.changed();
+            });
+
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&bendRange));
+    };
+    addAndMakeVisible (bendRange);
     addChildComponent (staff);
 
     bassClefButton.setClickingTogglesState (true);
@@ -234,6 +252,23 @@ void PianoRollView::paint (juce::Graphics& g)
     g.fillAll (Theme::panel);
     g.setColour (Theme::background);
     g.fillRect (0, 0, getWidth(), 3);
+
+    if (shownAsAudio)
+        return;
+
+    // 段の名前（鍵盤の下）
+    g.setColour (Theme::textDim);
+    g.setFont (juce::FontOptions (12.5f, juce::Font::bold));
+
+    if (velocity.isVisible() && ! velocityLabelArea.isEmpty())
+        g.drawText ("ベロシティ"_ju, velocityLabelArea.reduced (6, 4).removeFromTop (18), juce::Justification::centredLeft);
+
+    if (bendLane.isVisible() && ! bendLabelArea.isEmpty())
+    {
+        auto r = bendLabelArea.reduced (6, 4);
+        g.drawText ("ピッチ"_ju, r.removeFromTop (16), juce::Justification::centredLeft);
+        g.drawText ("ベンド"_ju, r.removeFromTop (16), juce::Justification::centredLeft);
+    }
 }
 
 void PianoRollView::setTopStrip (TopStrip* strip)
@@ -338,9 +373,14 @@ void PianoRollView::resized()
         topStrip->setBounds (left.getX(), row.getY(), row.getRight() - left.getX(), stripHeight);
     }
     bendLane.setBounds (area.removeFromBottom (bendHeight));
-    left.removeFromBottom (bendHeight);
+    bendLabelArea = left.removeFromBottom (bendHeight);
     velocity.setBounds (area.removeFromBottom (velocityHeight));
-    left.removeFromBottom (velocityHeight);
+    velocityLabelArea = left.removeFromBottom (velocityHeight);
+
+    // 段の名前は左（鍵盤の下の空いている所）。ピッチベンドは上下の範囲もここで選ぶ
+    bendRange.setVisible (bendHeight > 0 && ! shownAsAudio);
+    bendRange.setButtonText (ctx.state.pitchBendViewSemitones == 2 ? "±1音"_ju : "±半音"_ju);
+    bendRange.setBounds (bendLabelArea.reduced (4, 0).withTrimmedTop (42).withHeight (24).withWidth (juce::jmin (90, bendLabelArea.getWidth() - 8)));
     grid.setBounds (area);
     keyboard.setBounds (left);
     staff.setLeftWidth (left.getWidth());
@@ -519,6 +559,13 @@ void PianoRollView::updateTitle()
 
 void PianoRollView::changeListenerCallback (juce::ChangeBroadcaster*)
 {
+    if (const auto text = ctx.state.pitchBendViewSemitones == 2 ? "±1音"_ju : "±半音"_ju; bendRange.getButtonText() != text)
+    {
+        bendRange.setButtonText (text);
+        bendLane.repaint();
+        repaint();
+    }
+
     auto* clip = getClip();
     auto* audio = getAudioClip();
     const auto id = clip != nullptr ? clip->id : (audio != nullptr ? audio->id : std::string());

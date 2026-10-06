@@ -87,6 +87,7 @@ juce::String MainComponent::editorStateJson() const
     o->setProperty ("pianoZoom", state.pianoRoll.pixelsPerQuarter);
     o->setProperty ("pianoScroll", state.pianoRoll.scrollTick);
     o->setProperty ("waveformZoom", state.waveformZoom);
+    o->setProperty ("pitchBendView", state.pitchBendViewSemitones);
     o->setProperty ("playhead", state.playheadTick);
 
     auto* heights = new juce::DynamicObject();
@@ -152,6 +153,7 @@ void MainComponent::restoreEditorState()
     lastTimelineZoom = state.timeline.pixelsPerQuarter;   // 開いたときに、タイムラインとピアノロールの拡大を連動させ直さない
     lastPianoZoom = state.pianoRoll.pixelsPerQuarter;
     state.waveformZoom = juce::jlimit (1.0f, 64.0f, (float) (double) get ("waveformZoom", 1.0));
+    state.pitchBendViewSemitones = juce::jlimit (1, 2, (int) get ("pitchBendView", 1));
 
     state.trackHeights.clear();
     state.automationShown.clear();

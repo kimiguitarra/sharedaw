@@ -124,7 +124,7 @@ private:
                                         int trimEdge, const juce::ModifierKeys&) const;
     void paintMidiClip (juce::Graphics&, const collab::MidiClip&, juce::Rectangle<float>, juce::Colour, bool selected) const;
     void paintAudioClip (juce::Graphics&, const collab::AudioClip&, juce::Rectangle<float>, juce::Colour, bool selected);
-    void normaliseClip (const std::string& trackId, const std::string& clipId);
+    void reverseClip (const std::string& trackId, const std::string& clipId);
     void paintLiveRecording (juce::Graphics&, const EngineBridge::LiveRecording&, juce::Rectangle<float> row) const;
     void showClipMenu (const collab::Track&, const std::string& clipId, bool audio);
     void createMidiClip (const std::string& trackId, int bar, bool thenDragLength);

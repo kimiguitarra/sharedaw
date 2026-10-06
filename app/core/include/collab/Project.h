@@ -322,6 +322,7 @@ struct PitchBend
 {
     Tick tick = 0;
     int value = 0;
+    double curve = 0.0;     // 次の点までのカーブ（-1〜1。0 = 直線、正 = ゆっくり始まって最後に速く、負 = 速く始まってゆっくり着く）
 
     bool operator== (const PitchBend&) const = default;
 };

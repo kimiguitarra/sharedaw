@@ -96,7 +96,7 @@ std::optional<std::pair<MidiClip, MidiClip>> splitMidiClip (const MidiClip& c, T
 
     for (auto b : c.pitchBends)
         if (b.tick >= rel)
-            right.pitchBends.push_back ({ b.tick - rel, b.value });
+            right.pitchBends.push_back ({ b.tick - rel, b.value, b.curve });
 
     return std::make_pair (left, right);
 }
@@ -158,7 +158,7 @@ MidiClip trimMidiClipStart (const MidiClip& c, Tick newStart, Tick minLength)
 
     for (auto b : c.pitchBends)
         if (b.tick - delta > 0 || (b.tick - delta == 0 && startValue == 0))
-            bends.push_back ({ b.tick - delta, b.value });
+            bends.push_back ({ b.tick - delta, b.value, b.curve });
 
     r.pitchBends = bends;
     return r;
@@ -193,7 +193,7 @@ MidiClip glueMidiClips (const MidiClip& a, const MidiClip& b)
         bends.push_back ({ b.startTick - start, pitchBendAt (b.pitchBends, 0) });
 
     for (auto pb : b.pitchBends)
-        bends.push_back ({ pb.tick + b.startTick - start, pb.value });
+        bends.push_back ({ pb.tick + b.startTick - start, pb.value, pb.curve });
 
     std::stable_sort (bends.begin(), bends.end(), [] (auto& x, auto& y) { return x.tick < y.tick; });
     r.pitchBends = bends;
@@ -462,6 +462,19 @@ std::vector<AudibleSegment> audibleSegments (const std::vector<AudioClip>& clips
     return result;
 }
 
+double pitchBendCurve (double t, double curve)
+{
+    t = std::clamp (t, 0.0, 1.0);
+    return curve == 0.0 ? t : std::pow (t, std::pow (6.0, std::clamp (curve, -1.0, 1.0)));
+}
+
+double pitchBendCurveFor (double fraction)
+{
+    // 真ん中（t = 0.5）でその割合になるカーブ: 0.5 ^ 6^c = fraction
+    fraction = std::clamp (fraction, 0.02, 0.98);
+    return std::clamp (std::log (std::log (fraction) / std::log (0.5)) / std::log (6.0), -1.0, 1.0);
+}
+
 int pitchBendAt (const std::vector<PitchBend>& bends, Tick tick)
 {
     if (bends.empty() || tick < bends.front().tick)
@@ -477,7 +490,7 @@ int pitchBendAt (const std::vector<PitchBend>& bends, Tick tick)
             if (b.tick == a.tick)
                 return b.value;
 
-            const double t = (double) (tick - a.tick) / (double) (b.tick - a.tick);
+            const double t = pitchBendCurve ((double) (tick - a.tick) / (double) (b.tick - a.tick), a.curve);
             return (int) std::lround (a.value + (b.value - a.value) * t);
         }
     }

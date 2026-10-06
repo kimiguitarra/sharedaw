@@ -521,12 +521,9 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
         const auto length = clip->lengthTick;
         m.pianoRoll.editNotes ("ピッチベンド"_ju, [length] (collab::MidiClip& c)
         {
-            std::vector<collab::PitchBend> points;
-
-            for (collab::Tick t = 0; t < length / 2; t += 60)
-                points.push_back ({ t, (int) (8191.0 * std::sin ((double) t / (double) length * 6.28)) });
-
-            collab::replacePitchBends (c.pitchBends, 0, length / 2, points);
+            // 半音下からしゃくり上げる（同じ時刻に 0 と -1 半音、カーブで 0 へ）
+            const auto at = std::max<collab::Tick> (1, length / 4);
+            c.pitchBends = { { 0, 0 }, { at, 0 }, { at, -4096, -0.5 }, { std::min (length - 1, at + collab::kPpq), 0 } };
         });
 
         if (auto* after = m.ctx.selectedClip(); after == nullptr || after->pitchBends.empty())
