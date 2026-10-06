@@ -1,5 +1,6 @@
 #include "collab/ProjectJson.h"
 
+#include <algorithm>
 #include <nlohmann/json-schema.hpp>
 
 #include "collab/Unicode.h"
@@ -139,10 +140,15 @@ namespace
 
     ojson toJson (const AudioClip& c)
     {
-        return { { "id", c.id }, { "startTick", c.startTick }, { "audioHash", c.audioHash },
-                 { "displayName", toNfc (c.displayName) },
-                 { "sourceOffsetSamples", c.sourceOffsetSamples }, { "lengthSamples", c.lengthSamples },
-                 { "gainDb", c.gainDb }, { "fadeInSamples", c.fadeInSamples }, { "fadeOutSamples", c.fadeOutSamples } };
+        ojson o { { "id", c.id }, { "startTick", c.startTick }, { "audioHash", c.audioHash },
+                  { "displayName", toNfc (c.displayName) },
+                  { "sourceOffsetSamples", c.sourceOffsetSamples }, { "lengthSamples", c.lengthSamples },
+                  { "gainDb", c.gainDb }, { "fadeInSamples", c.fadeInSamples }, { "fadeOutSamples", c.fadeOutSamples } };
+
+        if (c.pitchSemitones != 0.0)
+            o["pitchSemitones"] = c.pitchSemitones;   // 0 のときは書かない（古いアプリでも読める）
+
+        return o;
     }
 
     ojson toJson (const ChannelStrip& s)
@@ -731,6 +737,7 @@ Project projectFromJson (const json& j)
                     c.gainDb = get<double> (cj, "gainDb");
                     c.fadeInSamples = get<SampleCount> (cj, "fadeInSamples");
                     c.fadeOutSamples = get<SampleCount> (cj, "fadeOutSamples");
+                    c.pitchSemitones = std::clamp (getOr<double> (cj, "pitchSemitones", 0.0), -12.0, 12.0);
                     t.audioClips.push_back (std::move (c));
                 }
             }

@@ -175,3 +175,23 @@ TEST_CASE ("automation lanes: values between points, drawing, JSON round trip an
     const auto diff = diffProjects (p, changed);
     CHECK (std::any_of (diff.changes.begin(), diff.changes.end(), [] (auto& c) { return c.part == "automation"; }));
 }
+
+TEST_CASE ("audio clip pitch round-trips and is omitted when zero")
+{
+    auto p = parseProject (fixture ("full.project.json"));
+    Track* audio = nullptr;
+
+    for (auto& t : p.tracks)
+        if (! t.audioClips.empty())
+            audio = &t;
+
+    REQUIRE (audio != nullptr);
+    CHECK (serialiseProject (p).find ("pitchSemitones") == std::string::npos);
+
+    audio->audioClips[0].pitchSemitones = -7.0;
+    const auto back = parseProject (serialiseProject (p));   // スキーマの検査も通る
+
+    for (auto& t : back.tracks)
+        if (t.id == audio->id)
+            CHECK (t.audioClips[0].pitchSemitones == doctest::Approx (-7.0));
+}

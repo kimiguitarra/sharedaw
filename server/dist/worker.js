@@ -2543,6 +2543,12 @@ var project_schema_default = {
         fadeOutSamples: {
           type: "integer",
           minimum: 0
+        },
+        pitchSemitones: {
+          description: "Pitch shift in semitones (length unchanged). Omitted when 0.",
+          type: "number",
+          minimum: -12,
+          maximum: 12
         }
       }
     },

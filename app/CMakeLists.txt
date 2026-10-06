@@ -70,6 +70,7 @@ target_sources(ShareDAW PRIVATE
     src/Main.cpp
     src/AppPaths.cpp
     src/audio/AudioFiles.cpp
+    src/audio/PitchShift.cpp
     src/audio/Export.cpp
     src/audio/Mp3Export.cpp
     src/update/Updater.cpp

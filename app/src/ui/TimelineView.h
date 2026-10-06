@@ -28,6 +28,14 @@ public:
     std::function<void()> onOpenClip;
     std::function<void (const juce::MouseEvent&, const juce::MouseWheelDetails&)> onWheel;
 
+    /**
+        1 つのトラックだけを全体の高さで出す（下の波形の画面）。空ならすべてのトラック（タイムライン）。
+        axis: 横の位置（nullptr ならタイムラインの位置）。
+    */
+    std::string soloTrackId;
+    const TimeAxis* axisOverride = nullptr;
+    const TimeAxis& axis() const                    { return axisOverride != nullptr ? *axisOverride : ctx.state.timeline; }
+
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
@@ -77,7 +85,7 @@ private:
 
     Hit findHit (juce::Point<float>) const;
 
-    // オートメーションのレーン（トラックの行の下の段）。点をクリックで追加・ドラッグで移動・ダブルクリックで削除、鉛筆でドラッグして描く
+    // オートメーションのレーン（トラックの行の下の段）。鉛筆でクリックして点を置く（置く所を薄く出す）、ドラッグで移動・ダブルクリックで削除
     struct AutomationDrag
     {
         std::string trackId, param;
@@ -94,10 +102,12 @@ private:
     juce::Point<float> automationHover;
 
     juce::Rectangle<float> automationArea (int trackIndex) const;   // 出していなければ空
+    int clipLaneHeight (const std::string& trackId) const;
     float automationY (const std::string& param, double value, juce::Rectangle<float> area) const;
     double automationValue (const std::string& param, float y, juce::Rectangle<float> area) const;
     int automationPointAt (const collab::Track&, const std::string& param, juce::Point<float>, juce::Rectangle<float> area) const;
     void paintAutomation (juce::Graphics&, const collab::Track&, const std::string& param, juce::Rectangle<float> area) const;
+    void paintAutomationGhost (juce::Graphics&, const collab::Track&, const std::string& param, juce::Rectangle<float> area) const;
     void automationMouseDown (const juce::MouseEvent&, int trackIndex);
     void automationMouseDrag (const juce::MouseEvent&);
     void showAutomationMenu (const std::string& trackId, const std::string& param);

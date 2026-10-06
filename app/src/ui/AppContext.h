@@ -31,6 +31,17 @@ struct AppContext
         return t != nullptr ? t->findMidiClip (state.selectedClipId) : nullptr;
     }
 
+    /** 選択中のオーディオクリップ（選択中のトラックの中）。 */
+    const collab::AudioClip* selectedAudioClip() const
+    {
+        if (auto* t = selectedTrack())
+            for (auto& c : t->audioClips)
+                if (c.id == state.selectedClipId)
+                    return &c;
+
+        return nullptr;
+    }
+
 
     /** MIDI クリップの中身（ノートの位置・長さ）とクリップの長さを factor 倍にする（開始位置は変えない）。 */
     void stretchMidiClips (const std::set<std::string>& clipIds, double factor);

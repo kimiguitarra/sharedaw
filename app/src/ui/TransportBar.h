@@ -75,6 +75,41 @@ struct FlagIcon  : public juce::Component,
 };
 
 /**
+    選んでいるオーディオクリップの値（音量・ピッチ、あればフェード）。クリックで入力、ホイールで増減（Shift で細かく）。
+    クリップを選んでいないときは隠れる。上のツールバーと下の波形の画面の両方で使う。
+*/
+class AudioClipFields  : public juce::Component,
+                         private juce::ChangeListener
+{
+public:
+    AudioClipFields (AppContext&, bool withFades);
+    ~AudioClipFields() override;
+
+    /** 選んでいるオーディオクリップがあるか（ないときは何も出さない）。 */
+    bool hasClip() const noexcept                   { return shown; }
+    int preferredWidth() const;
+    void resized() override;
+
+    /** 出る・消えるが変わったとき（並べ直す）。 */
+    std::function<void()> onShownChanged;
+
+private:
+    AppContext& ctx;
+    const bool withFades;
+    bool shown = false;
+    juce::Label title;
+    ValueLabel gainLabel, pitchLabel, fadeInLabel, fadeOutLabel;
+    juce::String wheelMergeId;
+    juce::uint32 lastWheelTime = 0;
+
+    std::optional<std::pair<std::string, collab::AudioClip>> selected() const;
+    void refresh();
+    void edit (const juce::String& description, std::function<void (collab::AudioClip&)> fn, const juce::String& mergeId = {});
+    juce::String nextWheelMergeId();
+    void changeListenerCallback (juce::ChangeBroadcaster*) override   { refresh(); }
+};
+
+/**
     画面上部のツールバー（Cubase のプロジェクトウィンドウのツールバー）:
     ツール、クオンタイズ値・スナップ・自動スクロール、メトロノーム、曲のテンポ・拍子・キー。
 */
@@ -111,9 +146,8 @@ private:
     ValueLabel bpmLabel, meterLabel;
     juce::Label keyLabel;
 
-    // 選んでいるオーディオクリップの音量・フェード（Cubase の情報ライン）と、そのトラックのクロスフェード
-    juce::Label clipTitle;
-    ValueLabel clipGainLabel, fadeInLabel, fadeOutLabel;
+    // 選んでいるオーディオクリップの音量・ピッチ・フェード（Cubase の情報ライン）
+    AudioClipFields clipFields { ctx, true };
     juce::String wheelMergeId;
     juce::uint32 lastWheelTime = 0;
     collab::Tick lastTick = -1;
@@ -123,11 +157,6 @@ private:
     void setMeterAtPlayhead (int numerator, int denominator);
     void refreshTempo();
 
-    /** 選んでいるオーディオクリップ（トラックの ID とクリップ）。なければ std::nullopt。 */
-    std::optional<std::pair<std::string, collab::AudioClip>> selectedAudioClip() const;
-    void refreshClip();
-    void editSelectedClip (const juce::String& description, std::function<void (collab::AudioClip&)> fn, const juce::String& mergeId = {});
-    juce::String nextWheelMergeId();
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
 };

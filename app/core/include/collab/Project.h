@@ -351,6 +351,7 @@ struct AudioClip
     double gainDb = 0.0;
     SampleCount fadeInSamples = 0;
     SampleCount fadeOutSamples = 0;
+    double pitchSemitones = 0.0;   // 音の高さ（半音、-12〜+12。長さは変えない）
 
     bool operator== (const AudioClip&) const = default;
 };

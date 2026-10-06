@@ -14,12 +14,14 @@
 #include "MasterPanel.h"
 #include "ProjectPicker.h"
 #include "MixerView.h"
+#include "TimelineView.h"
 #include "SyncUI.h"
 #include "Theme.h"
 #include "collab/ChordPlayback.h"
 #include "collab/ClipEditing.h"
 #include "collab/MasterDsp.h"
 #include "collab/Uuid.h"
+#include "audio/AudioFiles.h"
 #include "audio/Export.h"
 #include "audio/Takes.h"
 #include "sync/SyncManager.h"
@@ -559,7 +561,7 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
 
         const auto trackId = tracks[(size_t) row].id;
         m.state.automationShown[trackId] = "pan";
-        m.state.tool = EditTool::select;
+        m.state.tool = EditTool::pencil;   // 点を置くのは鉛筆
         m.state.changed();
 
         const int top = lanes.rowTop (row) - lanes.scrollY + m.state.clipLaneHeight (trackId);
@@ -580,10 +582,17 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
             return lane != nullptr ? lane->points : std::vector<collab::AutomationPoint>();
         };
 
+        // 選択ツールでは点を置かない
+        m.state.tool = EditTool::select;
+        lanes.mouseDown (event ({ x, y }, 1, false));
+        lanes.mouseUp (event ({ x, y }, 1, false));
+        const bool selectKeepsEmpty = points().empty();
+        m.state.tool = EditTool::pencil;
+
         lanes.mouseDown (event ({ x, y }, 1, false));
         lanes.mouseUp (event ({ x, y }, 1, false));
         const auto added = points();
-        const bool addedOk = added.size() == 1 && added[0].tick == collab::kPpq * 4 && added[0].value > 0.5;
+        const bool addedOk = selectKeepsEmpty && added.size() == 1 && added[0].tick == collab::kPpq * 4 && added[0].value > 0.5;
 
         lanes.mouseDown (event ({ x, y }, 1, false));
         lanes.mouseDrag (event ({ x + 40.0f, y + 30.0f }, 1, true));
@@ -596,6 +605,7 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
         lanes.mouseDown (event ({ x2, y2 }, 2, false));
         lanes.mouseUp (event ({ x2, y2 }, 2, false));
         const bool deletedOk = points().empty();
+        m.state.tool = EditTool::select;
 
         std::cout << "automation edit: " << (addedOk && movedOk && deletedOk ? "ok" : "FAILED")
                   << " (added " << addedOk << " moved " << movedOk << " deleted " << deletedOk << ")" << std::endl;
@@ -666,6 +676,117 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
         std::cout << "audio files: " << (unused.contains (stray) && ! usedListed ? "ok" : "FAILED") << std::endl;
         stray.deleteFile();
     }, "audio files" });
+
+    // 下の波形の画面（オーディオのトラック）: はさみで切れる、音量を変えても選択が外れない、ピッチ
+    static std::string audioTrackId, audioClipId;
+    steps->push_back ({ 300, [] (MainComponent& m)
+    {
+        if (! m.document.hasLocation())
+            return;
+
+        const auto wavFile = m.document.getProjectDir().getChildFile ("smoke-sine.wav");
+        {
+            juce::AudioBuffer<float> buffer (1, 96000);
+
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                buffer.setSample (0, i, 0.4f * std::sin (2.0f * juce::MathConstants<float>::pi * 220.0f * (float) i / 48000.0f));
+
+            wavFile.deleteFile();
+            juce::WavAudioFormat wav;
+            std::unique_ptr<juce::AudioFormatWriter> writer (wav.createWriterFor (wavFile.createOutputStream().release(), 48000.0, 1, 24, {}, 0));
+            writer->writeFromAudioSampleBuffer (buffer, 0, buffer.getNumSamples());
+        }
+
+        AudioFiles::Imported im;
+
+        if (AudioFiles::importFile (wavFile, m.document.getProjectDir().getChildFile ("audio"), im, "SmokeAudio").failed())
+            return;
+
+        wavFile.deleteFile();
+        collab::Track t;
+        t.id = audioTrackId = collab::generateUuid();
+        t.type = collab::TrackType::audio;
+        t.name = "SmokeAudio";
+        collab::AudioClip c;
+        c.id = audioClipId = collab::generateUuid();
+        c.startTick = collab::kPpq * 4;
+        c.audioHash = im.hash;
+        c.displayName = toStd (im.displayName);
+        c.lengthSamples = im.lengthSamples;
+        t.audioClips.push_back (c);
+        m.document.perform ("smoke", [t] (collab::Project& p) { p.tracks.push_back (t); });
+        m.state.selectedTrackId = audioTrackId;
+        m.state.selectClip (audioClipId);
+        m.state.changed();
+        m.togglePianoFullScreen();
+    }, "audio editor open" });
+    steps->push_back ({ 500, [] (MainComponent& m)
+    {
+        if (! audioTrackId.empty())
+            m.ctx.editTrack (audioTrackId, "smoke", [] (collab::Track& t) { t.audioClips[0].gainDb = -3.0; });
+    }, "audio clip gain" });
+    steps->push_back ({ 500, [] (MainComponent& m)
+    {
+        if (audioTrackId.empty())
+            return;
+
+        const bool stillSelected = m.state.selectedClipId == audioClipId;   // 音量を変えても選択（上の数値の欄）が消えない
+        auto* lanes = m.pianoRoll.getAudioLanes();
+        const bool shown = m.pianoRoll.isAudioTrackShown() && lanes != nullptr && lanes->isVisible() && lanes->getWidth() > 0;
+        bool split = false;
+
+        if (shown)
+        {
+            // はさみで、クリップの真ん中あたりを切る
+            m.state.tool = EditTool::split;
+            const float x = (float) lanes->axis().tickToX ((double) collab::kPpq * 6);
+            const juce::Point<float> p (x, (float) lanes->getHeight() * 0.5f);
+            auto source = juce::Desktop::getInstance().getMainMouseSource();
+            const auto now = juce::Time::getCurrentTime();
+            const juce::MouseEvent e (source, p, juce::ModifierKeys::leftButtonModifier, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                      lanes, lanes, now, p, now, 1, false);
+            lanes->mouseDown (e);
+            lanes->mouseUp (e);
+            m.state.tool = EditTool::select;
+
+            if (auto* t = m.document.getProject().findTrack (audioTrackId))
+                split = t->audioClips.size() == 2;
+        }
+
+        // ピッチ（裏で高さを変えたファイルを作る）
+        m.ctx.editTrack (audioTrackId, "smoke", [] (collab::Track& t) { t.audioClips[0].pitchSemitones = 12.0; });
+
+        const auto dir = juce::SystemStats::getEnvironmentVariable ("SHAREDAW_SMOKE_SHOTS", {});
+
+        if (dir.isNotEmpty() && m.pianoRoll.getWidth() > 0)
+        {
+            juce::FileOutputStream out (juce::File (dir).getChildFile ("audioeditor.png"));
+            out.setPosition (0);
+            out.truncate();
+            juce::PNGImageFormat().writeImageToStream (m.pianoRoll.createComponentSnapshot (m.pianoRoll.getLocalBounds()), out);
+        }
+
+        std::cout << "audio editor: " << (stillSelected && shown && split ? "ok" : "FAILED")
+                  << " (selected " << stillSelected << " shown " << shown << " split " << split << ")" << std::endl;
+    }, "audio editor" });
+    steps->push_back ({ 1500, [] (MainComponent& m)
+    {
+        if (audioTrackId.empty())
+            return;
+
+        if (auto* t = m.document.getProject().findTrack (audioTrackId); t != nullptr && ! t->audioClips.empty())
+        {
+            const auto& c = t->audioClips[0];
+            const auto pitched = juce::File (m.document.getProjectDir()).getChildFile ("cache/pitch").findChildFiles (juce::File::findFiles, false, "*.wav");
+            std::cout << "audio pitch: " << (pitched.size() == 1 && c.pitchSemitones == 12.0 ? "ok" : "FAILED") << std::endl;
+        }
+
+        m.togglePianoFullScreen();
+        m.document.perform ("smoke", [] (collab::Project& p)
+        {
+            std::erase_if (p.tracks, [] (auto& t) { return t.id == audioTrackId; });
+        });
+    }, "audio editor close" });
 
     // 手順を順に、間を空けて実行する（画面が作り直されて this が消えたら止める。そのときは done を呼ばない＝CI は時間切れで失敗する）
     struct Runner
@@ -778,7 +899,7 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
             state.selectClip ({});
             state.changed();
         }
-        else if (ctx.selectedClip() == nullptr && ! state.selectedClipId.empty())
+        else if (ctx.selectedClip() == nullptr && ctx.selectedAudioClip() == nullptr && ! state.selectedClipId.empty())
         {
             state.selectClip ({});
             state.changed();

@@ -8,6 +8,8 @@
 #include "ui/Theme.h"
 
 class PianoRollView;
+class TrackLanes;
+class AudioClipFields;
 
 /** ピアノロールの鍵盤（ドラムトラックでは GM ドラムマップのパーツ名を表示）。 */
 class PianoKeyboard  : public juce::Component
@@ -62,7 +64,7 @@ private:
 
 /**
     ノートの下の段。ベロシティの段（選んだノートを上下にドラッグ）と、その下のピッチベンドの段
-    （ドラッグで描く、Alt か右ボタンでドラッグすると中央に戻す、ダブルクリックでクリップのベンドを全部消す）。
+    （鉛筆ツールでクリックして点を置く。点はドラッグで動かし、ダブルクリックで消す）。
 */
 class VelocityLane  : public juce::Component,
                       public juce::SettableTooltipClient
@@ -76,7 +78,7 @@ public:
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
-
+    void mouseExit (const juce::MouseEvent&) override;
 
 private:
     PianoRollView& owner;
@@ -93,25 +95,14 @@ private:
     float bendY (int value) const;
     int bendValueAt (float y, bool free) const;
     int bendPointAt (const collab::MidiClip&, juce::Point<float>) const;
+    /** 鉛筆でクリックしたら置かれる点（マウスの位置から。置けないなら std::nullopt）。 */
+    std::optional<collab::PitchBend> ghostBend (const collab::MidiClip&) const;
     void setBends (std::vector<collab::PitchBend>, const juce::String& description);
 
     // 選んだノートを、ドラッグした分だけ上下させる（それぞれの差は保つ）
     float downY = 0;
     std::map<std::string, int> originalVelocities;
     const collab::Note* noteAt (float x) const;
-};
-
-/** オーディオクリップを選んだときに下部パネルに出す拡大波形（グリッド線つき）。 */
-class AudioClipGrid  : public juce::Component
-{
-public:
-    explicit AudioClipGrid (PianoRollView& o) : owner (o) {}
-    void paint (juce::Graphics&) override;
-    void mouseDown (const juce::MouseEvent&) override;
-    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
-
-private:
-    PianoRollView& owner;
 };
 
 /** ピアノロール（§3.2）。選択中の MIDI クリップを編集する。 */
@@ -189,8 +180,11 @@ public:
         どちらでもなければその小節に新しいクリップを作る。作れなければ nullptr。
     */
     const collab::MidiClip* ensureClipAt (collab::Tick abs);
-    /** 選択中のオーディオクリップ（あればピアノロールの代わりに波形を拡大表示する）。 */
+    /** 選択中のオーディオクリップ。 */
     const collab::AudioClip* getAudioClip() const;
+    /** オーディオのトラックを選んでいる（ピアノロールの代わりに、そのトラックの波形を大きく出して編集する）。 */
+    bool isAudioTrackShown() const;
+    TrackLanes* getAudioLanes() const noexcept     { return audioLanes.get(); }
     bool isDrumTrack() const;
     /** 音名（その位置のキーがフラット系なら Bb、シャープ系なら F# のように。キー未設定なら C# D# …）。 */
     juce::String pitchName (int pitch, collab::Tick absoluteTick) const;
@@ -235,7 +229,10 @@ private:
     PianoKeyboard keyboard { *this };
     NoteGrid grid { *this };
     VelocityLane velocity { *this, false }, bendLane { *this, true };
-    AudioClipGrid audioGrid { *this };
+    // オーディオのトラックを選んだとき: タイムラインと同じ操作ができる波形の画面（そのトラックだけを大きく）と、クリップの音量・ピッチ
+    std::unique_ptr<TrackLanes> audioLanes;
+    std::unique_ptr<AudioClipFields> clipFields;
+    std::string shownTrackId;
     PlayheadOverlay playhead;
     juce::ScrollBar hScroll { false }, vScroll { true };
 

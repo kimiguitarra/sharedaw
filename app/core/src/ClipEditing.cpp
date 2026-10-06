@@ -267,7 +267,7 @@ std::optional<AudioClip> glueAudioClips (const AudioClip& a, const AudioClip& b,
     const auto& second = a.startTick <= b.startTick ? b : a;
 
     // 同じ実体で、元ファイル上もタイムライン上も続いていること（分割したものを元に戻す）
-    if (first.audioHash != second.audioHash
+    if (first.audioHash != second.audioHash || first.pitchSemitones != second.pitchSemitones
         || first.sourceOffsetSamples + first.lengthSamples != second.sourceOffsetSamples
         || std::llabs (audioClipEndTick (first, map) - second.startTick) > 2)
         return std::nullopt;

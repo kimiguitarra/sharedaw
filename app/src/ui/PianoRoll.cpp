@@ -2,6 +2,8 @@
 #include "PianoRollDetail.h"
 
 #include "TimeGrid.h"
+#include "TimelineView.h"
+#include "TransportBar.h"
 #include "audio/AudioFiles.h"
 #include "collab/ChordPlayback.h"
 #include "collab/ClipEditing.h"
@@ -77,7 +79,13 @@ PianoRollView::PianoRollView (AppContext& c)
     addAndMakeVisible (grid);
     addAndMakeVisible (velocity);
     addAndMakeVisible (bendLane);
-    addChildComponent (audioGrid);
+    audioLanes = std::make_unique<TrackLanes> (ctx);
+    audioLanes->axisOverride = &ctx.state.pianoRoll;
+    audioLanes->onWheel = [this] (auto& e, auto& w) { handleWheel (e, w, audioLanes.get()); };
+    addChildComponent (*audioLanes);
+
+    clipFields = std::make_unique<AudioClipFields> (ctx, false);
+    addChildComponent (*clipFields);
     addAndMakeVisible (hScroll);
     addAndMakeVisible (vScroll);
     addAndMakeVisible (playhead);
@@ -106,6 +114,12 @@ PianoRollView::~PianoRollView()
 {
     ctx.document.removeChangeListener (this);
     ctx.state.removeChangeListener (this);
+}
+
+bool PianoRollView::isAudioTrackShown() const
+{
+    auto* t = getTrack();
+    return getClip() == nullptr && t != nullptr && t->type == collab::TrackType::audio;
 }
 
 const collab::AudioClip* PianoRollView::getAudioClip() const
@@ -240,13 +254,16 @@ void PianoRollView::resized()
     shownAsDrums = isDrumTrack();
     noteHeight = shownAsDrums ? 26 : 14;
     rebuildDrumRows();
-    shownAsAudio = getAudioClip() != nullptr;
+    shownAsAudio = isAudioTrackShown();
+    shownTrackId = getTrack() != nullptr ? getTrack()->id : std::string();
 
-    for (auto* c : std::initializer_list<juce::Component*> { &keyboard, &grid, &velocity, &vScroll, &snapToggle, &quantiseButton,
+    for (auto* c : std::initializer_list<juce::Component*> { &keyboard, &grid, &velocity, &vScroll, &quantiseButton,
                                                              &nudgeLeftButton, &nudgeRightButton })
         c->setVisible (! shownAsAudio);
     bendLane.setVisible (! shownAsAudio && ! shownAsDrums);   // ドラムにはピッチベンドの段を出さない
-    audioGrid.setVisible (shownAsAudio);
+    audioLanes->setVisible (shownAsAudio);
+    audioLanes->soloTrackId = shownAsAudio ? shownTrackId : std::string();
+    clipFields->setVisible (shownAsAudio && clipFields->hasClip());
 
     // 五線譜（ドラム・オーディオでは使わない）: 鍵盤とノートの欄の代わりに出す
     staffButton.setVisible (! shownAsDrums && ! shownAsAudio);
@@ -265,14 +282,22 @@ void PianoRollView::resized()
 
     auto area = getLocalBounds().withTrimmedTop (3);
     auto toolbar = area.removeFromTop (toolbarHeight).reduced (6, 3);
-    staffButton.setBounds (toolbar.removeFromRight (34));
-    toolbar.removeFromRight (4);
-    bassClefButton.setBounds (toolbar.removeFromRight (34));
-    titleLabel.setBounds (toolbar.removeFromLeft (220));
+
+    if (! shownAsAudio)
+    {
+        staffButton.setBounds (toolbar.removeFromRight (34));
+        toolbar.removeFromRight (4);
+        bassClefButton.setBounds (toolbar.removeFromRight (34));
+    }
+
+    titleLabel.setBounds (toolbar.removeFromLeft (juce::jlimit (120, 220, toolbar.getWidth() / 4)));
     gridBox.setBounds (toolbar.removeFromLeft (110));
     toolbar.removeFromLeft (6);
     snapToggle.setBounds (toolbar.removeFromLeft (40));
     toolbar.removeFromLeft (6);
+
+    // オーディオ: クオンタイズの行のスナップの右に、選んだクリップの音量・ピッチ
+    clipFields->setBounds (toolbar.withTrimmedLeft (10).withWidth (juce::jmin (juce::jmax (0, toolbar.getWidth() - 10), clipFields->preferredWidth())));
     quantiseButton.setBounds (toolbar.removeFromLeft (100));
     toolbar.removeFromLeft (10);
     nudgeLeftButton.setBounds (toolbar.removeFromLeft (26));
@@ -285,9 +310,9 @@ void PianoRollView::resized()
         area.removeFromRight (scrollBarSize);
         hScroll.setBounds (area.removeFromBottom (scrollBarSize));
         ruler.setBounds (area.removeFromTop (rulerHeight));
-        audioGrid.setBounds (area);
+        audioLanes->setBounds (area);
         grid.setBounds (area.getX(), area.getY(), area.getWidth(), 0);   // 表示幅の計算（スクロールバー）用
-        playhead.setBounds (ruler.getX(), ruler.getY(), ruler.getWidth(), audioGrid.getBottom() - ruler.getY());
+        playhead.setBounds (ruler.getX(), ruler.getY(), ruler.getWidth(), audioLanes->getBottom() - ruler.getY());
         playhead.refresh();
         updateScrollBars();
         return;
@@ -335,7 +360,7 @@ void PianoRollView::followPlayhead (double tick)
 {
     // クリップを選んでいなくても（トラックだけ・オーディオの表示でも）再生位置を追う
     auto& a = axis();
-    const int width = shownAsAudio ? audioGrid.getWidth() : grid.getWidth();
+    const int width = shownAsAudio ? audioLanes->getWidth() : grid.getWidth();
     const double visible = width / a.pixelsPerTick();
 
     if (isShowing() && width > 0 && (tick < a.scrollTick || tick > a.scrollTick + visible * 0.95))
@@ -417,21 +442,28 @@ void PianoRollView::clipChanged()
     shownClipId = clip != nullptr ? clip->id : (audio != nullptr ? audio->id : std::string());
     selectedNotes.clear();
 
-    if (audio != nullptr)
+    if (isAudioTrackShown())
     {
         resized();
 
-        if (audioGrid.getWidth() > 0)
+        // 選んだクリップが見えていなければ、全体が見えるように合わせる（見えていれば、その画面で作業を続けられるようにそのまま）
+        if (audio != nullptr && audioLanes->getWidth() > 0)
         {
             const auto start = (double) audio->startTick;
-            const double len = juce::jmax ((double) collab::kPpq, (double) collab::audioClipEndTick (*audio, ctx.document.getTempoMap()) - start);
-            axis().pixelsPerQuarter = juce::jlimit (10.0, TimeAxis::maxPixelsPerQuarter, audioGrid.getWidth() * 0.9 / (len / collab::kPpq));
-            axis().scrollTick = juce::jmax (0.0, start - len * 0.03);
-            ctx.state.pianoRollAutoFitted = true;
+            const auto end = (double) collab::audioClipEndTick (*audio, ctx.document.getTempoMap());
+            const auto& a = axis();
+            const bool visible = a.tickToX (start) >= 0.0 && a.tickToX (end) <= (double) audioLanes->getWidth();
+
+            if (! visible)
+            {
+                const double len = juce::jmax ((double) collab::kPpq, end - start);
+                axis().pixelsPerQuarter = juce::jlimit (10.0, TimeAxis::maxPixelsPerQuarter, audioLanes->getWidth() * 0.9 / (len / collab::kPpq));
+                axis().scrollTick = juce::jmax (0.0, start - len * 0.03);
+                ctx.state.pianoRollAutoFitted = true;
+            }
         }
 
         updateTitle();
-        resized();
         repaint();
         return;
     }
@@ -478,8 +510,8 @@ void PianoRollView::updateTitle()
 
     if (auto* clip = getClip(); t != nullptr && clip != nullptr)
         titleLabel.setText (toJuce (t->name) + "  " + juce::String (map.tickToBar (clip->startTick)) + "小節〜"_ju, juce::dontSendNotification);
-    else if (auto* audio = getAudioClip(); t != nullptr && audio != nullptr)
-        titleLabel.setText (toJuce (t->name) + "  " + juce::String (map.tickToBar (audio->startTick)) + "小節〜（オーディオ）"_ju, juce::dontSendNotification);
+    else if (t != nullptr && isAudioTrackShown())
+        titleLabel.setText (toJuce (t->name) + "（オーディオ）"_ju, juce::dontSendNotification);
 
 }
 
@@ -490,6 +522,11 @@ void PianoRollView::changeListenerCallback (juce::ChangeBroadcaster*)
     const auto id = clip != nullptr ? clip->id : (audio != nullptr ? audio->id : std::string());
 
     if (id != shownClipId)
+    {
+        clipChanged();
+    }
+    else if (isAudioTrackShown() != shownAsAudio || (getTrack() != nullptr ? getTrack()->id : std::string()) != shownTrackId
+             || (shownAsAudio && clipFields->hasClip() != clipFields->isVisible()))
     {
         clipChanged();
     }

@@ -196,6 +196,7 @@ bool EngineBridge::renderTracksToWav (const juce::BigInteger& tracksToDo, const 
 
 juce::Result EngineBridge::renderOneTrack (const std::string& trackId, const juce::File& output, double endSeconds, bool asStem, int bitDepth)
 {
+    preparePitchedAudio();   // ピッチを変えたクリップの音を作り終えてから
     sync();
     stop();
 
@@ -270,6 +271,7 @@ juce::Result EngineBridge::bounceTrack (const std::string& trackId, collab::Rend
 //==============================================================================
 bool EngineBridge::renderToFile (const juce::File& output, collab::Tick endTick, double tailSeconds, int bitDepth, double sampleRate)
 {
+    preparePitchedAudio();   // ピッチを変えたクリップの音を作り終えてから
     sync();
     stop();
 

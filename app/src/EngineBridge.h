@@ -4,6 +4,7 @@
 
 #include <limits>
 #include <map>
+#include <set>
 
 #include "Common.h"
 #include "InstrumentLibrary.h"
@@ -132,6 +133,9 @@ public:
 
     /** トラックのコンプのゲインリダクション（dB、0 以上）。 */
     float getTrackGainReductionDb (const std::string& trackId) const;
+
+    /** ピッチを変えたオーディオクリップの音（高さを変えたファイル）を、まだなければ作る（書き出しの前に。終わるまで待つ）。 */
+    void preparePitchedAudio();
 
     /** 確認用: トラックのインサートと EQ・コンプの並び（例 "eq | fx | comp"）。 */
     juce::String describeChannel (const std::string& trackId) const;
@@ -422,6 +426,11 @@ private:
     double lastSetTick = 0.0, lastSetSeconds = -1.0;   // 最後に置いた再生位置（秒との往復の誤差をなくす）
     std::map<std::string, juce::String> trackMidiInputs;
     std::string spectrumTrackId;
+
+    // ピッチを変えたクリップのファイルを裏で作る
+    juce::ThreadPool pitchPool { 1 };
+    std::set<juce::String> pitchJobs;   // 作っている途中のファイル
+    juce::File pitchedFile (const collab::AudioClip&, bool waitUntilReady);
     std::vector<RecordedMidi> pendingMidi;
     void refreshMidiInputs();
     CountInPlugin* countIn = nullptr;

@@ -6,6 +6,7 @@
 
 #include "SfizzPlugin.h"
 #include "audio/ChannelStripPlugin.h"
+#include "audio/PitchShift.h"
 #include "audio/BuiltinEffectPlugin.h"
 #include "audio/MasterLimiterPlugin.h"
 #include "audio/CountInPlugin.h"
@@ -63,7 +64,7 @@ namespace
 
         for (auto& c : t.audioClips)
             s << "A" << c.id << '@' << c.startTick << ':' << c.audioHash << ':' << c.sourceOffsetSamples << ':' << c.lengthSamples
-              << ':' << c.gainDb << ':' << c.fadeInSamples << ':' << c.fadeOutSamples << ';';
+              << ':' << c.gainDb << ':' << c.fadeInSamples << ':' << c.fadeOutSamples << ':' << c.pitchSemitones << ';';
 
         s << "X";
 
@@ -138,6 +139,8 @@ EngineBridge::EngineBridge (te::Engine& e, ProjectDocument& doc, const Instrumen
 
 EngineBridge::~EngineBridge()
 {
+    aliveFlag.reset();
+    pitchPool.removeAllJobs (true, 60000);
     midiKeyDispatcher->listeners.remove (this);
     finishOwnRecording();
     takeWriterThread.stopThread (2000);
@@ -595,6 +598,11 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
         if (! document.hasLocation() || ! file.existsAsFile())
             continue;
 
+        // ピッチを変えたクリップは、高さを変えたファイルを鳴らす（できるまでは元の音。できたら作り直す）
+        if (c.pitchSemitones != 0.0)
+            if (auto pitched = pitchedFile (c, false); pitched.existsAsFile())
+                file = pitched;
+
         // くっついたクリップのクロスフェードで延ばした分が、元ファイルの終わりを超えるときは切る
         if (const double fileSeconds = te::AudioFile (engine, file).getLength(); fileSeconds > 0.0
              && seg.offsetSeconds + seg.lengthSeconds > fileSeconds)
@@ -612,6 +620,8 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
             clip->setAutoTempo (false);
             clip->setAutoPitch (false);
             clip->setGainDB ((float) c.gainDb);
+
+
             clip->setFadeIn (te::TimeDuration::fromSeconds (seg.fadeInSeconds));
             clip->setFadeOut (te::TimeDuration::fromSeconds (seg.fadeOutSeconds));
 
@@ -1037,6 +1047,70 @@ float EngineBridge::getTrackGainReductionDb (const std::string& trackId) const
 {
     auto it = bindings.find (trackId);
     return it != bindings.end() && it->second.stripWithComp() != nullptr ? it->second.stripWithComp()->getGainReductionDb() : 0.0f;
+}
+
+juce::File EngineBridge::pitchedFile (const collab::AudioClip& c, bool waitUntilReady)
+{
+    const auto projectDir = document.getProjectDir();
+    const auto source = AudioFiles::fileForHash (projectDir, c.audioHash);
+    auto dest = PitchShift::cachedFile (projectDir, c.audioHash, c.pitchSemitones);
+
+    if (dest.existsAsFile() || ! source.existsAsFile())
+        return dest;
+
+    if (waitUntilReady)
+    {
+        // 書き出し: 作り終わるのを待つ（裏で作っている途中なら、それも待つ）
+        while (pitchJobs.count (dest.getFullPathName()) > 0 && ! dest.existsAsFile())
+            juce::Thread::sleep (20);
+
+        if (! dest.existsAsFile())
+            PitchShift::render (source, dest, c.pitchSemitones);
+
+        return dest;
+    }
+
+    if (pitchJobs.insert (dest.getFullPathName()).second)
+    {
+        const double semitones = c.pitchSemitones;
+        pitchPool.addJob ([this, source, dest, semitones, alive = std::weak_ptr<bool> (aliveFlag)]
+        {
+            PitchShift::render (source, dest, semitones);
+
+            juce::MessageManager::callAsync ([this, dest, alive]
+            {
+                if (alive.expired())
+                    return;
+
+                pitchJobs.erase (dest.getFullPathName());
+
+                // 鳴らすファイルが変わったので、オーディオのクリップを作り直す
+                for (auto& [id, b] : bindings)
+                    b.clipsKey.clear();
+
+                sync();
+            });
+        });
+    }
+
+    return dest;
+}
+
+void EngineBridge::preparePitchedAudio()
+{
+    bool made = false;
+
+    for (auto& t : document.getProject().tracks)
+        for (auto& c : t.audioClips)
+            if (c.pitchSemitones != 0.0 && ! PitchShift::cachedFile (document.getProjectDir(), c.audioHash, c.pitchSemitones).existsAsFile())
+            {
+                pitchedFile (c, true);
+                made = true;
+            }
+
+    if (made)
+        for (auto& [id, b] : bindings)
+            b.clipsKey.clear();   // 次の sync() で、できたファイルに差し替える
 }
 
 juce::String EngineBridge::describeChannel (const std::string& trackId) const
