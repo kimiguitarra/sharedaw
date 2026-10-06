@@ -19,6 +19,23 @@ struct DrumNoteAlias
 {
     int note = 0;
     std::string displayName;  // 例: "ハイハット（クローズ・エッジ）"
+    std::string sfzExtra;     // このノートだけの音の違い（開き具合・チップ / シャンクなど。SFZ のオプコード）
+};
+
+/** パーツの音の選び方（スネアの胴の深さ・シェルなど）。params.pieces.<key>.<option key> に選んだ choice の key を持つ。 */
+struct DrumPieceOption
+{
+    struct Choice
+    {
+        std::string key;
+        std::string displayName;
+        std::string sfz;      // この選び方の SFZ のオプコード（空なら元の音のまま）
+    };
+
+    std::string key;          // "depth" など
+    std::string displayName;  // "胴の深さ"
+    std::string defaultChoice;
+    std::vector<Choice> choices;
 };
 
 struct DrumPiece
@@ -28,6 +45,8 @@ struct DrumPiece
     int note = 36;            // 発音する MIDI ノート（GM ドラムマップ）
     std::string sfzExtra;     // チョーク等、SFZ の追加オプコード
     std::vector<DrumNoteAlias> aliases;   // 同じ音で鳴る別のノート
+    std::vector<DrumPieceOption> options; // 音の選び方
+    std::string optionsFrom;              // ほかのパーツの選び方に従う（リムショットはスネアと同じ胴・シェル）
 };
 
 /** 旋律楽器の音色（プリセット）。params.preset で選ぶ。 */
@@ -79,6 +98,7 @@ struct ResolvedInstrumentParams
         double volumeDb = 0.0;
         double pan = 0.0;
         double tuneSemitones = 0.0;
+        std::map<std::string, std::string> options;   // 選び方（option key -> choice key）
     };
 
     std::string kit;

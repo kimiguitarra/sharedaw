@@ -26,7 +26,7 @@ TEST_CASE ("bundled manifests are valid and reference existing files")
     for (auto [id, version] : { std::pair (builtin::drums, "0.1.0"), std::pair (builtin::bass, "0.1.0"), std::pair (builtin::piano, "0.1.0"),
                                 std::pair (builtin::drums, "1.0.0"), std::pair (builtin::bass, "1.0.0"), std::pair (builtin::piano, "1.0.0"),
                                 std::pair (builtin::drums, "1.1.0"), std::pair (builtin::drums, "1.2.0"), std::pair (builtin::drums, "1.3.0"), std::pair (builtin::bass, "3.2.0"), std::pair (builtin::bass, "3.3.0"),
-                                std::pair (builtin::piano, "1.1.0") })
+                                std::pair (builtin::piano, "1.1.0"), std::pair (builtin::drums, "1.4.0") })
     {
         CAPTURE (id);
         CAPTURE (version);
@@ -173,4 +173,37 @@ TEST_CASE ("bass 3.3.0 raises each preset to the level of the other instruments"
 
     // 補正のない版は今までどおり（同じ曲を開いた人どうしで音が変わらない）
     CHECK (generateSfz (loadManifest (builtin::bass, "3.2.0"), {}).find ("volume=") == std::string::npos);
+}
+
+TEST_CASE ("drums 1.4.0 vary hi-hat openness, tip / shank and the snare shell")
+{
+    auto m = loadManifest (builtin::drums, "1.4.0");
+    auto lineFor = [] (const std::string& sfz, int note)
+    {
+        const auto at = sfz.find ("<master> key=" + std::to_string (note) + " ");
+        return at == std::string::npos ? std::string() : sfz.substr (at, sfz.find ('\n', at) - at);
+    };
+
+    const auto sfz = generateSfz (m, {});
+
+    // オープンの段階ごとに減衰が違い、5 は録音のまま。チップは低い所を削る。チョークのグループはそのまま
+    const auto open0 = lineFor (sfz, 12), open3 = lineFor (sfz, 15), open5 = lineFor (sfz, 17);
+    CHECK (open0.find ("ampeg_decay=1.1") != std::string::npos);
+    CHECK (open3.find ("ampeg_decay=5") != std::string::npos);
+    CHECK (open5.find ("ampeg_decay") == std::string::npos);
+    CHECK (open0.find ("cutoff=650") != std::string::npos);
+    CHECK (open0.find ("off_by=2") != std::string::npos);
+    CHECK (lineFor (sfz, 113) != lineFor (sfz, 116));   // ライドのボウ: チップとシャンク
+
+    // スネアの胴・シェルは既定では足さない。選ぶとスネアとリムショットに足す
+    CHECK (lineFor (sfz, 38).find ("eq3_") == std::string::npos);
+    const auto chosen = generateSfz (m, { { "pieces", { { "snare", { { "depth", "deep" }, { "shell", "metal" } } } } } });
+    CHECK (lineFor (chosen, 38).find ("eq3_freq=170") != std::string::npos);
+    CHECK (lineFor (chosen, 38).find ("eq5_freq=950") != std::string::npos);
+    CHECK (lineFor (chosen, 40).find ("eq3_freq=170") != std::string::npos);
+    CHECK (lineFor (chosen, 33).find ("eq3_freq=170") != std::string::npos);   // スネアの別名（エッジ）も
+
+    // 知らない選び方は既定のまま
+    const auto unknown = generateSfz (m, { { "pieces", { { "snare", { { "depth", "huge" } } } } } });
+    CHECK (lineFor (unknown, 38) == lineFor (sfz, 38));
 }

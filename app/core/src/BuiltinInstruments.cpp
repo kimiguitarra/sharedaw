@@ -65,10 +65,25 @@ BuiltinInstrumentManifest BuiltinInstrumentManifest::fromJson (const json& j)
             for (auto& p : j.at ("pieces"))
             {
                 DrumPiece piece { p.at ("key").get<std::string>(), p.value ("name", p.at ("key").get<std::string>()),
-                                  p.at ("note").get<int>(), p.value ("sfzExtra", std::string()), {} };
+                                  p.at ("note").get<int>(), p.value ("sfzExtra", std::string()), {}, {}, p.value ("optionsFrom", std::string()) };
 
                 for (auto& a : p.value ("aliases", json::array()))
-                    piece.aliases.push_back ({ a.at ("note").get<int>(), a.value ("name", piece.displayName) });
+                    piece.aliases.push_back ({ a.at ("note").get<int>(), a.value ("name", piece.displayName), a.value ("sfz", std::string()) });
+
+                for (auto& o : p.value ("options", json::array()))
+                {
+                    DrumPieceOption option { o.at ("key").get<std::string>(), o.value ("name", o.at ("key").get<std::string>()),
+                                             o.value ("default", std::string()), {} };
+
+                    for (auto& c : o.at ("choices"))
+                        option.choices.push_back ({ c.at ("key").get<std::string>(), c.value ("name", c.at ("key").get<std::string>()),
+                                                    c.value ("sfz", std::string()) });
+
+                    if (option.defaultChoice.empty() && ! option.choices.empty())
+                        option.defaultChoice = option.choices.front().key;
+
+                    piece.options.push_back (std::move (option));
+                }
 
                 m.pieces.push_back (std::move (piece));
             }
@@ -192,8 +207,20 @@ ResolvedInstrumentParams resolveInstrumentParams (const BuiltinInstrumentManifes
                 if (auto s = kit->second.find (piece.key); s != kit->second.end())
                     rp.sample = s->second;
 
+            for (auto& option : piece.options)
+                rp.options[option.key] = option.defaultChoice;
+
             if (auto it = pieces.find (piece.key); it != pieces.end() && it->is_object())
             {
+                // 選び方（マニフェストにある choice だけ）
+                for (auto& option : piece.options)
+                {
+                    const auto chosen = str (*it, option.key.c_str(), option.defaultChoice);
+
+                    if (std::any_of (option.choices.begin(), option.choices.end(), [&] (auto& c) { return c.key == chosen; }))
+                        rp.options[option.key] = chosen;
+                }
+
                 const auto sample = str (*it, "sample", rp.sample);
 
                 // マニフェストに無いサンプルは無視して既定のまま（別バージョンの音源で作られた場合など）
@@ -258,13 +285,28 @@ std::string generateSfz (const BuiltinInstrumentManifest& m, const json& params)
             continue;
 
         auto& p = it->second;
-        std::vector<int> notes { piece.note };
+
+        // 音の選び方（スネアの胴の深さ・シェル）。optionsFrom ならそのパーツの選び方
+        std::string optionSfz;
+        {
+            const auto* source = piece.optionsFrom.empty() ? &piece : m.findPiece (piece.optionsFrom);
+            const auto resolved = source != nullptr ? r.pieces.find (source->key) : r.pieces.end();
+
+            if (source != nullptr && resolved != r.pieces.end())
+                for (auto& option : source->options)
+                    if (auto chosen = resolved->second.options.find (option.key); chosen != resolved->second.options.end())
+                        for (auto& c : option.choices)
+                            if (c.key == chosen->second && ! c.sfz.empty())
+                                optionSfz += " " + c.sfz;
+        }
+
+        std::vector<std::pair<int, std::string>> notes { { piece.note, {} } };
 
         for (auto& a : piece.aliases)
-            notes.push_back (a.note);
+            notes.push_back ({ a.note, a.sfzExtra });
 
-        // 別名のノートも同じ設定・同じサンプルで鳴らす（チョークのグループも同じ）
-        for (int note : notes)
+        // 別名のノートも同じ設定・同じサンプルで鳴らす（チョークのグループも同じ）。別名ごとの音の違い（開き具合など）を足す
+        for (auto& [note, aliasSfz] : notes)
         {
             s << "<master> key=" << note
               << " volume=" << fmt (p.volumeDb)
@@ -274,6 +316,11 @@ std::string generateSfz (const BuiltinInstrumentManifest& m, const json& params)
 
             if (! piece.sfzExtra.empty())
                 s << " " << piece.sfzExtra;
+
+            s << optionSfz;
+
+            if (! aliasSfz.empty())
+                s << " " << aliasSfz;
 
             s << "\n#include \"samples/" << p.sample << ".sfz\"\n";
         }

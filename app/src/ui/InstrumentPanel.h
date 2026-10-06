@@ -28,6 +28,17 @@ private:
         std::unique_ptr<juce::Slider> volume, pan, tune;
     };
 
+    /** パーツの音の選び方（スネアの胴の深さ・シェルなど）。 */
+    struct OptionRow
+    {
+        std::string pieceKey, optionKey;
+        std::vector<std::string> choiceKeys;
+        std::unique_ptr<juce::Label> label;
+        std::unique_ptr<juce::ComboBox> box;
+    };
+
+    std::vector<OptionRow> optionRows;
+
     AppContext& ctx;
     std::string trackId;
     const collab::BuiltinInstrumentManifest* manifest = nullptr;

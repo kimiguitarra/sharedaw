@@ -104,6 +104,40 @@ InstrumentPanel::InstrumentPanel (AppContext& c, const std::string& id)
         addAndMakeVisible (kitBox);
         height += rowHeight + 30;
 
+        // パーツの音の選び方（スネアの胴の深さ・シェル）
+        for (auto& piece : manifest->pieces)
+            for (auto& option : piece.options)
+            {
+                OptionRow row;
+                row.pieceKey = piece.key;
+                row.optionKey = option.key;
+                row.label = std::make_unique<juce::Label> ("", toJuce (piece.displayName) + " " + toJuce (option.displayName));
+                row.box = std::make_unique<juce::ComboBox>();
+
+                int id = 1;
+                for (auto& c : option.choices)
+                {
+                    row.box->addItem (toJuce (c.displayName), id++);
+                    row.choiceKeys.push_back (c.key);
+                }
+
+                row.box->onChange = [this, pieceKey = piece.key, optionKey = option.key, keys = row.choiceKeys, box = row.box.get()]
+                {
+                    const int i = box->getSelectedItemIndex();
+
+                    if (i < 0 || i >= (int) keys.size())
+                        return;
+
+                    auto choice = keys[(size_t) i];
+                    setParam ("ドラムの音の選び方"_ju, [pieceKey, optionKey, choice] (nlohmann::json& p) { p["pieces"][pieceKey][optionKey] = choice; });
+                };
+
+                addAndMakeVisible (*row.label);
+                addAndMakeVisible (*row.box);
+                optionRows.push_back (std::move (row));
+                height += rowHeight;
+            }
+
         for (auto& piece : manifest->pieces)
         {
             PieceRow row;
@@ -251,6 +285,13 @@ void InstrumentPanel::refresh()
         if (kitBox.getItemText (i) == toJuce (r.kit))
             kitBox.setSelectedItemIndex (i, juce::dontSendNotification);
 
+    for (auto& row : optionRows)
+        if (auto it = r.pieces.find (row.pieceKey); it != r.pieces.end())
+            if (auto chosen = it->second.options.find (row.optionKey); chosen != it->second.options.end())
+                for (size_t i = 0; i < row.choiceKeys.size(); ++i)
+                    if (row.choiceKeys[i] == chosen->second)
+                        row.box->setSelectedItemIndex ((int) i, juce::dontSendNotification);
+
     for (auto& row : rows)
     {
         auto it = r.pieces.find (row.key);
@@ -315,6 +356,14 @@ void InstrumentPanel::resized()
     {
         area.removeFromTop (6);
         place (kitLabel, kitBox);
+
+        for (auto& row : optionRows)
+        {
+            auto r = area.removeFromTop (rowHeight);
+            row.label->setBounds (r.removeFromLeft (150));
+            row.box->setBounds (r.removeFromLeft (180).reduced (0, 2));
+        }
+
         area.removeFromTop (22);
 
         for (auto& row : rows)
