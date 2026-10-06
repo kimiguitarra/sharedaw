@@ -191,7 +191,7 @@ BuiltinEffectEditor::BuiltinEffectEditor (AppContext& c, std::string track, std:
     bypassButton.onClick = [this] { ctx.toggleEffectBypass (trackId, effectId); };
     addAndMakeVisible (bypassButton);
 
-    const bool meter = type == collab::fx::Type::busComp;
+    const bool meter = type == collab::fx::Type::busComp || type == collab::fx::Type::noiseGate;
     setSize (juce::jmax (360, knobs.size() * knobWidth + 24 + (meter ? meterWidth + 12 : 0)), headerHeight + knobHeight + 24);
 
     ctx.document.addChangeListener (this);
@@ -336,7 +336,7 @@ void BuiltinEffectEditor::resized()
     presetButton.setBounds (header.removeFromRight (110).reduced (0, 2));
     titleArea = header;
 
-    if (type == collab::fx::Type::busComp)
+    if (type == collab::fx::Type::busComp || type == collab::fx::Type::noiseGate)
     {
         meterArea = area.removeFromRight (meterWidth);
         area.removeFromRight (12);

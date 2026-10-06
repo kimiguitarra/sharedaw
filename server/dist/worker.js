@@ -2373,13 +2373,14 @@ var project_schema_default = {
           $ref: "#/definitions/externalPlugin"
         },
         builtin: {
-          description: "Built-in effect: busComp, saturator, roomReverb, hallReverb, plateReverb",
+          description: "Built-in effect: busComp, saturator, roomReverb, hallReverb, plateReverb, noiseGate",
           enum: [
             "busComp",
             "saturator",
             "roomReverb",
             "hallReverb",
-            "plateReverb"
+            "plateReverb",
+            "noiseGate"
           ]
         },
         params: {

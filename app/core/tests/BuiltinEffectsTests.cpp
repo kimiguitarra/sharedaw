@@ -191,3 +191,26 @@ TEST_CASE ("factory presets only use known parameters within range")
 
     CHECK (tailSeconds (Type::hallReverb, { { "decay", 4.0 }, { "predelay", 100.0 } }) == doctest::Approx (6.1));
 }
+
+TEST_CASE ("noise gate passes loud parts untouched and cuts quiet noise by the range")
+{
+    // 0.5 秒の音（-6 dBFS）→ 0.5 秒の小さなノイズ（-60 dBFS、スレッショルド -40 dB より下）
+    const size_t half = (size_t) (sr * 0.5);
+    auto s = sine (220.0, 0.5, 1.0);
+
+    for (size_t i = half; i < s.l.size(); ++i)
+        s.l[i] = s.r[i] = (float) (0.001 * std::sin (2.0 * pi * 3000.0 * (double) i / sr));
+
+    const auto original = s.l;
+    auto gate = make (Type::noiseGate, { { "threshold", -40.0 }, { "range", 30.0 }, { "attack", 1.0 }, { "hold", 20.0 }, { "release", 50.0 } });
+    gate->process (s.channels(), 2, (int) s.l.size());
+
+    // 開いている所は（立ち上がりの後）そのまま、閉じた後は RANGE（30 dB）下がる
+    CHECK (rms (s.l, 4800, half) == doctest::Approx (rms (original, 4800, half)).epsilon (0.01));
+    const double cutDb = 20.0 * std::log10 (rms (s.l, half + 24000 - 4800, s.l.size()) / rms (original, half + 24000 - 4800, s.l.size()));
+    CHECK (cutDb == doctest::Approx (-30.0).epsilon (0.03));
+    CHECK (gate->getGainReductionDb() > 29.0f);
+
+    // 閉じるのは HOLD の後（音が止まってすぐの所は、まだ下げていない）
+    CHECK (std::abs (s.l[half + 200]) == doctest::Approx (std::abs (original[half + 200])).epsilon (0.05));
+}

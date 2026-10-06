@@ -217,7 +217,7 @@
   （クリックで入力、ホイールで増減、Shift で細かく）。
 - **下の画面（オーディオのトラック）**：オーディオのトラックを選ぶと、ピアノロールの代わりにそのトラックだけを大きく出す。
   タイムラインと同じ見た目（半透明・斜線）と操作（選択・移動・トリム・フェード・つなぎ目・クリップの音量・はさみ・右クリックのメニュー）。
-- **内蔵エフェクト**：エフェクトに `builtin`（busComp / saturator / roomReverb / hallReverb / plateReverb）と `params`（数値の辞書）を持つ
+- **内蔵エフェクト**：エフェクトに `builtin`（busComp / saturator / noiseGate / roomReverb / hallReverb / plateReverb）と `params`（数値の辞書）を持つ
   （外部プラグインの `plugin` の代わり）。信号処理は collab_core（JUCE に依存しない）にあり、誰の環境でも同じに鳴るのでバウンスは不要。
 - **キートラック**：プロジェクト JSON の `keyTrack`（`id` はプロジェクト ID から決まる。空なら省略）に、
   小節の頭のキー（`bar`・`tonic` = 主音のピッチクラス 0〜11・`mode` = major / minor）を持つ。差分は独立したスコープ。

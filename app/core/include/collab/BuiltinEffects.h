@@ -6,6 +6,7 @@
 //   roomReverb  ショートルームのリバーブ
 //   hallReverb  ホールのリバーブ
 //   plateReverb プレートのリバーブ
+//   noiseGate   ノイズゲート（スレッショルドより小さい所を下げる。息・アンプのノイズ・かぶりを切る）
 // 値はプロジェクト JSON の effect.params（キーは ParamSpec::key）に持つ。
 
 #include <atomic>
@@ -19,7 +20,7 @@
 namespace collab::fx
 {
 
-enum class Type { busComp, saturator, roomReverb, hallReverb, plateReverb };
+enum class Type { busComp, saturator, roomReverb, hallReverb, plateReverb, noiseGate };
 
 /** JSON の builtin の値（"busComp" など）。 */
 std::string idOf (Type);

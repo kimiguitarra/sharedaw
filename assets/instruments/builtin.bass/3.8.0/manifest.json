@@ -1,0 +1,36 @@
+{
+  "id": "builtin.bass",
+  "version": "3.8.0",
+  "displayName": "ベース",
+  "type": "melodic",
+  "credits": [
+    "ジャズベース: Growlybass by Karoryfer Samples (CC0 1.0) — Squier Jazz Bass",
+    "ウッドベース: Meatbass by Karoryfer Samples (CC0 1.0) — 1958 Otto Rubner double bass, finger-plucked (pizzicato)。打ち込み向けに指の雑音・ボワつきを少し減らし、弾いた後は少しだけ小さくなり、音価いっぱい同じ大きさで伸びるようにループ"
+  ],
+  "presets": [
+    {
+      "key": "jazz-finger",
+      "name": "ジャズベース（指弾き）",
+      "sfz": "jazz-finger.sfz",
+      "volumeDb": 18.0
+    },
+    {
+      "key": "jazz-pick",
+      "name": "ジャズベース（明るめ・ピック風）",
+      "sfz": "jazz-pick.sfz",
+      "volumeDb": 18.0
+    },
+    {
+      "key": "upright",
+      "name": "ウッドベース（指弾き・よく伸びる）",
+      "sfz": "upright.sfz",
+      "volumeDb": 14.5
+    }
+  ],
+  "defaultParams": {
+    "preset": "jazz-finger",
+    "volumeDb": 0.0,
+    "pan": 0.0,
+    "tone": 0.0
+  }
+}

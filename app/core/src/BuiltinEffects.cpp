@@ -87,6 +87,7 @@ std::string idOf (Type t)
         case Type::roomReverb:  return "roomReverb";
         case Type::hallReverb:  return "hallReverb";
         case Type::plateReverb: return "plateReverb";
+        case Type::noiseGate:   return "noiseGate";
     }
 
     return {};
@@ -103,7 +104,7 @@ std::optional<Type> typeFromId (const std::string& id)
 
 const std::vector<Type>& allTypes()
 {
-    static const std::vector<Type> types { Type::busComp, Type::saturator, Type::roomReverb, Type::hallReverb, Type::plateReverb };
+    static const std::vector<Type> types { Type::busComp, Type::saturator, Type::noiseGate, Type::roomReverb, Type::hallReverb, Type::plateReverb };
     return types;
 }
 
@@ -116,6 +117,7 @@ std::string displayName (Type t)
         case Type::roomReverb:  return "Room Reverb";
         case Type::hallReverb:  return "Hall Reverb";
         case Type::plateReverb: return "Plate Reverb";
+        case Type::noiseGate:   return "Noise Gate";
     }
 
     return {};
@@ -141,6 +143,15 @@ const std::vector<ParamSpec>& paramSpecs (Type t)
         { "mix", "MIX", 0.0, 100.0, 100.0, "%", {}, 0 },
     };
 
+    // ゲート: スレッショルドを超えたら開き、下回ってホールドの後に閉じる。閉じたときは RANGE だけ下げる
+    static const std::vector<ParamSpec> gate {
+        { "threshold", "THRESHOLD", -80.0, 0.0, -50.0, "dB", {}, 0 },
+        { "range", "RANGE", 0.0, 80.0, 80.0, "dB", {}, 0 },
+        { "attack", "ATTACK", 0.1, 50.0, 1.0, "ms", {}, 5.0 },
+        { "hold", "HOLD", 0.0, 500.0, 50.0, "ms", {}, 80.0 },
+        { "release", "RELEASE", 5.0, 2000.0, 150.0, "ms", {}, 200.0 },
+    };
+
     auto reverb = [] (double decay, double predelay, double damping, double lowCut)
     {
         return std::vector<ParamSpec> {
@@ -163,6 +174,7 @@ const std::vector<ParamSpec>& paramSpecs (Type t)
         case Type::roomReverb:  return room;
         case Type::hallReverb:  return hall;
         case Type::plateReverb: return plate;
+        case Type::noiseGate:   return gate;
     }
 
     return busComp;
@@ -226,6 +238,12 @@ const std::vector<Preset>& factoryPresets (Type t)
         { "明るく長い", j { { "decay", 3.0 }, { "predelay", 20.0 }, { "damping", 15000.0 }, { "lowCut", 150.0 } } },
     };
 
+    static const std::vector<Preset> gate {
+        { "ボーカル（息・部屋の音を下げる）", j { { "threshold", -45.0 }, { "range", 12.0 }, { "attack", 2.0 }, { "hold", 80.0 }, { "release", 250.0 } } },
+        { "ギター（アンプのノイズを切る）", j { { "threshold", -55.0 }, { "range", 80.0 }, { "attack", 1.0 }, { "hold", 50.0 }, { "release", 150.0 } } },
+        { "ドラム（タムのかぶりを切る）", j { { "threshold", -30.0 }, { "range", 30.0 }, { "attack", 0.1 }, { "hold", 30.0 }, { "release", 80.0 } } },
+    };
+
     switch (t)
     {
         case Type::busComp:     return busComp;
@@ -233,6 +251,7 @@ const std::vector<Preset>& factoryPresets (Type t)
         case Type::roomReverb:  return room;
         case Type::hallReverb:  return hall;
         case Type::plateReverb: return plate;
+        case Type::noiseGate:   return gate;
     }
 
     return busComp;
@@ -251,6 +270,9 @@ double tailSeconds (Type t, const nlohmann::json& params)
 
     if (t == Type::busComp)
         return 1.5;   // リリースの戻り
+
+    if (t == Type::noiseGate)
+        return (paramValue (t, params, "hold") + paramValue (t, params, "release") * 3.0) / 1000.0;
 
     return 0.0;
 }
@@ -694,10 +716,103 @@ namespace
     };
 }
 
+namespace
+{
+    /**
+        ノイズゲート: 左右連動のピーク検出。スレッショルドを超えたら開き（ATTACK で上げる）、
+        スレッショルドより 4 dB 下（ヒステリシス）を下回ってから HOLD だけ待って閉じる（RELEASE で RANGE まで下げる）。
+        ゲインは dB で動かす（閉じるときの消え方が自然になる）。
+    */
+    class NoiseGate  : public Processor
+    {
+    public:
+        void prepare (double sr) override       { sampleRate = sr; update(); reset(); }
+
+        void reset() override
+        {
+            gainDb = -range;
+            open = false;
+            holdLeft = 0;
+            peak = 0.0;
+            gainReductionDb = 0.0f;
+        }
+
+        void setParams (const nlohmann::json& p) override
+        {
+            threshold = paramValue (Type::noiseGate, p, "threshold");
+            range = paramValue (Type::noiseGate, p, "range");
+            attackMs = paramValue (Type::noiseGate, p, "attack");
+            holdMs = paramValue (Type::noiseGate, p, "hold");
+            releaseMs = paramValue (Type::noiseGate, p, "release");
+            update();
+        }
+
+        void process (float* const* ch, int numChannels, int n) override
+        {
+            const double openLevel = std::pow (10.0, threshold / 20.0);
+            const double closeLevel = std::pow (10.0, (threshold - 4.0) / 20.0);
+            double maxReduction = 0.0;
+
+            for (int i = 0; i < n; ++i)
+            {
+                double level = 0.0;
+
+                for (int c = 0; c < numChannels; ++c)
+                    level = std::max (level, (double) std::abs (ch[c][i]));
+
+                // ピーク: すぐ上がり、10 ms ほどで下がる（1 周期の中で開け閉めしない）
+                peak = std::max (level, peak * peakDecay);
+
+                if (peak >= openLevel)
+                {
+                    open = true;
+                    holdLeft = holdSamples;
+                }
+                else if (open && peak < closeLevel)
+                {
+                    if (holdLeft > 0)
+                        --holdLeft;
+                    else
+                        open = false;
+                }
+
+                const double target = open ? 0.0 : -range;
+                gainDb += (target - gainDb) * (target > gainDb ? attackCoef : releaseCoef);
+                const auto g = (float) std::pow (10.0, gainDb / 20.0);
+
+                for (int c = 0; c < numChannels; ++c)
+                    ch[c][i] *= g;
+
+                maxReduction = std::max (maxReduction, -gainDb);
+            }
+
+            gainReductionDb.store ((float) maxReduction, std::memory_order_relaxed);
+        }
+
+    private:
+        double sampleRate = 48000.0;
+        double threshold = -50.0, range = 80.0, attackMs = 1.0, holdMs = 50.0, releaseMs = 150.0;
+        double attackCoef = 1.0, releaseCoef = 1.0, peakDecay = 0.99, peak = 0.0, gainDb = -80.0;
+        int holdSamples = 0, holdLeft = 0;
+        bool open = false;
+
+        void update()
+        {
+            // 時定数の約 5 倍で目標に届く（ATTACK・RELEASE はほぼ開き切る・閉じ切るまでの時間）
+            auto coef = [this] (double ms) { return 1.0 - std::exp (-5.0 / (std::max (0.05, ms) * 0.001 * sampleRate)); };
+            attackCoef = coef (attackMs);
+            releaseCoef = coef (releaseMs);
+            holdSamples = (int) (holdMs * 0.001 * sampleRate);
+            peakDecay = std::exp (-1.0 / (0.010 * sampleRate));
+        }
+    };
+}
+
 std::unique_ptr<Processor> createProcessor (Type t)
 {
     switch (t)
     {
+        case Type::noiseGate:   return std::make_unique<NoiseGate>();
         case Type::busComp:     return std::make_unique<BusComp>();
         case Type::saturator:   return std::make_unique<Saturator>();
         case Type::roomReverb:
