@@ -1110,7 +1110,7 @@ private:
         if (kind == "stems")
         {
             files.clear();
-            r = Export::stems (*bridge, *document, output, files);
+            r = Export::stems (*bridge, *document, output, files, nullptr, Export::todayStamp());
         }
 
         if (r.failed())

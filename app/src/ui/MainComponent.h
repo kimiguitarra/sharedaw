@@ -139,11 +139,16 @@ private:
 
     /** そのトラックを最後にアップした人・日時（サーバーの履歴をたどる）。 */
     void showLastUpload (const std::string& scopeId, const juce::String& name);
-    void runExport (bool wav, bool mp3, bool stems, bool midi, const juce::File& folder, const juce::String& name,
-                    std::optional<Export::Range> range);
+    /** 書き出すもの: ミックスダウン・パラデータ（どちらも WAV か MP3）・MIDI。 */
+    enum class ExportKind { mixdown, stems, midi };
 
-    /** 書き出しの本体。書いたもの（done）と失敗（failed）を返す。 */
-    void exportFiles (bool wav, bool mp3, bool stems, bool midi, const juce::File& folder, const juce::String& name,
+    void runExport (ExportKind, bool asMp3, const juce::File& folder, const juce::String& name, std::optional<Export::Range> range);
+
+    /**
+        書き出しの本体。書いたもの（done）と失敗（failed）を返す。
+        name: ミックスダウン・MIDI はファイル名（拡張子なし）、パラデータはファイルを入れるフォルダの名前（ファイルは「YYYYMMDD_トラック名」）。
+    */
+    void exportFiles (ExportKind, bool asMp3, const juce::File& folder, const juce::String& name,
                       juce::StringArray& done, juce::StringArray& failed, const Export::Range* range = nullptr);
     std::unique_ptr<juce::DocumentWindow> masterWindow;
 

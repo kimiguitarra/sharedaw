@@ -75,8 +75,13 @@ juce::Result mixdownMp3 (EngineBridge& bridge, const ProjectDocument& doc, const
     return runEncode ? runEncode (encode) : encode();
 }
 
+juce::String todayStamp()
+{
+    return juce::Time::getCurrentTime().formatted ("%Y%m%d");
+}
+
 juce::Result stems (EngineBridge& bridge, const ProjectDocument& doc, const juce::File& folder, juce::Array<juce::File>& written,
-                    const Range* range)
+                    const Range* range, const juce::String& prefix, bool asMp3)
 {
     const ScopedStart start (bridge, doc, range);
 
@@ -86,12 +91,34 @@ juce::Result stems (EngineBridge& bridge, const ProjectDocument& doc, const juce
     const auto& project = doc.getProject();
     const auto [endTick, tail] = endOf (bridge, doc, range);
     const double end = doc.getTempoMap().tickToSeconds ((double) endTick) + tail;
-    int number = 1;
+    juce::StringArray used;
 
+    // 「YYYYMMDD_トラック名」（同じ名前のトラックには (2) などを付ける）
     auto fileFor = [&] (const juce::String& name)
     {
         auto safe = juce::File::createLegalFileName (name.trim());
-        return folder.getChildFile (juce::String (number++).paddedLeft ('0', 2) + "_" + (safe.isEmpty() ? juce::String ("Track") : safe) + ".wav");
+        auto base = (prefix.isNotEmpty() ? prefix + "_" : juce::String()) + (safe.isEmpty() ? juce::String ("Track") : safe);
+        auto unique = base;
+
+        for (int n = 2; used.contains (unique, true); ++n)
+            unique = base + " (" + juce::String (n) + ")";
+
+        used.add (unique);
+        return folder.getChildFile (unique + (asMp3 ? ".mp3" : ".wav"));
+    };
+
+    // MP3: いったん WAV に書いてから変える
+    auto render = [&] (const std::string& trackId, const juce::File& file) -> juce::Result
+    {
+        if (! asMp3)
+            return bridge.renderStem (trackId, file, end);
+
+        juce::TemporaryFile temp (file.withFileExtension ("wav"));
+
+        if (auto r = bridge.renderStem (trackId, temp.getFile(), end, 32); r.failed())
+            return r;
+
+        return Mp3Export::encode (temp.getFile(), file, 320, file.getFileNameWithoutExtension());
     };
 
     for (auto& t : project.tracks)
@@ -101,7 +128,7 @@ juce::Result stems (EngineBridge& bridge, const ProjectDocument& doc, const juce
 
         auto file = fileFor (toJuce (t.name));
 
-        if (auto r = bridge.renderStem (t.id, file, end); r.failed())
+        if (auto r = render (t.id, file); r.failed())
             return juce::Result::fail (toJuce (t.name) + ": "_ju + r.getErrorMessage());
 
         written.add (file);
@@ -111,7 +138,7 @@ juce::Result stems (EngineBridge& bridge, const ProjectDocument& doc, const juce
     {
         auto file = fileFor ("コード"_ju);
 
-        if (auto r = bridge.renderStem ({}, file, end); r.failed())
+        if (auto r = render ({}, file); r.failed())
             return juce::Result::fail ("コード: "_ju + r.getErrorMessage());
 
         written.add (file);

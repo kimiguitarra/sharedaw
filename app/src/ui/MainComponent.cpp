@@ -630,14 +630,20 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
         const auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("sharedaw-smoke-export");
         dir.deleteRecursively();
         juce::StringArray done, failed;
-        m.exportFiles (true, true, false, true, dir, "smoke", done, failed);
+        m.exportFiles (ExportKind::mixdown, false, dir, "smoke", done, failed);
+        m.exportFiles (ExportKind::mixdown, true, dir, "smoke", done, failed);
+        m.exportFiles (ExportKind::midi, false, dir, "smoke", done, failed);
+        m.exportFiles (ExportKind::stems, true, dir, "stems", done, failed);
+        const auto stemFiles = dir.getChildFile ("stems").findChildFiles (juce::File::findFiles, false, Export::todayStamp() + "_*.mp3");
         bool ok = failed.isEmpty() && dir.getChildFile ("smoke.wav").getSize() > 1000
-                         && dir.getChildFile ("smoke.mp3").getSize() > 1000 && dir.getChildFile ("smoke.mid").existsAsFile();
+                         && dir.getChildFile ("smoke.mp3").getSize() > 1000 && dir.getChildFile ("smoke.mid").existsAsFile()
+                         && ! stemFiles.isEmpty();
+        std::cout << "export stems: " << stemFiles.size() << " mp3" << std::endl;
         // 範囲（2 小節目の頭から 3 小節目の頭まで）: ちょうど 1 小節の長さ（余韻を足さない）
         const auto& map = m.document.getTempoMap();
         const Export::Range range { map.barToTick (2), map.barToTick (3) };
         juce::StringArray rangeDone, rangeFailed;
-        m.exportFiles (true, false, false, false, dir, "range", rangeDone, rangeFailed, &range);
+        m.exportFiles (ExportKind::mixdown, false, dir, "range", rangeDone, rangeFailed, &range);
         double rangeSeconds = 0.0;
 
         if (auto reader = std::unique_ptr<juce::AudioFormatReader> (juce::WavAudioFormat().createReaderFor (dir.getChildFile ("range.wav").createInputStream().release(), true)))

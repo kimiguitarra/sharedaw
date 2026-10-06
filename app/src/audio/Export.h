@@ -27,12 +27,16 @@ namespace Export
                              std::function<juce::Result (std::function<juce::Result()>)> runEncode = {}, const Range* range = nullptr);
 
     /**
-        パラデータ: トラックごとの WAV（48 kHz / 24 bit）を folder に書く。ミックスで聞こえるとおり（インサート・EQ・Comp・音量・パン）で、
+        パラデータ: トラックごとの WAV（48 kHz / 24 bit）か MP3（320 kbps）を folder に書く。ミックスで聞こえるとおり（インサート・EQ・Comp・音量・パン）で、
         センド・バス・マスターは通さない。ミュート中のトラックとバスは書かない。コードを鳴らしていれば「コード」も書く。
         全部のファイルは同じ長さ（頭をそろえて DAW に並べればそのまま合う）。written に書いたファイルを入れる。
+        ファイル名は「prefix_トラック名」（prefix が空ならトラック名だけ。同じ名前のトラックには (2) などを付ける）。
     */
     juce::Result stems (EngineBridge&, const ProjectDocument&, const juce::File& folder, juce::Array<juce::File>& written,
-                        const Range* range = nullptr);
+                        const Range* range = nullptr, const juce::String& prefix = {}, bool asMp3 = false);
+
+    /** 今日の日付（YYYYMMDD）。書き出しの名前の頭に付ける。 */
+    juce::String todayStamp();
 
     /** MIDI ファイル（SMF タイプ 1。MIDI トラックとコードトラック、テンポ・拍子・キー・マーカー）。 */
     juce::Result midi (const ProjectDocument&, const juce::File& mid);

@@ -293,45 +293,56 @@ std::unique_ptr<juce::Component> MainComponent::makeExportPanel()
     {
         Panel (MainComponent& o) : owner (o)
         {
-            title.setText ("形式"_ju, juce::dontSendNotification);
-            title.setFont (juce::FontOptions (15.0f, juce::Font::bold));
-            addAndMakeVisible (title);
+            auto& settings = owner.settings;
+            const auto& project = owner.document.getProject();
+            projectKey = toJuce (project.projectId);
 
-            const std::pair<juce::ToggleButton*, juce::String> items[] = {
-                { &wav, "WAV（48 kHz / 24 bit）"_ju },
-                { &mp3, "MP3（320 kbps）"_ju },
-                { &stems, "パラデータ（トラックごとの WAV）"_ju },
-                { &midi, "MIDI"_ju },
+            auto heading = [this] (juce::Label& l, const juce::String& text)
+            {
+                l.setText (text, juce::dontSendNotification);
+                l.setFont (juce::FontOptions (15.0f, juce::Font::bold));
+                addAndMakeVisible (l);
             };
 
-            auto& settings = owner.settings;
-            const auto format = settings.getValue ("exportFormat", "wav");
-            const juce::String keys[] = { "wav", "mp3", "stems", "midi" };
+            heading (kindTitle, "書き出すもの"_ju);
+            heading (formatTitle, "形式"_ju);
+            heading (rangeTitle, "範囲"_ju);
+            heading (nameTitle, "名前"_ju);
+            heading (folderTitle, "保存先"_ju);
 
-            for (size_t i = 0; i < std::size (items); ++i)
+            // 何を: ミックスダウン・パラデータ・MIDI（1 つ）。ミックスダウン・パラデータは WAV か MP3
+            const std::pair<juce::ToggleButton*, juce::String> kinds[] = {
+                { &mixdown, "ミックスダウン"_ju }, { &stems, "パラデータ"_ju }, { &midi, "MIDI"_ju } };
+            const std::pair<juce::ToggleButton*, juce::String> formats[] = {
+                { &wav, "WAV（48 kHz / 24 bit）"_ju }, { &mp3, "MP3（320 kbps）"_ju } };
+
+            for (auto& [b, text] : kinds)
             {
-                items[i].first->setButtonText (items[i].second);
-                items[i].first->setRadioGroupId (2);
-                items[i].first->setToggleState (format == keys[i], juce::dontSendNotification);
-                items[i].first->onClick = [this] { updateButton(); };
-                addAndMakeVisible (items[i].first);
+                b->setButtonText (text);
+                b->setRadioGroupId (1);
+                b->onClick = [this] { kindChanged(); };
+                addAndMakeVisible (b);
             }
 
-            if (! (wav.getToggleState() || mp3.getToggleState() || stems.getToggleState() || midi.getToggleState()))
-                wav.setToggleState (true, juce::dontSendNotification);
+            for (auto& [b, text] : formats)
+            {
+                b->setButtonText (text);
+                b->setRadioGroupId (2);
+                addAndMakeVisible (b);
+            }
 
-            // 範囲: 左右のロケーター（既定）か、曲全体（最後の音の余韻まで自動）
-            rangeTitle.setText ("範囲"_ju, juce::dontSendNotification);
-            rangeTitle.setFont (juce::FontOptions (15.0f, juce::Font::bold));
-            addAndMakeVisible (rangeTitle);
+            const auto kind = settings.getValue ("exportKind", "mixdown");
+            (kind == "stems" ? stems : kind == "midi" ? midi : mixdown).setToggleState (true, juce::dontSendNotification);
+            (settings.getValue ("exportAudioFormat", "wav") == "mp3" ? mp3 : wav).setToggleState (true, juce::dontSendNotification);
 
+            // 範囲: 左右のロケーター（既定）か、曲全体（最後の音の余韻まで）
             useRange.setButtonText ("範囲を指定"_ju);
             fullSong.setButtonText ("曲全体"_ju);
 
             for (auto* b : { &useRange, &fullSong })
             {
-                b->setRadioGroupId (1);
-                b->onClick = [this] { updateButton(); };
+                b->setRadioGroupId (3);
+                b->onClick = [this] { updateEnabled(); };
                 addAndMakeVisible (b);
             }
 
@@ -341,28 +352,32 @@ std::unique_ptr<juce::Component> MainComponent::makeExportPanel()
             rangeEnd.setText (formatPosition (owner.state.loopEnd));
             rangeTo.setText ("〜"_ju, juce::dontSendNotification);
             rangeTo.setJustificationType (juce::Justification::centred);
+
             for (auto* c : std::initializer_list<juce::Component*> { &rangeStart, &rangeEnd, &rangeTo })
                 addAndMakeVisible (c);
 
-            nameTitle.setText ("名前"_ju, juce::dontSendNotification);
-            folderTitle.setText ("保存先"_ju, juce::dontSendNotification);
+            // 名前: 書き出すものごとに、この曲で前回書き出した名前（はじめは「YYYYMMDD_曲名_V1-1」など）
+            const auto stamp = Export::todayStamp();
+            auto songName = juce::File::createLegalFileName (toJuce (project.name).trim());
 
-            for (auto* l : { &nameTitle, &folderTitle })
+            if (songName.isEmpty())
+                songName = "song";
+
+            auto remembered = [&] (const juce::String& key, const juce::String& fallback)
             {
-                l->setFont (juce::FontOptions (15.0f, juce::Font::bold));
-                addAndMakeVisible (l);
-            }
+                const auto v = projectKey.isEmpty() ? juce::String() : settings.getValue (key + projectKey);
+                return v.isNotEmpty() ? v : fallback;
+            };
 
-            // 名前と保存先は曲ごとに、この PC で前回のものを使う（はじめは曲名と、曲のフォルダ）
-            const auto& project = owner.document.getProject();
-            projectKey = toJuce (project.projectId);
-            const auto songName = toJuce (project.name).trim();
-            const auto lastName = settings.getValue ("exportName_" + projectKey);
-            name.setText (lastName.isNotEmpty() ? lastName
-                                                : juce::File::createLegalFileName (songName.isEmpty() ? juce::String ("mixdown") : songName));
+            names[0] = remembered ("exportName_", stamp + "_" + songName + "_V1-1");
+            names[1] = remembered ("exportStemsName_", stamp + "_" + songName + "_stems");
+            names[2] = remembered ("exportMidiName_", stamp + "_" + songName);
+            shownKind = kindIndex();
+            name.setText (names[(size_t) shownKind]);
             addAndMakeVisible (name);
 
-            folder = juce::File (settings.getValue ("exportFolder_" + projectKey));
+            // 保存先: この曲で前回のフォルダ（はじめは曲のフォルダ）
+            folder = juce::File (projectKey.isEmpty() ? juce::String() : settings.getValue ("exportFolder_" + projectKey));
 
             if (! folder.isDirectory())
                 folder = owner.document.hasLocation() ? owner.document.getProjectDir()
@@ -390,48 +405,7 @@ std::unique_ptr<juce::Component> MainComponent::makeExportPanel()
             addAndMakeVisible (chooseFolder);
 
             exportButton.setButtonText ("書き出す"_ju);
-            exportButton.onClick = [this]
-            {
-                auto& st = owner.settings;
-                st.setValue ("exportFormat", wav.getToggleState() ? "wav" : mp3.getToggleState() ? "mp3" : stems.getToggleState() ? "stems" : "midi");
-                st.setValue ("exportFullSong", fullSong.getToggleState());
-
-                if (projectKey.isNotEmpty())
-                {
-                    st.setValue ("exportName_" + projectKey, name.getText().trim());
-                    st.setValue ("exportFolder_" + projectKey, folder.getFullPathName());
-                }
-
-                // 範囲（指定するとき）
-                std::optional<Export::Range> range;
-
-                if (useRange.getToggleState() && ! midi.getToggleState())
-                {
-                    const auto from = parsePosition (rangeStart.getText()), to = parsePosition (rangeEnd.getText());
-
-                    if (! from || ! to || *to <= *from)
-                    {
-                        Dialogs::showError ("書き出し"_ju, "範囲の終わりは始まりより後にしてください。"_ju);
-                        return;
-                    }
-
-                    range = Export::Range { *from, *to };
-                }
-
-                auto* main = &owner;
-                const bool w = wav.getToggleState(), m = mp3.getToggleState(), s = stems.getToggleState(), mi = midi.getToggleState();
-                const auto dir = folder;
-                const auto base = juce::File::createLegalFileName (name.getText().trim());
-
-                if (auto* dw = findParentComponentOfClass<juce::DialogWindow>())
-                    dw->exitModalState (0);
-
-                // パネルを閉じてから書き出す（書き出し中は進み具合のバーを出す）
-                juce::MessageManager::callAsync ([main, w, m, s, mi, dir, base, range]
-                {
-                    main->runExport (w, m, s, mi, dir, base.isEmpty() ? juce::String ("mixdown") : base, range);
-                });
-            };
+            exportButton.onClick = [this] { startExport(); };
             addAndMakeVisible (exportButton);
 
             cancelButton.setButtonText ("キャンセル"_ju);
@@ -442,8 +416,80 @@ std::unique_ptr<juce::Component> MainComponent::makeExportPanel()
             };
             addAndMakeVisible (cancelButton);
 
-            updateButton();
+            updateEnabled();
             setSize (460, 400);
+        }
+
+        int kindIndex() const       { return stems.getToggleState() ? 1 : midi.getToggleState() ? 2 : 0; }
+
+        void kindChanged()
+        {
+            // 書き出すものを変えたら、名前もそのものの名前に
+            names[(size_t) shownKind] = name.getText();
+            shownKind = kindIndex();
+            name.setText (names[(size_t) shownKind]);
+            updateEnabled();
+        }
+
+        void updateEnabled()
+        {
+            // MIDI は形式を選ばず、いつも曲全体
+            const bool audio = ! midi.getToggleState();
+
+            for (auto* c : std::initializer_list<juce::Component*> { &wav, &mp3, &useRange, &fullSong, &rangeTo })
+                c->setEnabled (audio);
+
+            rangeStart.setEnabled (audio && useRange.getToggleState());
+            rangeEnd.setEnabled (audio && useRange.getToggleState());
+        }
+
+        void startExport()
+        {
+            const auto base = juce::File::createLegalFileName (name.getText().trim());
+
+            if (base.isEmpty())
+                return Dialogs::showError ("書き出し"_ju, "名前を入れてください。"_ju);
+
+            const int kind = kindIndex();
+            const bool audio = kind != 2;
+            std::optional<Export::Range> range;
+
+            if (audio && useRange.getToggleState())
+            {
+                const auto from = parsePosition (rangeStart.getText()), to = parsePosition (rangeEnd.getText());
+
+                if (! from || ! to || *to <= *from)
+                    return Dialogs::showError ("書き出し"_ju, "範囲の終わりは始まりより後にしてください。"_ju);
+
+                range = Export::Range { *from, *to };
+            }
+
+            // 選んだものと名前・保存先は、次に開いたときの初期値にする（名前・保存先は曲ごと）
+            auto& st = owner.settings;
+            st.setValue ("exportKind", kind == 1 ? "stems" : kind == 2 ? "midi" : "mixdown");
+            st.setValue ("exportAudioFormat", mp3.getToggleState() ? "mp3" : "wav");
+            st.setValue ("exportFullSong", fullSong.getToggleState());
+
+            if (projectKey.isNotEmpty())
+            {
+                const char* keys[] = { "exportName_", "exportStemsName_", "exportMidiName_" };
+                st.setValue (keys[kind] + projectKey, base);
+                st.setValue ("exportFolder_" + projectKey, folder.getFullPathName());
+            }
+
+            auto* main = &owner;
+            const auto exportKind = kind == 1 ? ExportKind::stems : kind == 2 ? ExportKind::midi : ExportKind::mixdown;
+            const bool asMp3 = audio && mp3.getToggleState();
+            const auto dir = folder;
+
+            if (auto* dw = findParentComponentOfClass<juce::DialogWindow>())
+                dw->exitModalState (0);
+
+            // パネルを閉じてから書き出す（書き出し中は進み具合のバーを出す）
+            juce::MessageManager::callAsync ([main, exportKind, asMp3, dir, base, range]
+            {
+                main->runExport (exportKind, asMp3, dir, base, range);
+            });
         }
 
         juce::String formatPosition (collab::Tick t) const
@@ -473,37 +519,32 @@ std::unique_ptr<juce::Component> MainComponent::makeExportPanel()
             return map.barToTick (bar) + (collab::Tick) (beat - 1) * sig.ticksPerBeat() + tick;
         }
 
-        void updateButton()
-        {
-            // MIDI はいつも曲全体なので、範囲は選べない
-            const bool rangeApplies = ! midi.getToggleState();
-
-            for (auto* c : std::initializer_list<juce::Component*> { &useRange, &fullSong, &rangeTo })
-                c->setEnabled (rangeApplies);
-
-            rangeStart.setEnabled (rangeApplies && useRange.getToggleState());
-            rangeEnd.setEnabled (rangeApplies && useRange.getToggleState());
-        }
-
         void resized() override
         {
             auto area = getLocalBounds().reduced (16, 12);
-            title.setBounds (area.removeFromTop (24));
 
-            for (auto* b : { &wav, &mp3, &stems, &midi })
-                b->setBounds (area.removeFromTop (28).withTrimmedLeft (6));
+            auto radioRow = [&] (std::initializer_list<std::pair<juce::ToggleButton*, int>> buttons)
+            {
+                auto row = area.removeFromTop (28).withTrimmedLeft (6);
 
-            area.removeFromTop (10);
+                for (auto [b, w] : buttons)
+                    b->setBounds (row.removeFromLeft (w));
+            };
+
+            kindTitle.setBounds (area.removeFromTop (24));
+            radioRow ({ { &mixdown, 150 }, { &stems, 130 }, { &midi, 100 } });
+            area.removeFromTop (8);
+            formatTitle.setBounds (area.removeFromTop (24));
+            radioRow ({ { &wav, 200 }, { &mp3, 170 } });
+            area.removeFromTop (8);
             rangeTitle.setBounds (area.removeFromTop (24));
-            auto choice = area.removeFromTop (28).withTrimmedLeft (6);
-            useRange.setBounds (choice.removeFromLeft (130));
-            fullSong.setBounds (choice.removeFromLeft (160));
+            radioRow ({ { &useRange, 130 }, { &fullSong, 160 } });
             auto fields = area.removeFromTop (28).withTrimmedLeft (30);
             rangeStart.setBounds (fields.removeFromLeft (110).reduced (0, 2));
             rangeTo.setBounds (fields.removeFromLeft (30));
             rangeEnd.setBounds (fields.removeFromLeft (110).reduced (0, 2));
 
-            area.removeFromTop (10);
+            area.removeFromTop (12);
             auto row = area.removeFromTop (28);
             nameTitle.setBounds (row.removeFromLeft (70));
             name.setBounds (row.reduced (0, 2));
@@ -520,14 +561,14 @@ std::unique_ptr<juce::Component> MainComponent::makeExportPanel()
         }
 
         MainComponent& owner;
-        juce::Label title, nameTitle, folderTitle, folderLabel, rangeTitle, rangeTo;
-        juce::String projectKey;
-        juce::ToggleButton useRange, fullSong;
-        juce::TextEditor rangeStart, rangeEnd;
-        juce::ToggleButton wav, mp3, stems, midi;
-        juce::TextEditor name;
+        juce::Label kindTitle, formatTitle, rangeTitle, nameTitle, folderTitle, folderLabel, rangeTo;
+        juce::ToggleButton mixdown, stems, midi, wav, mp3, useRange, fullSong;
+        juce::TextEditor rangeStart, rangeEnd, name;
         juce::TextButton chooseFolder, exportButton, cancelButton;
         juce::File folder;
+        juce::String projectKey;
+        std::array<juce::String, 3> names;   // ミックスダウン・パラデータ・MIDI の名前
+        int shownKind = 0;
     };
 
     return std::make_unique<Panel> (*this);
@@ -544,11 +585,11 @@ void MainComponent::showExportPanel()
     o.launchAsync();
 }
 
-void MainComponent::runExport (bool wav, bool mp3, bool stems, bool midi, const juce::File& folder, const juce::String& name,
+void MainComponent::runExport (ExportKind kind, bool asMp3, const juce::File& folder, const juce::String& name,
                                std::optional<Export::Range> range)
 {
     juce::StringArray done, failed;
-    exportFiles (wav, mp3, stems, midi, folder, name, done, failed, range ? &*range : nullptr);
+    exportFiles (kind, asMp3, folder, name, done, failed, range ? &*range : nullptr);
 
     if (! failed.isEmpty())
         return Dialogs::showError ("書き出し"_ju, failed.joinIntoString ("\n"));
@@ -556,7 +597,7 @@ void MainComponent::runExport (bool wav, bool mp3, bool stems, bool midi, const 
     Dialogs::showInfo ("書き出し"_ju, folder.getFullPathName() + "\nに書き出しました。\n\n"_ju + done.joinIntoString ("\n\n").trimEnd());
 }
 
-void MainComponent::exportFiles (bool wav, bool mp3, bool stems, bool midi, const juce::File& folder, const juce::String& name,
+void MainComponent::exportFiles (ExportKind kind, bool asMp3, const juce::File& folder, const juce::String& name,
                                  juce::StringArray& done, juce::StringArray& failed, const Export::Range* range)
 {
     if (! folder.isDirectory() && ! folder.createDirectory())
@@ -565,8 +606,8 @@ void MainComponent::exportFiles (bool wav, bool mp3, bool stems, bool midi, cons
         return;
     }
 
-    // 同じ名前のファイルがあれば上書きする（パラデータのフォルダは番号を付けて新しく作る）
-    if (wav)
+    // 同じ名前のファイルがあれば上書きする
+    if (kind == ExportKind::mixdown && ! asMp3)
     {
         const auto file = folder.getChildFile (name + ".wav");
 
@@ -576,7 +617,7 @@ void MainComponent::exportFiles (bool wav, bool mp3, bool stems, bool midi, cons
             done.add (file.getFileName() + "\n" + Export::loudnessSummary (file));
     }
 
-    if (mp3)
+    if (kind == ExportKind::mixdown && asMp3)
     {
         const auto file = folder.getChildFile (name + ".mp3");
         auto r = Export::mixdownMp3 (bridge, document, file, [] (std::function<juce::Result()> encode)
@@ -590,18 +631,19 @@ void MainComponent::exportFiles (bool wav, bool mp3, bool stems, bool midi, cons
             done.add (file.getFileName() + "\n" + Export::loudnessSummary (file));
     }
 
-    if (stems)
+    if (kind == ExportKind::stems)
     {
-        auto dir = folder.getNonexistentChildFile (name + "_stems", {}, false);
+        // トラックごとのファイルは、名前のフォルダの中に「YYYYMMDD_トラック名」で
+        const auto dir = folder.getChildFile (name);
         juce::Array<juce::File> written;
 
-        if (auto r = Export::stems (bridge, document, dir, written, range); r.failed())
+        if (auto r = Export::stems (bridge, document, dir, written, range, Export::todayStamp(), asMp3); r.failed())
             failed.add ("パラデータ: "_ju + r.getErrorMessage());
         else
             done.add (dir.getFileName() + "/（"_ju + juce::String (written.size()) + " トラック）"_ju);
     }
 
-    if (midi)
+    if (kind == ExportKind::midi)
     {
         const auto file = folder.getChildFile (name + ".mid");
 
