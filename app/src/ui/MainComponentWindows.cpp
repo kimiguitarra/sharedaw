@@ -94,51 +94,49 @@ void MainComponent::togglePianoFullScreen()
 
 void MainComponent::toggleMixer()
 {
-    if (mixerWindow == nullptr)
+    if (mixerWindow != nullptr)
     {
-        struct Window  : public juce::DocumentWindow
+        // 閉じる（全画面のまま隠すと、macOS では空の画面が残るので、窓ごと消す。次に開くときに作り直す）
+        juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<MainComponent> (this)]
         {
-            Window (MainComponent& o)
-                : DocumentWindow ("ミキサー"_ju, Theme::panel, DocumentWindow::closeButton), owner (o) {}
-
-            void closeButtonPressed() override
+            if (safe != nullptr)
             {
-                setVisible (false);
-                owner.commandManager.commandStatusChanged();
+                safe->mixerWindow = nullptr;
+                safe->commandManager.commandStatusChanged();
             }
-
-            MainComponent& owner;
-        };
-
-        auto window = std::make_unique<Window> (*this);
-        window->setUsingNativeTitleBar (true);
-        window->setContentOwned (new MixerView (ctx), true);
-        window->setResizable (true, false);
-        window->setResizeLimits (300, 280, 4000, 2000);
-        window->addKeyListener (&numpadKeys);   // ミキサーの上でも F3 などが効くように
-
-        // 最初は画面いっぱい（メイン画面のあるディスプレイの作業領域）
-        if (auto* top = getTopLevelComponent())
-            if (auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect (top->getScreenBounds()))
-                window->setBounds (display->userArea);
-
-        mixerWindow = std::move (window);
-        mixerWindow->setVisible (true);
-
-        // OS のタイトルバーの分を引いて、下が画面からはみ出さないようにする（はみ出すとトラック名が見えなかった）
-        if (auto* peer = mixerWindow->getPeer())
-            if (auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect (mixerWindow->getScreenBounds()))
-                mixerWindow->setBounds (peer->getFrameSize().subtractedFrom (display->userArea));
-
-        mixerWindow->toFront (true);
+        });
         return;
     }
 
-    mixerWindow->setVisible (! mixerWindow->isVisible());
+    struct Window  : public juce::DocumentWindow
+    {
+        Window (MainComponent& o)
+            : DocumentWindow ("ミキサー"_ju, Theme::panel, DocumentWindow::closeButton | DocumentWindow::maximiseButton), owner (o) {}
 
-    if (mixerWindow->isVisible())
-        mixerWindow->toFront (true);
+        void closeButtonPressed() override
+        {
+            owner.toggleMixer();
+        }
 
+        MainComponent& owner;
+    };
+
+    auto window = std::make_unique<Window> (*this);
+    window->setUsingNativeTitleBar (true);
+    window->setContentOwned (new MixerView (ctx), true);
+    window->setResizable (true, false);
+    window->setResizeLimits (300, 280, 10000, 10000);
+    window->addKeyListener (&numpadKeys);   // ミキサーの上でも F3 などが効くように
+
+    // 画面いっぱい（メイン画面のあるディスプレイ）。Windows・Linux は最大化、macOS は全画面表示
+    if (auto* top = getTopLevelComponent())
+        if (auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect (top->getScreenBounds()))
+            window->setBounds (display->userArea);
+
+    mixerWindow = std::move (window);
+    mixerWindow->setVisible (true);
+    mixerWindow->setFullScreen (true);
+    mixerWindow->toFront (true);
     commandManager.commandStatusChanged();
 }
 
@@ -186,7 +184,9 @@ bool MainComponent::openBuiltinEffect (const std::string& trackId, const std::st
 
 void MainComponent::openChannelStrip (const std::string& trackId, bool compressor)
 {
-    if (document.getProject().findTrack (trackId) == nullptr)
+    const bool master = ! trackId.empty() && trackId == document.getProject().master.id;   // マスターは EQ だけ
+
+    if (document.getProject().findTrack (trackId) == nullptr && ! (master && ! compressor))
         return;
 
     // EQ と Compressor で 1 つずつウィンドウを使い回し、開くトラックを切り替える

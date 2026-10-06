@@ -17,6 +17,9 @@ void BuiltinEffectPlugin::initialise (const te::PluginInitialisationInfo& info)
     const juce::SpinLock::ScopedLockType sl (lock);
     sampleRate = info.sampleRate;
 
+    for (auto& v : waveInput)
+        v.assign ((size_t) juce::jmax (8192, info.blockSizeSamples * 2), 0.0f);
+
     // まだ渡していない処理（初めて挿したとき）もこのレートで用意し直す（作ったときは 48 kHz を仮に使っている）
     for (auto* p : { processor.get(), pendingProcessor.get() })
     {
@@ -40,6 +43,7 @@ void BuiltinEffectPlugin::setEffect (collab::fx::Type t, const nlohmann::json& p
 
     const bool newType = type != t;
     type = t;
+    isGate = t == collab::fx::Type::noiseGate;
     current = params;
 
     // 作り直すときはメッセージスレッドで用意してから渡す（音の処理のスレッドで確保しない）
@@ -134,11 +138,59 @@ void BuiltinEffectPlugin::applyToBuffer (const te::PluginRenderContext& fc)
     };
 
     keepMax (inputPeak, peakOf());
+
+    // ノイズゲートは、処理する前の音を取っておいて、波形（入力・出力）を表示できるようにする
+    const bool wave = isGate.load (std::memory_order_relaxed) && fc.bufferNumSamples <= (int) waveInput[0].size();
+
+    if (wave)
+        for (int ch = 0; ch < numChannels; ++ch)
+            std::copy (channels[ch], channels[ch] + fc.bufferNumSamples, waveInput[(size_t) ch].begin());
+
     processor->process (channels, numChannels, fc.bufferNumSamples);
     const float gr = processor->getGainReductionDb();
     gainReductionDb.store (gr, std::memory_order_relaxed);
     keepMax (outputPeak, peakOf());
     keepMax (gainReductionHold, gr);
+
+    if (wave)
+        captureWave (channels, numChannels, fc.bufferNumSamples, gr);
+}
+
+void BuiltinEffectPlugin::captureWave (float* const* channels, int numChannels, int numSamples, float gr)
+{
+    for (int i = 0; i < numSamples; ++i)
+    {
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            const float in = waveInput[(size_t) ch][(size_t) i], out = channels[ch][i];
+            waveAcc.inMin = juce::jmin (waveAcc.inMin, in);
+            waveAcc.inMax = juce::jmax (waveAcc.inMax, in);
+            waveAcc.outMin = juce::jmin (waveAcc.outMin, out);
+            waveAcc.outMax = juce::jmax (waveAcc.outMax, out);
+        }
+
+        if (++waveCount >= waveColumnSamples)
+        {
+            waveAcc.gainReductionDb = gr;
+            const auto n = waveWritten.load (std::memory_order_relaxed);
+            waveRing[(size_t) (n % waveRingSize)] = waveAcc;
+            waveWritten.store (n + 1, std::memory_order_release);
+            waveAcc = {};
+            waveCount = 0;
+        }
+    }
+}
+
+void BuiltinEffectPlugin::readWave (juce::uint64& cursor, std::vector<WaveColumn>& out) const
+{
+    const auto written = waveWritten.load (std::memory_order_acquire);
+
+    // 遅れすぎたら（画面を閉じていた間など）、残っている分の新しい方から
+    if (written > cursor + (juce::uint64) (waveRingSize - 64))
+        cursor = written - (juce::uint64) (waveRingSize - 64);
+
+    for (; cursor < written; ++cursor)
+        out.push_back (waveRing[(size_t) (cursor % waveRingSize)]);
 }
 
 BuiltinEffectPlugin::Meter BuiltinEffectPlugin::takeMeter() noexcept

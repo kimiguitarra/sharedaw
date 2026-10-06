@@ -112,6 +112,7 @@ target_sources(ShareDAW PRIVATE
     src/ui/MarkerLane.cpp
     src/ui/MidiInputPanel.cpp
     src/ui/MasterPanel.cpp
+    src/ui/MasterImager.cpp
     src/ui/MixerView.cpp
     src/ui/Inspector.cpp
     src/ui/BuiltinEffectEditor.cpp

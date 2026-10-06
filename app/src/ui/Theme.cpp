@@ -627,30 +627,6 @@ juce::Path iconPath (const juce::String& name, juce::Rectangle<float> area)
         for (float x : { 7.5f, 13.5f, 17.0f })
             p.addRectangle (x - 1.2f, 5.0f, 2.8f, 7.5f);
     }
-    else if (name == "audiofiles")
-    {
-        // オーディオファイル: フォルダの中に波形
-        juce::Path folder;
-        folder.startNewSubPath (3.0f, 7.0f);
-        folder.lineTo (3.0f, 19.5f);
-        folder.lineTo (21.0f, 19.5f);
-        folder.lineTo (21.0f, 8.5f);
-        folder.lineTo (11.5f, 8.5f);
-        folder.lineTo (9.5f, 5.5f);
-        folder.lineTo (3.0f, 5.5f);
-        folder.closeSubPath();
-        stroke (folder, 1.6f);
-
-        juce::Path wave;
-        wave.startNewSubPath (6.0f, 14.0f);
-        const float xs[] = { 8.0f, 9.5f, 11.0f, 12.5f, 14.0f, 15.5f, 17.0f, 18.0f };
-        const float ys[] = { 11.5f, 17.0f, 10.5f, 16.5f, 12.0f, 15.5f, 13.0f, 14.0f };
-
-        for (size_t i = 0; i < std::size (xs); ++i)
-            wave.lineTo (xs[i], ys[i]);
-
-        stroke (wave, 1.5f);
-    }
     else if (name == "mixer")
     {
         // ミキサー: フェーダー 3 本とつまみ

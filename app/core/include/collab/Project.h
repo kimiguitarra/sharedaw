@@ -219,16 +219,6 @@ struct Effect
     bool operator== (const Effect&) const = default;
 };
 
-struct MasterBus
-{
-    std::string id;
-    std::vector<Effect> effects;   // マスターに挿すエフェクト（リミッターの前。トラックのエフェクトと同じ形）
-    MasterLimiter limiter;
-
-    bool isDefault() const noexcept     { return effects.empty() && limiter == MasterLimiter(); }
-    bool operator== (const MasterBus&) const = default;
-};
-
 /**
     各トラックに標準で付いている EQ とコンプ（チャンネルストリップ）。
     挿す位置は音源・エフェクトの後、音量・パンの前。バウンスには含めない（受け取った側でも同じ設定がかかるため）。
@@ -288,6 +278,17 @@ struct ChannelStrip
 
     bool isDefault() const          { return *this == ChannelStrip {}; }
     bool operator== (const ChannelStrip&) const = default;
+};
+
+struct MasterBus
+{
+    std::string id;
+    std::vector<Effect> effects;   // マスターに挿すエフェクト（EQ の前。トラックのエフェクトと同じ形）
+    ChannelEq eq;                  // マスターの EQ（エフェクトの後・リミッターの前。スペクトラムを見る用にも）
+    MasterLimiter limiter;
+
+    bool isDefault() const noexcept     { return effects.empty() && eq == ChannelEq() && limiter == MasterLimiter(); }
+    bool operator== (const MasterBus&) const = default;
 };
 
 std::string compTypeName (CompType);

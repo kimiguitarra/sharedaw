@@ -2,61 +2,19 @@
 
 #include "Theme.h"
 
-namespace
-{
-    juce::String orderText (const std::array<collab::StripBlock, 3>& o)
-    {
-        juce::String text;
-
-        for (auto b : o)
-            text << (text.isEmpty() ? juce::String() : juce::String::fromUTF8 (" \xE2\x86\x92 "))
-                 << (b == collab::StripBlock::inserts ? "Inserts" : b == collab::StripBlock::eq ? "EQ" : "Comp");
-
-        return text;
-    }
-}
-
 //==============================================================================
 ChannelStripEditor::ChannelStripEditor (AppContext& c, std::string id, Section s)
     : ctx (c), trackId (std::move (id)), section (s)
 {
     const bool isEq = section == Section::eq;
 
-    enabled.setButtonText (isEq ? "EQ" : "Compressor");
-    enabled.setColour (juce::ToggleButton::tickColourId, Theme::accent);
-    enabled.setTooltip (isEq ? "EQ のオン・オフ"_ju : "Compressor のオン・オフ"_ju);
-    enabled.onClick = [this, isEq]
+    bypass.onClick = [this, isEq]
     {
-        const bool on = enabled.getToggleState();
+        const bool on = bypass.getToggleState();   // 押す前に点いていた（バイパス中）ならオンに戻す
         edit (isEq ? (on ? "EQ をオン"_ju : "EQ をオフ"_ju) : (on ? "Compressor をオン"_ju : "Compressor をオフ"_ju),
               [on, isEq] (collab::ChannelStrip& st) { (isEq ? st.eq.enabled : st.comp.enabled) = on; }, false);
     };
-    addAndMakeVisible (enabled);
-
-    orderButton.setTooltip ("順番"_ju);
-    orderButton.onClick = [this]
-    {
-        // インサート・EQ・Compressor の並べ方（ミキサーでは見出しのドラッグでも変えられる）
-        using B = collab::StripBlock;
-        const std::array<std::array<B, 3>, 6> orders { {
-            { B::inserts, B::eq, B::comp }, { B::inserts, B::comp, B::eq }, { B::eq, B::inserts, B::comp },
-            { B::comp, B::inserts, B::eq }, { B::eq, B::comp, B::inserts }, { B::comp, B::eq, B::inserts } } };
-        auto* t = ctx.document.getProject().findTrack (trackId);
-
-        if (t == nullptr)
-            return;
-
-        juce::PopupMenu m;
-
-        for (auto& o : orders)
-            m.addItem (orderText (o), true, t->strip.order() == o, [this, o]
-            {
-                edit ("チャンネルの順番"_ju, [o] (collab::ChannelStrip& st) { st.setOrder (o); }, false);
-            });
-
-        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&orderButton));
-    };
-    addAndMakeVisible (orderButton);
+    addAndMakeVisible (bypass);
 
     resetButton.setButtonText ("リセット"_ju);
     resetButton.onClick = [this, isEq]
@@ -158,7 +116,8 @@ void ChannelStripEditor::setTrack (std::string id)
 juce::String ChannelStripEditor::getTitle() const
 {
     auto* t = getTrack();
-    return (t != nullptr ? toJuce (t->name) : juce::String()) + (section == Section::eq ? " - EQ" : " - Compressor");
+    const auto name = isMaster() ? "マスター"_ju : t != nullptr ? toJuce (t->name) : juce::String();
+    return name + (section == Section::eq ? " - EQ" : " - Compressor");
 }
 
 const collab::Track* ChannelStripEditor::getTrack() const
@@ -166,31 +125,63 @@ const collab::Track* ChannelStripEditor::getTrack() const
     return ctx.document.getProject().findTrack (trackId);
 }
 
+bool ChannelStripEditor::isMaster() const
+{
+    return ! trackId.empty() && trackId == ctx.document.getProject().master.id;
+}
+
+std::optional<collab::ChannelStrip> ChannelStripEditor::currentStrip() const
+{
+    if (isMaster())
+    {
+        collab::ChannelStrip strip;
+        strip.eq = ctx.document.getProject().master.eq;
+        return strip;
+    }
+
+    if (auto* t = getTrack())
+        return t->strip;
+
+    return std::nullopt;
+}
+
 void ChannelStripEditor::edit (const juce::String& description, std::function<void (collab::ChannelStrip&)> fn, bool merge)
 {
+    if (isMaster())
+    {
+        // マスターは EQ だけ（エフェクトの後・リミッターの前）
+        ctx.document.perform ("マスターの"_ju + description, [fn] (collab::Project& p)
+        {
+            collab::ChannelStrip strip;
+            strip.eq = p.master.eq;
+            fn (strip);
+            p.master.eq = strip.eq;
+        }, merge ? mergeId : juce::String());
+        return;
+    }
+
     ctx.editTrack (trackId, description, [fn] (collab::Track& t) { fn (t.strip); }, merge ? mergeId : juce::String());
 }
 
 void ChannelStripEditor::update()
 {
-    auto* t = getTrack();
-    setEnabled (t != nullptr);
+    const auto strip = currentStrip();
+    setEnabled (strip.has_value());
 
-    if (t == nullptr)
+    if (! strip)
         return;
 
-    const auto& s = t->strip;
-    orderButton.setButtonText (orderText (s.order()));
+    const auto& s = *strip;
 
     if (eqGraph != nullptr)
     {
-        enabled.setToggleState (s.eq.enabled, juce::dontSendNotification);
+        bypass.setToggleState (! s.eq.enabled, juce::dontSendNotification);
         eqGraph->setEq (s.eq);
     }
 
     if (compressor != nullptr)
     {
-        enabled.setToggleState (s.comp.enabled, juce::dontSendNotification);
+        bypass.setToggleState (! s.comp.enabled, juce::dontSendNotification);
         compType.setSelectedId (s.comp.type == collab::CompType::opto ? 2 : 1, juce::dontSendNotification);
         compressor->setComp (s.comp);
     }
@@ -218,15 +209,11 @@ void ChannelStripEditor::resized()
 {
     auto r = getLocalBounds().reduced (18, 16);
     auto header = r.removeFromTop (30);
-    enabled.setBounds (header.removeFromLeft (section == Section::eq ? 80 : 140));
-
     if (section == Section::comp)
-    {
         compType.setBounds (header.removeFromLeft (130).reduced (0, 1));
-        header.removeFromLeft (12);
-    }
 
-    orderButton.setBounds (header.removeFromLeft (220).reduced (0, 1));
+    bypass.setBounds (header.removeFromRight (90).reduced (0, 1));
+    header.removeFromRight (8);
     resetButton.setBounds (header.removeFromRight (100).reduced (0, 1));
     r.removeFromTop (8);
 

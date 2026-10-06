@@ -109,6 +109,13 @@ EngineBridge::EngineBridge (te::Engine& e, ProjectDocument& doc, const Instrumen
             mixTrack->pluginList.insertPlugin (plugin, 0, nullptr);
             masterLimiter = dynamic_cast<MasterLimiterPlugin*> (plugin.get());
         }
+
+        // マスターの EQ（リミッターの前）
+        if (auto plugin = edit->getPluginCache().createNewPlugin (ChannelStripPlugin::xmlTypeName, {}))
+        {
+            mixTrack->pluginList.insertPlugin (plugin, 0, nullptr);
+            masterEq = dynamic_cast<ChannelStripPlugin*> (plugin.get());
+        }
     }
 
     // カウントインのクリック（マスターの最後）
@@ -390,11 +397,22 @@ void EngineBridge::sync()
     if (masterLimiter != nullptr)
         masterLimiter->setLimiter (project.master.limiter);
 
-    // マスターのエフェクト（リミッターの前）。この PC にない外部プラグインは飛ばす
+    masterId = project.master.id;
+
+    if (masterEq != nullptr)
+    {
+        collab::ChannelStrip strip;
+        strip.eq = project.master.eq;
+
+        if (! (masterEq->getStrip() == strip))
+            masterEq->setStrip (strip);
+    }
+
+    // マスターのエフェクト（EQ・リミッターの前）。この PC にない外部プラグインは飛ばす
     if (mixTrack != nullptr)
     {
         masterEffects.track = mixTrack;
-        syncEffects (project.master.effects, masterEffects, masterLimiter);
+        syncEffects (project.master.effects, masterEffects, masterEq != nullptr ? static_cast<te::Plugin*> (masterEq) : masterLimiter);
     }
     syncChordTrack (tempoChanged);
     syncMetronome (tempoChanged);
@@ -988,11 +1006,20 @@ void EngineBridge::setSpectrumTrack (const std::string& trackId)
             if (p != nullptr)
                 p->setSpectrumEnabled (id == trackId && p == b.stripWithEq());
 
+    if (masterEq != nullptr)
+        masterEq->setSpectrumEnabled (! trackId.empty() && trackId == masterId);
+
     spectrumTrackId = trackId;
 }
 
 bool EngineBridge::getSpectrumSamples (float* dest, int numSamples, double& sampleRate) const
 {
+    if (masterEq != nullptr && ! spectrumTrackId.empty() && spectrumTrackId == masterId)
+    {
+        sampleRate = masterEq->getSampleRate();
+        return masterEq->getLatestSamples (dest, numSamples);
+    }
+
     auto it = bindings.find (spectrumTrackId);
 
     if (it == bindings.end() || it->second.stripWithEq() == nullptr)
@@ -1000,6 +1027,11 @@ bool EngineBridge::getSpectrumSamples (float* dest, int numSamples, double& samp
 
     sampleRate = it->second.stripWithEq()->getSampleRate();
     return it->second.stripWithEq()->getLatestSamples (dest, numSamples);
+}
+
+bool EngineBridge::getMasterStereo (float* left, float* right, int numSamples) const
+{
+    return masterLimiter != nullptr && masterLimiter->getLatestStereo (left, right, numSamples);
 }
 
 EngineBridge::MasterStatus EngineBridge::pollMaster()
@@ -1331,6 +1363,19 @@ EngineBridge::EffectMeter EngineBridge::takeEffectMeter (const std::string& trac
     }
 
     return {};
+}
+
+void EngineBridge::readEffectWave (const std::string& trackId, const std::string& effectId, juce::uint64& cursor,
+                                   std::vector<WaveColumn>& out) const
+{
+    if (auto* fx = dynamic_cast<BuiltinEffectPlugin*> (getExternalPlugin (trackId, effectId)))
+    {
+        std::vector<BuiltinEffectPlugin::WaveColumn> columns;
+        fx->readWave (cursor, columns);
+
+        for (auto& c : columns)
+            out.push_back ({ c.inMin, c.inMax, c.outMin, c.outMax, c.gainReductionDb });
+    }
 }
 
 bool EngineBridge::isPlayingRender (const std::string& trackId) const

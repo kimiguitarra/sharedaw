@@ -72,14 +72,12 @@ public:
 //==============================================================================
 MasterPanel::MasterPanel (AppContext& c) : look (std::make_unique<Look>()), ctx (c)
 {
-    enabled.setColour (juce::ToggleButton::tickColourId, amber);
-    enabled.setColour (juce::ToggleButton::textColourId, cream);
-    enabled.onClick = [this]
+    bypass.onClick = [this]
     {
-        const bool on = enabled.getToggleState();
+        const bool on = bypass.getToggleState();   // 押す前に点いていた（バイパス中）ならオンに戻す
         edit (on ? "マスターのリミッターをオン"_ju : "マスターのリミッターをオフ"_ju, [on] (auto& l) { l.enabled = on; }, false);
     };
-    addAndMakeVisible (enabled);
+    addAndMakeVisible (bypass);
 
     resetLimiter.onClick = [this]
     {
@@ -151,8 +149,9 @@ MasterPanel::MasterPanel (AppContext& c) : look (std::make_unique<Look>()), ctx 
 
     ctx.document.addChangeListener (this);
     update();
+    addAndMakeVisible (imager);
     startTimerHz (60);
-    setSize (1000, 540);
+    setSize (1360, 540);
 }
 
 MasterPanel::~MasterPanel()
@@ -177,7 +176,7 @@ void MasterPanel::edit (const juce::String& description, std::function<void (col
 void MasterPanel::update()
 {
     const auto& l = ctx.document.getProject().master.limiter;
-    enabled.setToggleState (l.enabled, juce::dontSendNotification);
+    bypass.setToggleState (! l.enabled, juce::dontSendNotification);
     threshold.setValue (l.thresholdDb, juce::dontSendNotification);
     ceiling.setValue (l.ceilingDb, juce::dontSendNotification);
     character.setValue (l.character, juce::dontSendNotification);
@@ -217,6 +216,7 @@ void MasterPanel::matchTarget()
 void MasterPanel::timerCallback()
 {
     status = ctx.engine.pollMaster();
+    imager.update();
 
     // メーターは速く上がり、ゆっくり下がる
     auto fall = [] (float& shown, float v) { shown = v > shown ? v : juce::jmax (v, shown - 1.2f); };
@@ -555,13 +555,16 @@ void MasterPanel::resized()
     auto area = getLocalBounds().reduced (10);
     limiterArea = area.removeFromLeft (560);
     area.removeFromLeft (10);
+    imager.setBounds (area.removeFromRight (350));
+    area.removeFromRight (10);
     loudnessArea = area;
 
     // リミッター: 上に波形の表示、下に IN（THRESHOLD）・モードと CHARACTER・OUT（CEILING）
     {
         auto r = limiterArea.reduced (14, 10);
         auto header = r.removeFromTop (24);
-        enabled.setBounds (header.removeFromLeft (100));
+        bypass.setBounds (header.removeFromRight (90));
+        header.removeFromRight (8);
         resetLimiter.setBounds (header.removeFromRight (80));
         r.removeFromTop (8);
         waveGraph = r.removeFromTop (190);

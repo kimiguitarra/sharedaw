@@ -43,6 +43,10 @@ public:
     /** 100 ms ごとのラウドネスのパワーを受け取る（メッセージスレッドから）。 */
     void takeLoudnessBlocks (std::vector<double>& out);
 
+    /** イメージャーの表示用に、リミッターの後の直近 numSamples サンプル（左・右）をコピーする（メッセージスレッドから）。 */
+    bool getLatestStereo (float* left, float* right, int numSamples) const;
+    static constexpr int scopeSize = 8192;
+
 private:
     collab::VintageLimiterDsp dsp;
     collab::LoudnessBlocks loudness;
@@ -53,6 +57,10 @@ private:
 
     std::atomic<float> inputPeak { 0.0f }, outputPeak { 0.0f };
     std::vector<double> blockScratch;
+
+    // イメージャー用の左右の音（表示だけなので、読む途中で書き換わっても構わない）
+    std::array<float, scopeSize> scopeLeft {}, scopeRight {};
+    std::atomic<int> scopeWrite { 0 };
 
     // ラウドネスのブロック（1 時間分まで貯められる）
     static constexpr int fifoSize = 36000;

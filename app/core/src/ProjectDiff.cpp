@@ -623,6 +623,12 @@ ProjectDiff diffProjects (const Project& beforeIn, const Project& afterIn)
         if (before.master.effects != after.master.effects)
             diff.changes.push_back ({ after.master.id, ScopeKind::master, "マスター", Change::Category::master,
                                       "マスターのエフェクトを変更", -1, -1, "masterEffects", {} });
+
+        if (! (before.master.eq == after.master.eq))
+            diff.changes.push_back ({ after.master.id, ScopeKind::master, "マスター", Change::Category::master,
+                                      before.master.eq.enabled != after.master.eq.enabled
+                                          ? (after.master.eq.enabled ? "マスターの EQ をオン" : "マスターの EQ をオフ")
+                                          : "マスターの EQ を変更", -1, -1, "masterEq", {} });
     }
 
     // トラック（ヘッドの並び順、削除されたものは最後）
@@ -887,6 +893,7 @@ Project applyChangeFrom (const Project& targetIn, const Project& source, const C
     if (part == "chordPlayback"){ target.chordTrack.playback = source.chordTrack.playback;                       return target; }
     if (part == "master")       { target.master.limiter = source.master.limiter;                                 return target; }
     if (part == "masterEffects"){ target.master.effects = source.master.effects;                                 return target; }
+    if (part == "masterEq")     { target.master.eq = source.master.eq;                                           return target; }
 
     if (change.scopeKind != ScopeKind::track)
         return replaceScopes (target, source, { change.scopeId });

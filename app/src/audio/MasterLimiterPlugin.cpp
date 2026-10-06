@@ -101,6 +101,20 @@ void MasterLimiterPlugin::applyToBuffer (const te::PluginRenderContext& fc)
 
     raise (outputPeak, peakOf());
 
+    // イメージャー用（リミッターの後）
+    {
+        int w = scopeWrite.load (std::memory_order_relaxed);
+
+        for (int i = 0; i < n; ++i)
+        {
+            scopeLeft[(size_t) w] = channels[0][i];
+            scopeRight[(size_t) w] = channels[numChannels > 1 ? 1 : 0][i];
+            w = (w + 1) % scopeSize;
+        }
+
+        scopeWrite.store (w, std::memory_order_release);
+    }
+
     // ラウドネス（リミッターの後）
     blockScratch.clear();
     loudness.process (channels, numChannels, n, blockScratch);
@@ -112,6 +126,23 @@ void MasterLimiterPlugin::applyToBuffer (const te::PluginRenderContext& fc)
         if (scope.blockSize1 > 0)
             fifoData[(size_t) scope.startIndex1] = b;
     }
+}
+
+bool MasterLimiterPlugin::getLatestStereo (float* left, float* right, int numSamples) const
+{
+    if (numSamples > scopeSize)
+        return false;
+
+    const int w = scopeWrite.load (std::memory_order_acquire);
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        const auto k = (size_t) ((w - numSamples + i + scopeSize) % scopeSize);
+        left[i] = scopeLeft[k];
+        right[i] = scopeRight[k];
+    }
+
+    return true;
 }
 
 void MasterLimiterPlugin::takeLoudnessBlocks (std::vector<double>& out)

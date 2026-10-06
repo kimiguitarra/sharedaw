@@ -88,6 +88,10 @@ public:
     struct EffectMeter { float input = 0.0f, output = 0.0f, gainReductionDb = 0.0f; };
     EffectMeter takeEffectMeter (const std::string& trackId, const std::string& effectId) const;
 
+    /** ノイズゲートの波形（入力・出力の最小・最大とゲインリダクション）の、cursor より後の列。 */
+    struct WaveColumn { float inMin = 0.0f, inMax = 0.0f, outMin = 0.0f, outMax = 0.0f, gainReductionDb = 0.0f; };
+    void readEffectWave (const std::string& trackId, const std::string& effectId, juce::uint64& cursor, std::vector<WaveColumn>& out) const;
+
     /**
         書き出しの後ろに足す余韻（秒）。trackId が空なら全トラック（とその送り先のバス）の最大。
         内蔵リバーブは DECAY から、外部プラグインは報告する長さから。最低 minimum 秒。
@@ -133,6 +137,9 @@ public:
 
     /** 定期的に呼ぶ（ラウドネスの集計を進める）。再生を始めたときにインテグレーテッドをリセットする。 */
     MasterStatus pollMaster();
+
+    /** マスター（リミッターの後）の直近の左右の音。イメージャーの表示用。 */
+    bool getMasterStereo (float* left, float* right, int numSamples) const;
     void resetLoudness()                                    { loudnessStats.reset(); }
 
     /** トラックのコンプのゲインリダクション（dB、0 以上）。 */
@@ -343,6 +350,8 @@ private:
     // 曲の音がまとまるミックスバス（マスターのリミッターとラウドネス計測。メトロノームは通さない）
     te::AudioTrack::Ptr mixTrack;
     class MasterLimiterPlugin* masterLimiter = nullptr;
+    ChannelStripPlugin* masterEq = nullptr;   // マスターの EQ（エフェクトの後・リミッターの前）
+    std::string masterId;
     Binding masterEffects;   // マスターのエフェクト（ミックスバスのリミッターの前。track はミックスバス）
     collab::LoudnessStats loudnessStats;
     std::vector<double> loudnessScratch;

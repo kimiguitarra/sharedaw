@@ -117,6 +117,19 @@ namespace Theme
     /** アイコンの形（塗りつぶし用）。name: snap / flagL / flagR / follow / loop / metronome / stop / play / pause / record */
     juce::Path iconPath (const juce::String& name, juce::Rectangle<float> area);
 
+    /** エフェクトの BYPASS スイッチ（押すと点いてバイパス）。内蔵エフェクト・EQ・Compressor・Limiter で同じ見た目にする。 */
+    class BypassButton  : public juce::TextButton
+    {
+    public:
+        BypassButton() : juce::TextButton ("BYPASS")
+        {
+            setClickingTogglesState (false);
+            setWantsKeyboardFocus (false);
+            setTooltip ("バイパス"_ju);
+            setColour (buttonOnColourId, warning.darker (0.3f));
+        }
+    };
+
     /** アイコンだけのボタン（TextButton と同じように使える。文字は描かず、ツールチップで説明する）。 */
     class IconButton  : public juce::TextButton
     {

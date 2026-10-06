@@ -185,7 +185,6 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     bridge.setMasterVolumeDb (state.masterVolumeDb);
     commandManager.getKeyMappings()->resetToDefaultMappings();
     ctx.addTrackMenu = [this] { return addTrackMenu(); };
-    ctx.openAudioFiles = [this] { showAudioFiles(); };
     ctx.openChannelStrip = [this] (const std::string& id, bool compressor) { openChannelStrip (id, compressor); };
     ctx.openMaster = [this] { openMaster(); };
     bridge.onRecordingFinished = [this] (std::vector<EngineBridge::RecordedTake> takes) { importTakes (std::move (takes)); };
@@ -328,15 +327,30 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
                               << " gr " << meter.gainReductionDb << std::endl;
                 }
 
-        // 画面の確認用に、ドラムのような音（叩いて減衰、合間は小さなノイズ）を流して見せる
-        for (int k = 0; k < 300; ++k)
+        // 画面の確認用: ゲートは書き出しのときの本物の波形を読む。読めなければ（CI でエンジンが違う所で鳴ったときなど）、
+        // ドラムのような音（叩いて減衰、合間は小さなノイズ）を流して見せる
+        for (auto& editor : fxEditors)
         {
-            const float hit = std::exp (-(float) (k % 40) / 6.0f);
-            const float in = juce::jmax (0.0007f, 0.7f * hit);
-            const bool open = 20.0f * std::log10 (in) > -50.0f || (k % 40) < 14;
-            const float gr = open ? 0.0f : 40.0f;
-            for (auto& editor : fxEditors)
-                editor->pushMeter (in, in * std::pow (10.0f, -gr / 20.0f), editor->getTitle().startsWith ("Noise") ? gr : 6.0f * hit + 2.0f);
+            const bool gate = editor->getTitle().startsWith ("Noise");
+            const bool real = gate && editor->pollWave();
+
+            if (gate)
+                std::cout << "gate waveform: " << (real ? "rendered" : "synthetic") << std::endl;
+
+            for (int k = 0; k < (real ? 0 : 1600); ++k)
+            {
+                const float hit = std::exp (-(float) (k % 120) / 18.0f);
+                const float noise = 0.002f * (float) std::sin (k * 12.9898f);
+                const float in = 0.7f * hit + noise;
+                const bool open = 20.0f * std::log10 (std::abs (in)) > -50.0f || (k % 120) < 40;
+                const float gr = open ? 0.0f : 40.0f;
+                const float out = in * std::pow (10.0f, -gr / 20.0f);
+
+                if (gate)
+                    editor->pushWave ({ -in * 0.9f, in, -out * 0.9f, out, gr });
+                else if (k % 4 == 0)
+                    editor->pushMeter (in, out, 6.0f * hit + 2.0f);
+            }
         }
 
         for (auto& editor : fxEditors)
@@ -1068,6 +1082,13 @@ void MainComponent::timerCallback()
         else if (lastPianoZoom > 0.0 && std::abs (pr - lastPianoZoom) > 1.0e-9)
         {
             follow (state.timeline, juce::jlimit (4.0, TimeAxis::maxPixelsPerQuarter, tl * pr / lastPianoZoom));
+            state.changed();
+        }
+
+        // 下の編集欄（ピアノロール・オーディオ）は、いつもタイムラインと同じか、それより拡大して見せる
+        if (pr < tl)
+        {
+            follow (state.pianoRoll, tl);
             state.changed();
         }
 

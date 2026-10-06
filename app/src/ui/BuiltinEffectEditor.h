@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ui/AppContext.h"
+#include "ui/Theme.h"
 
 /**
     内蔵エフェクトの画面（つまみを横に並べる）。値はプロジェクト JSON の effect.params を書き換える。
@@ -21,6 +22,12 @@ public:
     /** メーターの値を 1 回分足す（入力・出力のピーク 0〜1、ゲインリダクション dB）。タイマーから呼ぶ（確認用に外からも渡せる）。 */
     void pushMeter (float inputPeak, float outputPeak, float gainReductionDb);
 
+    /** ノイズゲートの波形を 1 列足す（右端が新しい）。 */
+    void pushWave (const EngineBridge::WaveColumn&);
+
+    /** エンジンからノイズゲートの波形の新しい列を読む。読めたら true。 */
+    bool pollWave();
+
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseMove (const juce::MouseEvent&) override;
@@ -35,16 +42,16 @@ private:
     std::string trackId, effectId;
     std::optional<collab::fx::Type> type;
     juce::OwnedArray<Knob> knobs;
-    juce::TextButton bypassButton, presetButton;
+    Theme::BypassButton bypassButton;
     juce::Rectangle<int> meterArea, titleArea, displayArea;
     float shownGr = 0.0f;
     float vuGr = 0.0f;                         // バスコンプの VU の針（VU の速さでなめらかに動かす）
     juce::String mergeId;
 
-    // ノイズゲートの画面: 入ってきた音・出ていく音（dBFS）とゲインリダクション（dB）の流れ（古い順の輪）
-    struct Column { float inputDb = -100.0f, outputDb = -100.0f, reductionDb = 0.0f; };
-    std::vector<Column> history = std::vector<Column> (300);
-    size_t historyPos = 0;
+    // ノイズゲートの画面: 入ってきた音・出ていく音の波形（256 サンプルごとの最小・最大）とゲインリダクションの流れ（古い順の輪）
+    std::vector<EngineBridge::WaveColumn> wave = std::vector<EngineBridge::WaveColumn> (1600);
+    size_t wavePos = 0;
+    juce::uint64 waveCursor = 0;
     bool draggingThreshold = false;
 
     bool isBusComp() const;
@@ -52,12 +59,12 @@ private:
     Knob* knobFor (const std::string& key) const;
     void paintBusComp (juce::Graphics&);
     void paintGate (juce::Graphics&);
-    float gateY (float db) const;
+    juce::Rectangle<float> gatePlot() const;
+    float gateDistance (float db) const;   // 波形の真ん中からの距離（上下対称。真ん中が -80 dB、端が 0 dB）
     double thresholdDb() const;
 
     const collab::Effect* effect() const;
     void setParam (const std::string& key, double value);
-    void showPresets();
     void refresh();
     void changeListenerCallback (juce::ChangeBroadcaster*) override    { refresh(); }
     void timerCallback() override;

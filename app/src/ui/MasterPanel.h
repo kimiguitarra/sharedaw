@@ -1,9 +1,11 @@
 #pragma once
 
 #include "ui/AppContext.h"
+#include "ui/MasterImager.h"
+#include "ui/Theme.h"
 
 /**
-    マスターの画面: ヴィンテージ系リミッター（THRESHOLD・CEILING・CHARACTER・モード）とラウドネスメーター（LUFS）。
+    マスターの画面: ヴィンテージ系リミッター（THRESHOLD・CEILING・CHARACTER・モード）、ラウドネスメーター（LUFS）とイメージャー（見るだけ）。
     目標は -14 LUFS（配信サービスの基準）。「-14 LUFS に合わせる」でインテグレーテッドの値から THRESHOLD を調整する。
     リミッターの設定はプロジェクト JSON（Project::master）に保存し、全員で共通。
 */
@@ -27,7 +29,8 @@ private:
     AppContext& ctx;
     juce::String mergeId;
 
-    juce::ToggleButton enabled { "Limiter" };
+    Theme::BypassButton bypass;
+    MasterImager imager { ctx };
     juce::TextButton resetLimiter { "リセット"_ju };
     juce::Slider threshold { juce::Slider::LinearVertical, juce::Slider::NoTextBox };
     juce::Slider ceiling { juce::Slider::LinearVertical, juce::Slider::NoTextBox };

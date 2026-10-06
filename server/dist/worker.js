@@ -2140,11 +2140,15 @@ var project_schema_default = {
           $ref: "#/definitions/uuid"
         },
         effects: {
-          description: "Inserts on the master, before the limiter. Same form as track effects.",
+          description: "Inserts on the master, before the EQ and the limiter. Same form as track effects.",
           type: "array",
           items: {
             $ref: "#/definitions/effect"
           }
+        },
+        eq: {
+          description: "EQ on the master, after the effects and before the limiter.",
+          $ref: "#/definitions/channelEq"
         },
         limiter: {
           type: "object",
@@ -2825,78 +2829,81 @@ var project_schema_default = {
         }
       ]
     },
+    channelEq: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        enabled: {
+          type: "boolean"
+        },
+        lowCutHz: {
+          type: "number",
+          minimum: 0,
+          maximum: 1e3
+        },
+        highCutHz: {
+          type: "number",
+          minimum: 0,
+          maximum: 2e4
+        },
+        lowGainDb: {
+          type: "number",
+          minimum: -24,
+          maximum: 24
+        },
+        lowFreqHz: {
+          type: "number",
+          minimum: 20,
+          maximum: 1e3
+        },
+        lowMidGainDb: {
+          type: "number",
+          minimum: -24,
+          maximum: 24
+        },
+        lowMidFreqHz: {
+          type: "number",
+          minimum: 20,
+          maximum: 16e3
+        },
+        lowMidQ: {
+          type: "number",
+          minimum: 0.1,
+          maximum: 10
+        },
+        midGainDb: {
+          type: "number",
+          minimum: -24,
+          maximum: 24
+        },
+        midFreqHz: {
+          type: "number",
+          minimum: 100,
+          maximum: 16e3
+        },
+        midQ: {
+          type: "number",
+          minimum: 0.1,
+          maximum: 10
+        },
+        highGainDb: {
+          type: "number",
+          minimum: -24,
+          maximum: 24
+        },
+        highFreqHz: {
+          type: "number",
+          minimum: 1e3,
+          maximum: 2e4
+        }
+      }
+    },
     channelStrip: {
       type: "object",
       additionalProperties: false,
       properties: {
         eq: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            enabled: {
-              type: "boolean"
-            },
-            lowCutHz: {
-              type: "number",
-              minimum: 0,
-              maximum: 1e3
-            },
-            highCutHz: {
-              type: "number",
-              minimum: 0,
-              maximum: 2e4
-            },
-            lowGainDb: {
-              type: "number",
-              minimum: -24,
-              maximum: 24
-            },
-            lowFreqHz: {
-              type: "number",
-              minimum: 20,
-              maximum: 1e3
-            },
-            lowMidGainDb: {
-              type: "number",
-              minimum: -24,
-              maximum: 24
-            },
-            lowMidFreqHz: {
-              type: "number",
-              minimum: 20,
-              maximum: 16e3
-            },
-            lowMidQ: {
-              type: "number",
-              minimum: 0.1,
-              maximum: 10
-            },
-            midGainDb: {
-              type: "number",
-              minimum: -24,
-              maximum: 24
-            },
-            midFreqHz: {
-              type: "number",
-              minimum: 100,
-              maximum: 16e3
-            },
-            midQ: {
-              type: "number",
-              minimum: 0.1,
-              maximum: 10
-            },
-            highGainDb: {
-              type: "number",
-              minimum: -24,
-              maximum: 24
-            },
-            highFreqHz: {
-              type: "number",
-              minimum: 1e3,
-              maximum: 2e4
-            }
-          }
+          $ref: "#/definitions/channelEq"
         },
         comp: {
           type: "object",

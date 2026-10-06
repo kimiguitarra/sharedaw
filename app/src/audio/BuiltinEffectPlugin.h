@@ -40,6 +40,13 @@ public:
     struct Meter { float input = 0.0f, output = 0.0f, gainReductionDb = 0.0f; };
     Meter takeMeter() noexcept;
 
+    /** ノイズゲートの波形表示用: 256 サンプルごとの入力・出力の最小・最大と、ゲインリダクション（dB）。 */
+    struct WaveColumn { float inMin = 0.0f, inMax = 0.0f, outMin = 0.0f, outMax = 0.0f, gainReductionDb = 0.0f; };
+    static constexpr int waveColumnSamples = 256, waveRingSize = 4096;
+
+    /** cursor（読んだ所まで。読み手が持つ）より後に増えた列を out に足す（メッセージスレッドから）。 */
+    void readWave (juce::uint64& cursor, std::vector<WaveColumn>& out) const;
+
 private:
     juce::SpinLock lock;
     std::unique_ptr<collab::fx::Processor> processor, pendingProcessor;
@@ -47,10 +54,20 @@ private:
     std::atomic<float> gainReductionDb { 0.0f };
     std::atomic<float> inputPeak { 0.0f }, outputPeak { 0.0f }, gainReductionHold { 0.0f };
     std::optional<collab::fx::Type> type;
+    std::atomic<bool> isGate { false };
     nlohmann::json current, pending;
     std::atomic<bool> hasPending { false }, needsReset { false };
     std::atomic<double> tail { 0.0 };
     double sampleRate = 48000.0;
+
+    // 波形表示（ノイズゲートのとき）。表示だけなので、読む途中で書き換わっても構わない
+    std::array<WaveColumn, waveRingSize> waveRing {};
+    std::atomic<juce::uint64> waveWritten { 0 };
+    WaveColumn waveAcc;
+    int waveCount = 0;
+    std::array<std::vector<float>, 2> waveInput;   // 処理する前の音（initialise で用意する）
+
+    void captureWave (float* const* channels, int numChannels, int numSamples, float gainReductionDb);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BuiltinEffectPlugin)
 };

@@ -166,6 +166,23 @@ TEST_CASE ("Master limiter settings round-trip through JSON and diff as their ow
     CHECK (d.touches (p.master.id));
 }
 
+TEST_CASE ("Master EQ round-trips through JSON, validates and diffs on its own")
+{
+    auto p = parseProject (fixture ("full.project.json"));
+    auto q = p;
+    q.master.eq.enabled = true;
+    q.master.eq.lowCutHz = 30.0;
+    q.master.eq.highGainDb = 1.5;
+    const auto text = serialiseProject (q);
+    CHECK (validateProjectJson (nlohmann::json::parse (text)).empty());
+    CHECK (parseProject (text).master == q.master);
+
+    auto d = diffProjects (p, q);
+    REQUIRE (d.changes.size() == 1);
+    CHECK (d.changes[0].scopeKind == ScopeKind::master);
+    CHECK (d.changes[0].part == "masterEq");
+}
+
 TEST_CASE ("Key track round-trips through JSON, diffs as its own scope and answers keyAt")
 {
     auto p = parseProject (fixture ("full.project.json"));

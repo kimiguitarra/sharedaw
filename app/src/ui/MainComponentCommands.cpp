@@ -251,7 +251,7 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdImportAudio:   info.setInfo ("オーディオを読み込む…"_ju, {}, "File", 0); info.addDefaultKeypress ('i', cmd); break;
         case cmdImportMidi:    info.setInfo ("MIDI ファイルを読み込む…"_ju, {}, "File", 0); break;
         case cmdAudioFiles:
-            info.setInfo ("オーディオファイル…"_ju, {}, "File", 0);
+            info.setInfo ("オーディオファイルの整理…"_ju, {}, "File", 0);
             info.setActive (document.hasLocation());
             break;
         case cmdExportMixdown:
@@ -599,7 +599,7 @@ bool MainComponent::perform (const InvocationInfo& info)
 
 juce::StringArray MainComponent::getMenuBarNames()
 {
-    return { "ファイル"_ju, "編集"_ju, "トランスポート"_ju, "トラック"_ju, "同期"_ju, "表示"_ju, "設定"_ju, "ヘルプ"_ju };
+    return { "ファイル"_ju, "編集"_ju, "トランスポート"_ju, "トラック"_ju, "オーディオ"_ju, "同期"_ju, "表示"_ju, "設定"_ju, "ヘルプ"_ju };
 }
 
 juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
@@ -618,7 +618,6 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addCommandItem (cm, cmdImportAudio);
             m.addCommandItem (cm, cmdImportMidi);
             m.addCommandItem (cm, cmdExportMixdown);
-            m.addCommandItem (cm, cmdAudioFiles);
            #if ! JUCE_MAC
             m.addSeparator();
             m.addCommandItem (cm, juce::StandardApplicationCommandIDs::quit);
@@ -695,6 +694,10 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m = addTrackMenu();
             break;
         case 4:
+            m.addCommandItem (cm, cmdImportAudio);
+            m.addCommandItem (cm, cmdAudioFiles);
+            break;
+        case 5:
         {
             m.addCommandItem (cm, cmdSyncPanel);
             m.addSeparator();
@@ -710,7 +713,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addCommandItem (cm, cmdSyncSettings);
             break;
         }
-        case 5:
+        case 6:
         {
             juce::PopupMenu sizes;
 
@@ -732,7 +735,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addSubMenu ("文字サイズ（画面共有用）"_ju, sizes);
             break;
         }
-        case 6:
+        case 7:
         {
             // 設定: オーディオ（MIDI 入力もここ）・プラグイン・サーバー・操作モード
             m.addCommandItem (cm, cmdAudioSettings);
@@ -765,7 +768,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addSubMenu ("外観"_ju, looks);
             break;
         }
-        case 7:
+        case 8:
             m.addCommandItem (cm, cmdCredits);
             m.addCommandItem (cm, cmdShortcuts);
             m.addCommandItem (cm, cmdCheckUpdate);

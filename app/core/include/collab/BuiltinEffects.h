@@ -46,15 +46,6 @@ const std::vector<ParamSpec>& paramSpecs (Type);
 double paramValue (const nlohmann::json& params, const ParamSpec&);
 double paramValue (Type, const nlohmann::json& params, const std::string& key);
 
-/** 用途ごとの設定（プリセット）。値は params に上書きする（MIX を含まないものは今の MIX のまま）。 */
-struct Preset
-{
-    std::string name;       // utf8
-    nlohmann::json params;
-};
-
-const std::vector<Preset>& factoryPresets (Type);
-
 /** 入力が止まってから音が消えるまでの秒数（リバーブの余韻。バウンス・書き出しをこの分だけ長くする）。 */
 double tailSeconds (Type, const nlohmann::json& params);
 

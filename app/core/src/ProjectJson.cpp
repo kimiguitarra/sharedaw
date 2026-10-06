@@ -493,6 +493,13 @@ ojson projectToJson (const Project& source)
                         { "limiter", { { "enabled", l.enabled }, { "thresholdDb", l.thresholdDb }, { "ceilingDb", l.ceilingDb },
                                        { "character", l.character }, { "mode", limiterModeName (l.mode) } } } };
 
+        if (p.master.eq != ChannelEq())
+        {
+            ChannelStrip strip;
+            strip.eq = p.master.eq;
+            o["master"]["eq"] = toJson (strip)["eq"];
+        }
+
         if (! p.master.effects.empty())
         {
             ojson fx = ojson::array();
@@ -640,6 +647,9 @@ Project projectFromJson (const json& j)
 
             if (auto fx = it->find ("effects"); fx != it->end())
                 p.master.effects = effectsFromJson (*fx);
+
+            if (auto e = it->find ("eq"); e != it->end())
+                p.master.eq = stripFromJson (json { { "eq", *e } }).eq;
 
             if (auto l = it->find ("limiter"); l != it->end())
             {

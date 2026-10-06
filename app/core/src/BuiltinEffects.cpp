@@ -201,62 +201,6 @@ double paramValue (Type t, const nlohmann::json& params, const std::string& key)
     return 0.0;
 }
 
-const std::vector<Preset>& factoryPresets (Type t)
-{
-    using j = nlohmann::json;
-
-    // バスコンプ: ratio 0/1/2 = 2/4/10、attack 0〜5 = 0.1/0.3/1/3/10/30 ms、release 0〜4 = 0.1/0.3/0.6/1.2/AUTO
-    static const std::vector<Preset> busComp {
-        { "ミックスバス（全体をまとめる）", j { { "threshold", -10.0 }, { "ratio", 0 }, { "attack", 5 }, { "release", 4 }, { "makeup", 1.5 }, { "sidechainHpf", 2 }, { "mix", 100.0 } } },
-        { "ドラムバス（パンチ）", j { { "threshold", -18.0 }, { "ratio", 1 }, { "attack", 5 }, { "release", 0 }, { "makeup", 3.0 }, { "sidechainHpf", 1 }, { "mix", 100.0 } } },
-        { "ボーカル（粒をそろえる）", j { { "threshold", -20.0 }, { "ratio", 1 }, { "attack", 3 }, { "release", 1 }, { "makeup", 4.0 }, { "sidechainHpf", 3 }, { "mix", 100.0 } } },
-        { "パラレル（NY コンプ）", j { { "threshold", -32.0 }, { "ratio", 2 }, { "attack", 1 }, { "release", 0 }, { "makeup", 8.0 }, { "sidechainHpf", 0 }, { "mix", 40.0 } } },
-    };
-
-    static const std::vector<Preset> saturator {
-        { "テープのように軽く", j { { "drive", 4.0 }, { "warmth", 60.0 }, { "output", 0.0 }, { "mix", 100.0 } } },
-        { "ベースを太く", j { { "drive", 10.0 }, { "warmth", 85.0 }, { "output", 0.0 }, { "mix", 70.0 } } },
-        { "ボーカルに艶", j { { "drive", 6.0 }, { "warmth", 30.0 }, { "output", 0.0 }, { "mix", 50.0 } } },
-        { "しっかり歪ませる", j { { "drive", 18.0 }, { "warmth", 50.0 }, { "output", -3.0 }, { "mix", 100.0 } } },
-    };
-
-    static const std::vector<Preset> room {
-        { "小さな部屋", j { { "decay", 0.4 }, { "predelay", 0.0 }, { "damping", 7000.0 }, { "lowCut", 200.0 } } },
-        { "ドラムルーム", j { { "decay", 0.8 }, { "predelay", 2.0 }, { "damping", 8000.0 }, { "lowCut", 150.0 } } },
-        { "ボーカルに空気感", j { { "decay", 0.6 }, { "predelay", 12.0 }, { "damping", 11000.0 }, { "lowCut", 300.0 } } },
-    };
-
-    static const std::vector<Preset> hall {
-        { "ボーカル用ホール", j { { "decay", 2.2 }, { "predelay", 30.0 }, { "damping", 7000.0 }, { "lowCut", 200.0 } } },
-        { "ストリングス・パッド", j { { "decay", 3.5 }, { "predelay", 20.0 }, { "damping", 5000.0 }, { "lowCut", 120.0 } } },
-        { "大ホール", j { { "decay", 5.0 }, { "predelay", 40.0 }, { "damping", 4500.0 }, { "lowCut", 100.0 } } },
-    };
-
-    static const std::vector<Preset> plate {
-        { "ボーカルプレート", j { { "decay", 1.6 }, { "predelay", 15.0 }, { "damping", 12000.0 }, { "lowCut", 200.0 } } },
-        { "スネアプレート", j { { "decay", 1.2 }, { "predelay", 5.0 }, { "damping", 10000.0 }, { "lowCut", 250.0 } } },
-        { "明るく長い", j { { "decay", 3.0 }, { "predelay", 20.0 }, { "damping", 15000.0 }, { "lowCut", 150.0 } } },
-    };
-
-    static const std::vector<Preset> gate {
-        { "ボーカル（息・部屋の音を下げる）", j { { "threshold", -45.0 }, { "range", 12.0 }, { "attack", 2.0 }, { "hold", 80.0 }, { "release", 250.0 } } },
-        { "ギター（アンプのノイズを切る）", j { { "threshold", -55.0 }, { "range", 80.0 }, { "attack", 1.0 }, { "hold", 50.0 }, { "release", 150.0 } } },
-        { "ドラム（タムのかぶりを切る）", j { { "threshold", -30.0 }, { "range", 30.0 }, { "attack", 0.1 }, { "hold", 30.0 }, { "release", 80.0 } } },
-    };
-
-    switch (t)
-    {
-        case Type::busComp:     return busComp;
-        case Type::saturator:   return saturator;
-        case Type::roomReverb:  return room;
-        case Type::hallReverb:  return hall;
-        case Type::plateReverb: return plate;
-        case Type::noiseGate:   return gate;
-    }
-
-    return busComp;
-}
-
 bool isReverb (Type t)
 {
     return t == Type::roomReverb || t == Type::hallReverb || t == Type::plateReverb;

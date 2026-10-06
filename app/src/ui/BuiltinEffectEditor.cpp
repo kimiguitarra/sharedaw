@@ -200,15 +200,6 @@ BuiltinEffectEditor::BuiltinEffectEditor (AppContext& c, std::string track, std:
         for (auto& spec : collab::fx::paramSpecs (*type))
             addAndMakeVisible (knobs.add (new Knob (*this, spec)));
 
-    presetButton.setButtonText ("プリセット"_ju);
-    presetButton.setTooltip ("用途ごとの設定"_ju);
-    presetButton.onClick = [this] { showPresets(); };
-    addAndMakeVisible (presetButton);
-
-    bypassButton.setButtonText ("BYPASS");
-    bypassButton.setTooltip ("バイパス"_ju);
-    bypassButton.setClickingTogglesState (false);
-    bypassButton.setColour (juce::TextButton::buttonOnColourId, Theme::warning.darker (0.3f));
     bypassButton.onClick = [this] { ctx.toggleEffectBypass (trackId, effectId); };
     addAndMakeVisible (bypassButton);
 
@@ -230,12 +221,11 @@ BuiltinEffectEditor::BuiltinEffectEditor (AppContext& c, std::string track, std:
             }
 
         bypassButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff4a4d53));
-        presetButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff4a4d53));
         setSize (4 * knobWidth + 24 + 250, headerHeight + 2 * knobHeight + 32);
     }
     else if (isGate())
     {
-        setSize (640, headerHeight + 250 + knobHeight + 28);
+        setSize (780, headerHeight + 310 + knobHeight + 28);
     }
     else
     {
@@ -284,30 +274,6 @@ void BuiltinEffectEditor::setParam (const std::string& key, double value)
     }, mergeId);
 }
 
-void BuiltinEffectEditor::showPresets()
-{
-    if (! type)
-        return;
-
-    juce::PopupMenu m;
-
-    for (auto& preset : collab::fx::factoryPresets (*type))
-        m.addItem (juce::String::fromUTF8 (preset.name.c_str()), [this, params = preset.params]
-        {
-            auto track = trackId, fx = effectId;
-            ctx.document.perform ("エフェクトのプリセット"_ju, [track, fx, params] (collab::Project& p)
-            {
-                if (auto* list = p.effectsFor (track))
-                    for (auto& e : *list)
-                        if (e.id == fx)
-                            for (auto it = params.begin(); it != params.end(); ++it)   // MSVC は入れ子のラムダで構造化束縛を使えない
-                                e.params[it.key()] = it.value();
-            });
-        });
-
-    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&presetButton));
-}
-
 void BuiltinEffectEditor::refresh()
 {
     auto* e = effect();
@@ -338,6 +304,26 @@ void BuiltinEffectEditor::timerCallback()
 {
     const auto m = ctx.engine.takeEffectMeter (trackId, effectId);
     pushMeter (m.input, m.output, m.gainReductionDb);
+
+    if (isGate() && pollWave())
+        repaint (displayArea);
+}
+
+bool BuiltinEffectEditor::pollWave()
+{
+    std::vector<EngineBridge::WaveColumn> columns;
+    ctx.engine.readEffectWave (trackId, effectId, waveCursor, columns);
+
+    for (auto& c : columns)
+        pushWave (c);
+
+    return ! columns.empty();
+}
+
+void BuiltinEffectEditor::pushWave (const EngineBridge::WaveColumn& c)
+{
+    wave[wavePos] = c;
+    wavePos = (wavePos + 1) % wave.size();
 }
 
 void BuiltinEffectEditor::pushMeter (float inputPeak, float outputPeak, float gainReductionDb)
@@ -358,12 +344,8 @@ void BuiltinEffectEditor::pushMeter (float inputPeak, float outputPeak, float ga
         return;
     }
 
-    if (isGate())
+    if (isGate() && std::abs (gainReductionDb - shownGr) > 0.05f)
     {
-        // 1 列ずつ左へ流す
-        auto toDb = [] (float p) { return p > 1.0e-5f ? juce::Decibels::gainToDecibels (p) : -100.0f; };
-        history[historyPos] = { toDb (inputPeak), toDb (outputPeak), gainReductionDb };
-        historyPos = (historyPos + 1) % history.size();
         shownGr = gainReductionDb;
         repaint (displayArea);
     }
@@ -375,16 +357,20 @@ double BuiltinEffectEditor::thresholdDb() const
     return e != nullptr ? collab::fx::paramValue (collab::fx::Type::noiseGate, e->params, "threshold") : -50.0;
 }
 
-float BuiltinEffectEditor::gateY (float db) const
+juce::Rectangle<float> BuiltinEffectEditor::gatePlot() const
 {
-    // 上が 0 dBFS、下が -80 dBFS
-    const auto r = displayArea.toFloat().reduced (0.0f, 8.0f);
-    return r.getY() + r.getHeight() * juce::jlimit (0.0f, 1.0f, -db / 80.0f);
+    return displayArea.toFloat().withTrimmedLeft (34.0f).reduced (2.0f, 10.0f);
+}
+
+float BuiltinEffectEditor::gateDistance (float db) const
+{
+    return gatePlot().getHeight() * 0.5f * juce::jlimit (0.0f, 1.0f, (db + 80.0f) / 80.0f);
 }
 
 void BuiltinEffectEditor::mouseMove (const juce::MouseEvent& e)
 {
-    const bool onLine = isGate() && displayArea.contains (e.getPosition()) && std::abs ((float) e.y - gateY ((float) thresholdDb())) < 6.0f;
+    const bool onLine = isGate() && displayArea.contains (e.getPosition())
+                        && std::abs (std::abs ((float) e.y - gatePlot().getCentreY()) - gateDistance ((float) thresholdDb())) < 6.0f;
     setMouseCursor (onLine ? juce::MouseCursor::UpDownResizeCursor : juce::MouseCursor::NormalCursor);
 }
 
@@ -405,8 +391,10 @@ void BuiltinEffectEditor::mouseDrag (const juce::MouseEvent& e)
     if (! draggingThreshold)
         return;
 
-    const auto r = displayArea.toFloat().reduced (0.0f, 8.0f);
-    const double db = juce::jlimit (-80.0, 0.0, std::round (-80.0 * ((double) e.y - r.getY()) / r.getHeight() * 2.0) / 2.0);
+    // 真ん中からの距離で決める（上の線でも下の線でも同じ）
+    const auto plot = gatePlot();
+    const double distance = std::abs ((double) e.y - plot.getCentreY()) / (plot.getHeight() * 0.5);
+    const double db = juce::jlimit (-80.0, 0.0, std::round ((distance * 80.0 - 80.0) * 2.0) / 2.0);
     setParam ("threshold", db);
 }
 
@@ -471,8 +459,6 @@ void BuiltinEffectEditor::resized()
     auto area = getLocalBounds().reduced (12);
     auto header = area.removeFromTop (headerHeight - 12);
     bypassButton.setBounds (header.removeFromRight (90).reduced (0, 2));
-    header.removeFromRight (8);
-    presetButton.setBounds (header.removeFromRight (110).reduced (0, 2));
     titleArea = header;
 
     meterArea = displayArea = {};
@@ -499,7 +485,7 @@ void BuiltinEffectEditor::resized()
 
     if (isGate())
     {
-        displayArea = area.removeFromTop (240);
+        displayArea = area.removeFromTop (300);
         area.removeFromTop (10);
     }
 
@@ -578,66 +564,85 @@ void BuiltinEffectEditor::paintBusComp (juce::Graphics& g)
 
 void BuiltinEffectEditor::paintGate (juce::Graphics& g)
 {
+    // Neutron の Gate のように: 入ってきた波形（灰色）と、ゲートを通った波形（水色）を重ねて、どこが削られたかを見せる。
+    // 縦は dB（真ん中が -80 dB、上下の端が 0 dB の上下対称）。スレッショルドは上下 2 本の線
     auto r = displayArea.toFloat();
     g.setColour (juce::Colour (0xff15171b));
     g.fillRoundedRectangle (r, 6.0f);
 
-    // dB の目盛り（0〜-80）
+    const auto plot = gatePlot();
+    const float centre = plot.getCentreY();
+
     g.setFont (juce::FontOptions (11.0f));
 
-    for (int db = 0; db >= -80; db -= 20)
+    for (int db = 0; db >= -60; db -= 20)
     {
-        const float y = gateY ((float) db);
-        g.setColour (juce::Colours::white.withAlpha (0.08f));
-        g.drawHorizontalLine ((int) y, r.getX() + 30.0f, r.getRight() - 4.0f);
-        g.setColour (juce::Colours::white.withAlpha (0.4f));
-        g.drawText (juce::String (db), juce::Rectangle<float> (r.getX() + 2.0f, y - 7.0f, 26.0f, 14.0f), juce::Justification::centredRight);
-    }
+        const float d = gateDistance ((float) db);
 
-    const auto plot = r.withTrimmedLeft (32.0f).reduced (2.0f, 0.0f);
-    const float dx = plot.getWidth() / (float) history.size();
-
-    // 入ってきた音（灰色）・出ていく音（水色）を下から塗る。ゲインリダクション（赤）は上から下へ
-    auto area = [&] (auto value, bool fromTop)
-    {
-        juce::Path p;
-        p.startNewSubPath (plot.getX(), fromTop ? gateY (0.0f) : gateY (-80.0f));
-
-        for (size_t k = 0; k < history.size(); ++k)
+        for (float y : { centre - d, centre + d })
         {
-            const auto& c = history[(historyPos + k) % history.size()];
-            const float x = plot.getX() + (float) k * dx;
-            const float y = fromTop ? gateY (-juce::jmin (80.0f, value (c))) : gateY (juce::jmax (-80.0f, value (c)));
-            p.lineTo (x, y);
-            p.lineTo (x + dx, y);
+            g.setColour (juce::Colours::white.withAlpha (0.07f));
+            g.drawHorizontalLine ((int) y, plot.getX(), plot.getRight());
         }
 
-        p.lineTo (plot.getRight(), fromTop ? gateY (0.0f) : gateY (-80.0f));
-        p.closeSubPath();
-        return p;
-    };
+        g.setColour (juce::Colours::white.withAlpha (0.4f));
+        g.drawText (juce::String (db), juce::Rectangle<float> (r.getX() + 2.0f, centre - d - 7.0f, 28.0f, 14.0f), juce::Justification::centredRight);
+    }
 
-    g.setColour (juce::Colours::white.withAlpha (0.22f));
-    g.fillPath (area ([] (const Column& c) { return c.inputDb; }, false));
-    g.setColour (juce::Colour (0xff4fc3f7).withAlpha (0.75f));
-    g.fillPath (area ([] (const Column& c) { return c.outputDb; }, false));
-    g.setColour (juce::Colour (0xffef5350).withAlpha (0.45f));
-    g.fillPath (area ([] (const Column& c) { return c.reductionDb; }, true));
+    g.setColour (juce::Colours::white.withAlpha (0.12f));
+    g.drawHorizontalLine ((int) centre, plot.getX(), plot.getRight());
 
-    // スレッショルドの線（ドラッグで動かす）と、閉じる所（4 dB 下）
-    const float ty = gateY ((float) thresholdDb());
-    g.setColour (juce::Colour (0xffffd54f));
-    g.drawHorizontalLine ((int) ty, plot.getX(), plot.getRight());
+    // 波形（右端が新しい。1 列 = 1 ピクセル）
+    const int columns = juce::jmin ((int) wave.size(), (int) plot.getWidth());
+    auto toDb = [] (float v) { return v > 1.0e-5f ? juce::Decibels::gainToDecibels (v) : -100.0f; };
+    juce::Path inPath, outPath, grPath;
+
+    for (int k = 0; k < columns; ++k)
+    {
+        const auto& c = wave[(wavePos + wave.size() - (size_t) columns + (size_t) k) % wave.size()];
+        const float x = plot.getRight() - (float) (columns - k);
+        const float inTop = centre - gateDistance (toDb (c.inMax)), inBottom = centre + gateDistance (toDb (-c.inMin));
+        const float outTop = centre - gateDistance (toDb (c.outMax)), outBottom = centre + gateDistance (toDb (-c.outMin));
+        inPath.addRectangle (x, inTop, 1.0f, juce::jmax (0.5f, inBottom - inTop));
+
+        if (outBottom - outTop > 0.5f)
+            outPath.addRectangle (x, outTop, 1.0f, outBottom - outTop);
+
+        // ゲインリダクション: 上の端から下へ（0〜80 dB）
+        const float gy = plot.getY() + plot.getHeight() * 0.5f * juce::jlimit (0.0f, 1.0f, c.gainReductionDb / 80.0f);
+
+        if (k == 0)
+            grPath.startNewSubPath (x, gy);
+        else
+            grPath.lineTo (x, gy);
+    }
+
+    g.setColour (juce::Colours::white.withAlpha (0.28f));
+    g.fillPath (inPath);
+    g.setColour (juce::Colour (0xff4fc3f7).withAlpha (0.85f));
+    g.fillPath (outPath);
+    g.setColour (juce::Colour (0xffef5350).withAlpha (0.9f));
+    g.strokePath (grPath, juce::PathStrokeType (1.5f));
+
+    // スレッショルドの線（上下。ドラッグで動かす）と、閉じる所（4 dB 下）
+    const float td = gateDistance ((float) thresholdDb()), hd = gateDistance ((float) thresholdDb() - 4.0f);
     const float dashes[] = { 4.0f, 4.0f };
-    g.setColour (juce::Colour (0xffffd54f).withAlpha (0.35f));
-    g.drawDashedLine ({ plot.getX(), gateY ((float) thresholdDb() - 4.0f), plot.getRight(), gateY ((float) thresholdDb() - 4.0f) }, dashes, 2, 1.0f);
+
+    for (float sign : { -1.0f, 1.0f })
+    {
+        g.setColour (juce::Colour (0xffffd54f));
+        g.drawHorizontalLine ((int) (centre + sign * td), plot.getX(), plot.getRight());
+        g.setColour (juce::Colour (0xffffd54f).withAlpha (0.35f));
+        g.drawDashedLine ({ plot.getX(), centre + sign * hd, plot.getRight(), centre + sign * hd }, dashes, 2, 1.0f);
+    }
+
     g.setColour (juce::Colour (0xffffd54f));
     g.setFont (juce::FontOptions (12.5f, juce::Font::bold));
-    g.drawText ("THRESHOLD " + juce::String (thresholdDb(), 1) + " dB", juce::Rectangle<float> (plot.getRight() - 170.0f, ty - 18.0f, 164.0f, 16.0f),
+    g.drawText ("THRESHOLD " + juce::String (thresholdDb(), 1) + " dB", juce::Rectangle<float> (plot.getRight() - 170.0f, centre - td - 18.0f, 164.0f, 16.0f),
                 juce::Justification::centredRight);
 
     // 凡例と、いまのゲインリダクション
-    auto legend = r.reduced (40.0f, 6.0f).removeFromTop (16.0f);
+    auto legend = r.reduced (40.0f, 4.0f).removeFromTop (14.0f);
     g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
 
     for (auto [text, colour] : { std::pair<const char*, juce::Colour> { "IN", juce::Colours::white.withAlpha (0.55f) },

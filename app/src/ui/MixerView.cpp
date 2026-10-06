@@ -19,6 +19,35 @@ namespace
     using ValueText::parseDb;
     using ValueText::parsePan;
 
+    /** ミキサーのフェーダー: キャップがマウスと同じだけ動く。Shift を押している間は 1/5 の細かさで動く。 */
+    class Fader  : public juce::Slider
+    {
+    public:
+        void resized() override
+        {
+            juce::Slider::resized();
+            // つかんで動かした量 = キャップの動く量（溝の長さで 0〜1 の範囲を動かす）
+            const auto max = getPositionOfValue (getMaximum()), min = getPositionOfValue (getMinimum());
+            setMouseDragSensitivity (juce::jmax (20, juce::roundToInt (std::abs (min - max))));
+        }
+
+        void mouseDown (const juce::MouseEvent& e) override
+        {
+            lastY = virtualY = e.position.y;
+            juce::Slider::mouseDown (e);
+        }
+
+        void mouseDrag (const juce::MouseEvent& e) override
+        {
+            virtualY += (e.position.y - lastY) * (e.mods.isShiftDown() ? 0.2f : 1.0f);
+            lastY = e.position.y;
+            juce::Slider::mouseDrag (e.withNewPosition (juce::Point<float> (e.position.x, virtualY)));
+        }
+
+    private:
+        float lastY = 0.0f, virtualY = 0.0f;
+    };
+
     /** 数値を打ち込むラベル（クリックで入力、Enter で確定、Esc でやめる）。 */
     void styleValueLabel (juce::Label& l)
     {
@@ -495,31 +524,55 @@ public:
 
     bool opensEditor() const override       { return true; }
 
+    /** このストリップの EQ（トラックか、マスターのストリップならマスターの EQ）。 */
+    const collab::ChannelEq* settings() const
+    {
+        if (trackId == masterId)
+            return &ctx.document.getProject().master.eq;
+
+        if (auto* t = track())
+            return &t->strip.eq;
+
+        return nullptr;
+    }
+
     std::optional<bool> powerState() const override
     {
-        if (auto* t = track())
-            return t->strip.eq.enabled;
+        if (auto* e = settings())
+            return e->enabled;
 
         return std::nullopt;
     }
 
     void togglePower() override
     {
-        editTrack ("EQ のオン・オフ"_ju, [] (collab::Track& t) { t.strip.eq.enabled = ! t.strip.eq.enabled; });
+        if (trackId != masterId)
+        {
+            editTrack ("EQ のオン・オフ"_ju, [] (collab::Track& t) { t.strip.eq.enabled = ! t.strip.eq.enabled; });
+            return;
+        }
+
+        ctx.document.perform ("マスターの EQ のオン・オフ"_ju, [] (collab::Project& p)
+        {
+            if (p.master.id.empty())
+                p.master.id = collab::masterBusIdFor (p.projectId);
+
+            p.master.eq.enabled = ! p.master.eq.enabled;
+        });
     }
 
     void paintBody (juce::Graphics& g, juce::Rectangle<int> area) override
     {
-        auto* t = track();
+        auto* settingsNow = settings();
 
-        if (t == nullptr)
+        if (settingsNow == nullptr)
             return;
 
         const auto r = area.reduced (3).toFloat();
         g.setColour (Theme::gridBeat);
         g.drawHorizontalLine (juce::roundToInt (r.getCentreY()), r.getX(), r.getRight());
 
-        auto eq = t->strip.eq;
+        auto eq = *settingsNow;
         eq.enabled = true;
         juce::Path curve;
         bool first = true;
@@ -538,14 +591,14 @@ public:
             first = false;
         }
 
-        g.setColour (t->strip.eq.enabled ? Theme::selection : Theme::textDim.withAlpha (0.5f));
+        g.setColour (settingsNow->enabled ? Theme::selection : Theme::textDim.withAlpha (0.5f));
         g.strokePath (curve, juce::PathStrokeType (1.5f));
     }
 
     void bodyMouseDown (const juce::MouseEvent&, juce::Point<int>) override
     {
         if (ctx.openChannelStrip)
-            ctx.openChannelStrip (trackId, false);
+            ctx.openChannelStrip (trackId == masterId ? ctx.document.getProject().master.id : trackId, false);
     }
 };
 
@@ -839,7 +892,7 @@ public:
         addChildComponent (masterSection);
         masterSection.setVisible (isMaster());
         inserts.setVisible (isTrack() || isMaster());   // マスターにも挿せる（リミッターの前）
-        eq.setVisible (isTrack());
+        eq.setVisible (isTrack() || isMaster());   // マスターにも EQ（スペクトラムを見る用にも。リミッターの前）
         comp.setVisible (isTrack());
         sends.setVisible (isTrack());
 
@@ -974,7 +1027,6 @@ public:
         {
             name = "メトロノーム"_ju;
             number = {};
-            detail = "この PC だけ"_ju;
             output.setButtonText ("マスター"_ju);
             colour = Theme::textDim;
             fader.setValue (ctx.state.metronomeVolumeDb, juce::dontSendNotification);
@@ -984,7 +1036,6 @@ public:
         {
             name = "マスター"_ju;
             number = {};
-            detail = "この PC だけ"_ju;
             output.setButtonText ("オーディオ出力"_ju);
             colour = Theme::text;
             fader.setValue (ctx.state.masterVolumeDb, juce::dontSendNotification);
@@ -993,7 +1044,6 @@ public:
         {
             name = "コード"_ju;
             number = {};
-            detail = "ピアノ"_ju;
             output.setButtonText ("マスター"_ju);
             colour = juce::Colour (0xffffb74d);
             fader.setValue (project.chordTrack.playback.volumeDb, juce::dontSendNotification);
@@ -1003,9 +1053,6 @@ public:
         {
             name = toJuce (t->name);
             number = juce::String (project.indexOfTrack (trackId) + 1);
-            detail = t->type == collab::TrackType::audio ? "オーディオ"_ju
-                   : t->type == collab::TrackType::bus   ? "バス"_ju
-                                                         : instrumentName (*t);
             output.setButtonText (ctx.outputName (*t));
             colour = Theme::parseColour (t->color);
             fader.setValue (t->volumeDb, juce::dontSendNotification);
@@ -1093,9 +1140,12 @@ public:
         g.setFont (juce::FontOptions (15.0f, juce::Font::bold));
         g.drawText (name, r, juce::Justification::centred, true);
 
-        g.setColour (Theme::textDim);
-        g.setFont (juce::FontOptions (13.0f));
-        g.drawText (detail, detailArea, juce::Justification::centred, true);
+        // 下にもトラック名（フェーダーを触っているときに上を見なくて済むように）
+        g.setColour (colour.withAlpha (0.85f));
+        g.fillRoundedRectangle (bottomNameArea.toFloat(), 3.0f);
+        g.setColour (textColour);
+        g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
+        g.drawText (name, bottomNameArea.reduced (3, 0), juce::Justification::centred, true);
 
         g.setColour (Theme::background);
         g.drawVerticalLine (getWidth() - 1, 0.0f, (float) getHeight());
@@ -1119,14 +1169,14 @@ public:
         blocksArea = area.withHeight (0);
         area.removeFromTop (layoutBlocks (dragOrder ? *dragOrder : isTrack() ? laidOutOrder : collab::ChannelStrip().order()));
         sends.setBounds (area.removeFromTop (headerHeight + rowHeight * sendRows + 2));
-        masterSection.setBounds (inserts.getX(), isMaster() ? inserts.getBottom() + 3 : insertsTop, inserts.getWidth(),
+        masterSection.setBounds (inserts.getX(), isMaster() ? eq.getBottom() + 3 : insertsTop, inserts.getWidth(),
                                  headerHeight + rowHeight * 2 + 8 + 3 + 14 + 22 + 13 + 14 + 8);
         area.removeFromTop (5);
 
         pan.setBounds (area.removeFromTop (18));
         area.removeFromTop (5);
 
-        detailArea = area.removeFromBottom (14);
+        bottomNameArea = area.removeFromBottom (20);
         area.removeFromBottom (3);
 
         auto buttons = area.removeFromBottom (22);
@@ -1170,10 +1220,10 @@ public:
         }
     }
 
-    /** 下の名前をダブルクリックで名前を変える。 */
+    /** 名前（上・下）をダブルクリックで名前を変える。 */
     void mouseDoubleClick (const juce::MouseEvent& e) override
     {
-        if (! isTrack() || ! nameArea.contains (e.getPosition()))
+        if (! isTrack() || ! (nameArea.contains (e.getPosition()) || bottomNameArea.contains (e.getPosition())))
             return;
 
         Dialogs::askText ("名前の変更"_ju, "トラックの名前"_ju, name, [c = &ctx, id = trackId] (const juce::String& text)
@@ -1204,13 +1254,13 @@ private:
     std::optional<std::array<collab::StripBlock, 3>> dragOrder;   // 並べ替えでつかんでいる間の並び
     juce::Rectangle<int> blocksArea;   // インサート・EQ・Compressor を並べる所（上端と幅）
     PanBar pan;
-    juce::Slider fader;
+    Fader fader;
     juce::TextButton mute, solo;
     LevelMeter meter;
     PeakReadout peak;
     juce::Colour colour = Theme::accent;
-    juce::String name, number, detail, mergeId;
-    juce::Rectangle<int> scaleArea, nameArea, detailArea;
+    juce::String name, number, mergeId;
+    juce::Rectangle<int> scaleArea, nameArea, bottomNameArea;
 
     MixSection& sectionFor (collab::StripBlock b)
     {
@@ -1303,18 +1353,6 @@ private:
         }
 
         resized();
-    }
-
-    juce::String instrumentName (const collab::Track& t) const
-    {
-        if (! t.instrument)
-            return "音源なし"_ju;
-
-        if (t.instrument->kind == collab::Instrument::Kind::external)
-            return toJuce (t.instrument->plugin.name);
-
-        auto* m = ctx.library.find (t.instrument->id, t.instrument->version);
-        return m != nullptr ? toJuce (m->displayName) : toJuce (t.instrument->id);
     }
 
     void editTrack (const juce::String& description, std::function<void (collab::Track&)> fn)

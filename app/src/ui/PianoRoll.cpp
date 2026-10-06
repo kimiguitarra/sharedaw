@@ -457,7 +457,8 @@ void PianoRollView::clipChanged()
             if (! visible)
             {
                 const double len = juce::jmax ((double) collab::kPpq, end - start);
-                axis().pixelsPerQuarter = juce::jlimit (10.0, TimeAxis::maxPixelsPerQuarter, audioLanes->getWidth() * 0.9 / (len / collab::kPpq));
+                const double fit = audioLanes->getWidth() * 0.9 / (len / collab::kPpq);
+                axis().pixelsPerQuarter = juce::jlimit (10.0, TimeAxis::maxPixelsPerQuarter, juce::jmax (fit, ctx.state.timeline.pixelsPerQuarter));
                 axis().scrollTick = juce::jmax (0.0, start - len * 0.03);
                 ctx.state.pianoRollAutoFitted = true;
             }
@@ -481,7 +482,8 @@ void PianoRollView::clipChanged()
     if (grid.getWidth() > 0)
     {
         const double len = (double) juce::jmax<collab::Tick> (collab::kPpq * 4, clip->lengthTick);
-        axis().pixelsPerQuarter = juce::jlimit (10.0, 400.0, grid.getWidth() * 0.9 / (len / collab::kPpq));
+        const double fit = grid.getWidth() * 0.9 / (len / collab::kPpq);
+        axis().pixelsPerQuarter = juce::jlimit (10.0, TimeAxis::maxPixelsPerQuarter, juce::jmax (fit, ctx.state.timeline.pixelsPerQuarter));
         axis().scrollTick = juce::jmax (0.0, (double) clip->startTick - len * 0.03);
         ctx.state.pianoRollAutoFitted = true;
     }

@@ -169,29 +169,6 @@ TEST_CASE ("builtin effects round-trip through JSON and do not need a bounce")
     CHECK_FALSE (collab::usesExternalPlugin (back.tracks[0]));
 }
 
-TEST_CASE ("factory presets only use known parameters within range")
-{
-    for (auto t : allTypes())
-    {
-        CHECK_FALSE (factoryPresets (t).empty());
-
-        for (auto& preset : factoryPresets (t))
-            for (auto p = preset.params.begin(); p != preset.params.end(); ++p)
-            {
-                // 構造化束縛はラムダで捕まえられない（Apple clang）ので、イテレーターで回す
-                const auto key = p.key();
-                const auto& value = p.value();
-                const auto& specs = paramSpecs (t);
-                auto it = std::find_if (specs.begin(), specs.end(), [&] (auto& s) { return s.key == key; });
-                REQUIRE (it != specs.end());
-                CHECK (value.get<double>() >= it->min);
-                CHECK (value.get<double>() <= it->max);
-            }
-    }
-
-    CHECK (tailSeconds (Type::hallReverb, { { "decay", 4.0 }, { "predelay", 100.0 } }) == doctest::Approx (6.1));
-}
-
 TEST_CASE ("noise gate passes loud parts untouched and cuts quiet noise by the range")
 {
     // 0.5 秒の音（-6 dBFS）→ 0.5 秒の小さなノイズ（-60 dBFS、スレッショルド -40 dB より下）
