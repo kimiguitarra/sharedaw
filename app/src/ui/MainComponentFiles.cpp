@@ -46,6 +46,7 @@ void MainComponent::openProjectFolder (const juce::File& folder)
     try
     {
         bridge.stop();
+        saveEditorState();   // 今の曲の作業の状態を残してから開く
         const SyncUI::BusyOverlay busy (this, "曲を開いています…"_ju);
         document.load (folder);
         bridge.sync();   // 音源・プラグインの読み込み（時間がかかる）も、窓を出している間に行う
@@ -55,6 +56,7 @@ void MainComponent::openProjectFolder (const juce::File& folder)
         state.changed();
         bridge.returnToStart();
         restoreTrackInputs();
+        restoreEditorState();
         settings.setValue ("lastProjectDir", folder.getFullPathName());
         ProjectPicker::remember (settings, folder);
         setStatus ("開きました: "_ju + folder.getFullPathName());
@@ -63,6 +65,112 @@ void MainComponent::openProjectFolder (const juce::File& folder)
     {
         Dialogs::showError ("プロジェクトを開けません"_ju, juce::String::fromUTF8 (e.what()));
     }
+}
+
+static juce::String editorStateKey (const collab::Project& p)
+{
+    return p.projectId.empty() ? juce::String() : "editorState_" + toJuce (p.projectId);
+}
+
+juce::String MainComponent::editorStateJson() const
+{
+    // この PC だけの作業の状態（曲ごと）: ロケーター・ループ、クオンタイズ・スナップ、拡大・スクロール、再生位置、トラックの高さ、オートメーションのレーン
+    auto* o = new juce::DynamicObject();
+    o->setProperty ("loopEnabled", state.loopEnabled);
+    o->setProperty ("loopStart", (juce::int64) state.loopStart);
+    o->setProperty ("loopEnd", (juce::int64) state.loopEnd);
+    o->setProperty ("gridDivision", state.grid.division);
+    o->setProperty ("gridTuplet", state.grid.tuplet);
+    o->setProperty ("snap", state.grid.enabled);
+    o->setProperty ("timelineZoom", state.timeline.pixelsPerQuarter);
+    o->setProperty ("timelineScroll", state.timeline.scrollTick);
+    o->setProperty ("pianoZoom", state.pianoRoll.pixelsPerQuarter);
+    o->setProperty ("pianoScroll", state.pianoRoll.scrollTick);
+    o->setProperty ("waveformZoom", state.waveformZoom);
+    o->setProperty ("playhead", state.playheadTick);
+
+    auto* heights = new juce::DynamicObject();
+
+    for (auto& [id, h] : state.trackHeights)
+        heights->setProperty (toJuce (id), h);
+
+    o->setProperty ("trackHeights", juce::var (heights));
+
+    auto* automation = new juce::DynamicObject();
+
+    for (auto& [id, param] : state.automationShown)
+        automation->setProperty (toJuce (id), toJuce (param));
+
+    o->setProperty ("automation", juce::var (automation));
+    return juce::JSON::toString (juce::var (o), true);
+}
+
+void MainComponent::saveEditorState()
+{
+    const auto key = editorStateKey (document.getProject());
+
+    if (key.isEmpty() || ! document.hasLocation())
+        return;
+
+    const auto json = editorStateJson();
+
+    if (json != lastSavedEditorState)
+    {
+        settings.setValue (key, json);
+        lastSavedEditorState = json;
+    }
+}
+
+void MainComponent::restoreEditorState()
+{
+    const auto key = editorStateKey (document.getProject());
+    const auto saved = key.isEmpty() ? juce::var() : juce::JSON::parse (settings.getValue (key));
+    auto* o = saved.getDynamicObject();
+
+    if (o == nullptr)
+    {
+        lastSavedEditorState = editorStateJson();
+        return;
+    }
+
+    auto get = [o] (const char* name, const juce::var& fallback) { return o->hasProperty (name) ? o->getProperty (name) : fallback; };
+
+    state.loopEnabled = (bool) get ("loopEnabled", state.loopEnabled);
+    state.loopStart = (collab::Tick) (juce::int64) get ("loopStart", (juce::int64) state.loopStart);
+    state.loopEnd = (collab::Tick) (juce::int64) get ("loopEnd", (juce::int64) state.loopEnd);
+
+    collab::Grid g = state.grid;
+    g.division = juce::jlimit (1, 128, (int) get ("gridDivision", g.division));
+    g.tuplet = (int) get ("gridTuplet", g.tuplet);
+    state.setQuantise (g);
+    state.setSnapEnabled ((bool) get ("snap", state.grid.enabled));
+
+    state.timeline.pixelsPerQuarter = juce::jlimit (4.0, TimeAxis::maxPixelsPerQuarter, (double) get ("timelineZoom", state.timeline.pixelsPerQuarter));
+    state.timeline.scrollTick = juce::jmax (0.0, (double) get ("timelineScroll", 0.0));
+    state.pianoRoll.pixelsPerQuarter = juce::jlimit (10.0, TimeAxis::maxPixelsPerQuarter, (double) get ("pianoZoom", state.pianoRoll.pixelsPerQuarter));
+    state.pianoRoll.scrollTick = juce::jmax (0.0, (double) get ("pianoScroll", 0.0));
+    lastTimelineZoom = state.timeline.pixelsPerQuarter;   // 開いたときに、タイムラインとピアノロールの拡大を連動させ直さない
+    lastPianoZoom = state.pianoRoll.pixelsPerQuarter;
+    state.waveformZoom = juce::jlimit (1.0f, 64.0f, (float) (double) get ("waveformZoom", 1.0));
+
+    state.trackHeights.clear();
+    state.automationShown.clear();
+
+    if (auto* h = get ("trackHeights", {}).getDynamicObject())
+        for (auto& p : h->getProperties())
+            if (document.getProject().findTrack (p.name.toString().toStdString()) != nullptr)
+                state.trackHeights[p.name.toString().toStdString()] = (int) p.value;
+
+    if (auto* a = get ("automation", {}).getDynamicObject())
+        for (auto& p : a->getProperties())
+            if (document.getProject().findTrack (p.name.toString().toStdString()) != nullptr)
+                state.automationShown[p.name.toString().toStdString()] = p.value.toString().toStdString();
+
+    if (const double playhead = (double) get ("playhead", 0.0); playhead > 0.0)
+        bridge.setPositionTick (playhead);
+
+    state.changed();
+    lastSavedEditorState = editorStateJson();
 }
 
 static juce::String trackInputsKey (const collab::Project& p)
@@ -179,33 +287,38 @@ void MainComponent::importMidi()
     });
 }
 
-void MainComponent::showExportPanel()
+std::unique_ptr<juce::Component> MainComponent::makeExportPanel()
 {
     struct Panel  : public juce::Component
     {
         Panel (MainComponent& o) : owner (o)
         {
-            title.setText ("書き出す形式"_ju, juce::dontSendNotification);
+            title.setText ("形式"_ju, juce::dontSendNotification);
             title.setFont (juce::FontOptions (15.0f, juce::Font::bold));
             addAndMakeVisible (title);
 
             const std::pair<juce::ToggleButton*, juce::String> items[] = {
-                { &wav, "ミックスダウン WAV（48 kHz / 24 bit）"_ju },
-                { &mp3, "ミックスダウン MP3（320 kbps）"_ju },
+                { &wav, "WAV（48 kHz / 24 bit）"_ju },
+                { &mp3, "MP3（320 kbps）"_ju },
                 { &stems, "パラデータ（トラックごとの WAV）"_ju },
-                { &midi, "MIDI ファイル（いつも曲全体）"_ju },
+                { &midi, "MIDI"_ju },
             };
 
             auto& settings = owner.settings;
-            const juce::String keys[] = { "exportWav", "exportMp3", "exportStems", "exportMidi" };
+            const auto format = settings.getValue ("exportFormat", "wav");
+            const juce::String keys[] = { "wav", "mp3", "stems", "midi" };
 
             for (size_t i = 0; i < std::size (items); ++i)
             {
                 items[i].first->setButtonText (items[i].second);
-                items[i].first->setToggleState (settings.getBoolValue (keys[i], i == 0), juce::dontSendNotification);
+                items[i].first->setRadioGroupId (2);
+                items[i].first->setToggleState (format == keys[i], juce::dontSendNotification);
                 items[i].first->onClick = [this] { updateButton(); };
                 addAndMakeVisible (items[i].first);
             }
+
+            if (! (wav.getToggleState() || mp3.getToggleState() || stems.getToggleState() || midi.getToggleState()))
+                wav.setToggleState (true, juce::dontSendNotification);
 
             // 範囲: 左右のロケーター（既定）か、曲全体（最後の音の余韻まで自動）
             rangeTitle.setText ("範囲"_ju, juce::dontSendNotification);
@@ -213,7 +326,7 @@ void MainComponent::showExportPanel()
             addAndMakeVisible (rangeTitle);
 
             useRange.setButtonText ("範囲を指定"_ju);
-            fullSong.setButtonText ("曲全体（自動）"_ju);
+            fullSong.setButtonText ("曲全体"_ju);
 
             for (auto* b : { &useRange, &fullSong })
             {
@@ -228,11 +341,7 @@ void MainComponent::showExportPanel()
             rangeEnd.setText (formatPosition (owner.state.loopEnd));
             rangeTo.setText ("〜"_ju, juce::dontSendNotification);
             rangeTo.setJustificationType (juce::Justification::centred);
-            rangeNote.setText ("小節. 拍. tick（左右のロケーターの位置）"_ju, juce::dontSendNotification);
-            rangeNote.setFont (juce::FontOptions (13.5f));
-            rangeNote.setColour (juce::Label::textColourId, Theme::textDim);
-
-            for (auto* c : std::initializer_list<juce::Component*> { &rangeStart, &rangeEnd, &rangeTo, &rangeNote })
+            for (auto* c : std::initializer_list<juce::Component*> { &rangeStart, &rangeEnd, &rangeTo })
                 addAndMakeVisible (c);
 
             nameTitle.setText ("名前"_ju, juce::dontSendNotification);
@@ -244,14 +353,19 @@ void MainComponent::showExportPanel()
                 addAndMakeVisible (l);
             }
 
-            const auto songName = toJuce (owner.document.getProject().name).trim();
-            name.setText (juce::File::createLegalFileName (songName.isEmpty() ? juce::String ("mixdown") : songName));
+            // 名前と保存先は曲ごとに、この PC で前回のものを使う（はじめは曲名と、曲のフォルダ）
+            const auto& project = owner.document.getProject();
+            projectKey = toJuce (project.projectId);
+            const auto songName = toJuce (project.name).trim();
+            const auto lastName = settings.getValue ("exportName_" + projectKey);
+            name.setText (lastName.isNotEmpty() ? lastName
+                                                : juce::File::createLegalFileName (songName.isEmpty() ? juce::String ("mixdown") : songName));
             addAndMakeVisible (name);
 
-            folder = juce::File (settings.getValue ("exportFolder"));
+            folder = juce::File (settings.getValue ("exportFolder_" + projectKey));
 
             if (! folder.isDirectory())
-                folder = owner.document.hasLocation() ? owner.document.getProjectDir().getParentDirectory()
+                folder = owner.document.hasLocation() ? owner.document.getProjectDir()
                                                       : juce::File::getSpecialLocation (juce::File::userMusicDirectory);
 
             folderLabel.setColour (juce::Label::textColourId, Theme::textDim);
@@ -279,23 +393,25 @@ void MainComponent::showExportPanel()
             exportButton.onClick = [this]
             {
                 auto& st = owner.settings;
-                st.setValue ("exportWav", wav.getToggleState());
-                st.setValue ("exportMp3", mp3.getToggleState());
-                st.setValue ("exportStems", stems.getToggleState());
-                st.setValue ("exportMidi", midi.getToggleState());
-                st.setValue ("exportFolder", folder.getFullPathName());
+                st.setValue ("exportFormat", wav.getToggleState() ? "wav" : mp3.getToggleState() ? "mp3" : stems.getToggleState() ? "stems" : "midi");
                 st.setValue ("exportFullSong", fullSong.getToggleState());
+
+                if (projectKey.isNotEmpty())
+                {
+                    st.setValue ("exportName_" + projectKey, name.getText().trim());
+                    st.setValue ("exportFolder_" + projectKey, folder.getFullPathName());
+                }
 
                 // 範囲（指定するとき）
                 std::optional<Export::Range> range;
 
-                if (useRange.getToggleState())
+                if (useRange.getToggleState() && ! midi.getToggleState())
                 {
                     const auto from = parsePosition (rangeStart.getText()), to = parsePosition (rangeEnd.getText());
 
                     if (! from || ! to || *to <= *from)
                     {
-                        Dialogs::showError ("書き出し"_ju, "範囲を「小節. 拍. tick」で入れてください（終わりは始まりより後）。"_ju);
+                        Dialogs::showError ("書き出し"_ju, "範囲の終わりは始まりより後にしてください。"_ju);
                         return;
                     }
 
@@ -327,7 +443,7 @@ void MainComponent::showExportPanel()
             addAndMakeVisible (cancelButton);
 
             updateButton();
-            setSize (480, 440);
+            setSize (460, 400);
         }
 
         juce::String formatPosition (collab::Tick t) const
@@ -359,10 +475,14 @@ void MainComponent::showExportPanel()
 
         void updateButton()
         {
-            rangeStart.setEnabled (useRange.getToggleState());
-            rangeEnd.setEnabled (useRange.getToggleState());
+            // MIDI はいつも曲全体なので、範囲は選べない
+            const bool rangeApplies = ! midi.getToggleState();
 
-            exportButton.setEnabled (wav.getToggleState() || mp3.getToggleState() || stems.getToggleState() || midi.getToggleState());
+            for (auto* c : std::initializer_list<juce::Component*> { &useRange, &fullSong, &rangeTo })
+                c->setEnabled (rangeApplies);
+
+            rangeStart.setEnabled (rangeApplies && useRange.getToggleState());
+            rangeEnd.setEnabled (rangeApplies && useRange.getToggleState());
         }
 
         void resized() override
@@ -382,7 +502,6 @@ void MainComponent::showExportPanel()
             rangeStart.setBounds (fields.removeFromLeft (110).reduced (0, 2));
             rangeTo.setBounds (fields.removeFromLeft (30));
             rangeEnd.setBounds (fields.removeFromLeft (110).reduced (0, 2));
-            rangeNote.setBounds (area.removeFromTop (20).withTrimmedLeft (30));
 
             area.removeFromTop (10);
             auto row = area.removeFromTop (28);
@@ -401,7 +520,8 @@ void MainComponent::showExportPanel()
         }
 
         MainComponent& owner;
-        juce::Label title, nameTitle, folderTitle, folderLabel, rangeTitle, rangeTo, rangeNote;
+        juce::Label title, nameTitle, folderTitle, folderLabel, rangeTitle, rangeTo;
+        juce::String projectKey;
         juce::ToggleButton useRange, fullSong;
         juce::TextEditor rangeStart, rangeEnd;
         juce::ToggleButton wav, mp3, stems, midi;
@@ -410,8 +530,13 @@ void MainComponent::showExportPanel()
         juce::File folder;
     };
 
+    return std::make_unique<Panel> (*this);
+}
+
+void MainComponent::showExportPanel()
+{
     juce::DialogWindow::LaunchOptions o;
-    o.content.setOwned (new Panel (*this));
+    o.content.setOwned (makeExportPanel().release());
     o.dialogTitle = "書き出し"_ju;
     o.dialogBackgroundColour = Theme::panel;
     o.escapeKeyTriggersCloseButton = true;

@@ -10,6 +10,7 @@
 #include "ui/PianoRoll.h"
 #include "ui/PianoRollPage.h"
 #include "ui/SyncPanel.h"
+#include "ui/SyncUI.h"
 #include "ui/TimelineView.h"
 #include "ui/TransportBar.h"
 #include "collab/ProjectDiff.h"
@@ -111,9 +112,14 @@ private:
     void showShortcuts();
 
     // アプリの更新（MainComponentUpdate.cpp）
-    void checkForUpdates (bool interactive);
-    void offerUpdate (const Updater::Info&, bool interactive);
-    void installUpdate (const Updater::Info&);
+    /**
+        更新を確認する。then があれば（起動時）、確認の間はくるくるを出し、更新しなかったときに then を呼ぶ
+        （更新したらそのまま再起動する。曲を選ぶ前に済ませる）。
+    */
+    void checkForUpdates (bool interactive, std::function<void()> then = {});
+    void offerUpdate (const Updater::Info&, bool interactive, std::function<void()> then = {});
+    void installUpdate (const Updater::Info&, std::function<void()> then = {});
+    std::unique_ptr<SyncUI::BusyOverlay> updateBusy;
     std::atomic<bool> updateCheckRunning { false };
     std::unique_ptr<juce::DocumentWindow> mixerWindow;
     void openChannelStrip (const std::string& trackId, bool compressor);
@@ -128,6 +134,7 @@ private:
     void openMaster();
     /** 書き出し: パネルで形式（WAV・MP3・パラデータ・MIDI。いくつでも）と保存先・名前を選んで書き出す。 */
     void showExportPanel();
+    std::unique_ptr<juce::Component> makeExportPanel();
     void showAudioFiles();
 
     /** そのトラックを最後にアップした人・日時（サーバーの履歴をたどる）。 */
@@ -156,6 +163,12 @@ private:
     /** オーディオトラックの入力の割り当て（この PC の設定。曲ごと）を保存する・曲を開いたときに戻す。 */
     void saveTrackInputs();
     void restoreTrackInputs();
+    /** 曲ごとの、この PC だけの作業の状態（ロケーター・クオンタイズ・拡大など）を保存する・戻す。 */
+    void saveEditorState();
+    void restoreEditorState();
+    juce::String editorStateJson() const;
+    juce::String lastSavedEditorState;
+    juce::uint32 lastEditorStateCheck = 0;
     bool restoringInputs = false;
     void showPluginManager();
     PluginWindows pluginWindows;
@@ -169,6 +182,8 @@ private:
 public:
     /** 「楽曲を選ぶ」画面（起動時にも出す）。 */
     void showProjectPicker();
+    /** 起動したとき: 先に新しいバージョンがあるかを確かめ（更新したらそのまま再起動）、それから曲を選ぶ画面を出す。 */
+    void showStartup();
     void showStretchSongDialog();
 
 private:

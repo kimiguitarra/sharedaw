@@ -204,18 +204,13 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     startTimerHz (30);
     setSize (1400, 860);
 
-    // 前回の更新の後片付けと、更新の確認（起動が落ち着いてから）
-    juce::Timer::callAfterDelay (4000, [safe = juce::Component::SafePointer<MainComponent> (this)]
-    {
-        Updater::cleanUpPreviousUpdate();
-
-        if (safe != nullptr)
-            safe->checkForUpdates (false);
-    });
+    // 前回の更新の後片付け（更新の確認は、起動して曲を選ぶ前に行う: showStartup）
+    juce::Timer::callAfterDelay (4000, [] { Updater::cleanUpPreviousUpdate(); });
 }
 
 MainComponent::~MainComponent()
 {
+    saveEditorState();
     eqWindow = nullptr;
     compWindow = nullptr;
     mixerWindow = nullptr;
@@ -654,6 +649,27 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
         ok = ok && rangeOk;
 
         std::cout << "export panel: " << (ok ? "ok" : "FAILED " + failed.joinIntoString ("; ")) << std::endl;
+
+        // 確認用: 書き出しのパネルの画面
+        if (const auto shots = juce::SystemStats::getEnvironmentVariable ("SHAREDAW_SMOKE_SHOTS", {}); shots.isNotEmpty())
+        {
+            auto panel = m.makeExportPanel();
+            juce::FileOutputStream out (juce::File (shots).getChildFile ("export.png"));
+            out.setPosition (0);
+            out.truncate();
+            juce::PNGImageFormat().writeImageToStream (panel->createComponentSnapshot (panel->getLocalBounds()), out);
+        }
+
+        // 確認用: 曲を選ぶ画面（「開く」の文字の読みやすさ）
+        if (const auto shots = juce::SystemStats::getEnvironmentVariable ("SHAREDAW_SMOKE_SHOTS", {}); shots.isNotEmpty())
+        {
+            ProjectPicker picker (m.sync, m.settings, m.document.getProjectDir(), {});
+            picker.setSize (760, 520);
+            juce::FileOutputStream out (juce::File (shots).getChildFile ("picker.png"));
+            out.setPosition (0);
+            out.truncate();
+            juce::PNGImageFormat().writeImageToStream (picker.createComponentSnapshot (picker.getLocalBounds()), out);
+        }
         dir.deleteRecursively();
     }, "export" });
     steps->push_back ({ 100, [] (MainComponent& m)
@@ -939,6 +955,13 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
 
 void MainComponent::timerCallback()
 {
+    // 作業の状態（ロケーター・クオンタイズなど）は、変わっていたら 2 秒おきに保存する
+    if (const auto now = juce::Time::getMillisecondCounter(); now - lastEditorStateCheck > 2000)
+    {
+        lastEditorStateCheck = now;
+        saveEditorState();
+    }
+
     // タイムラインとピアノロールの横の拡大・縮小を連動させる（どちらかを変えたら、もう片方も同じ倍率で）
     {
         auto& tl = state.timeline.pixelsPerQuarter;

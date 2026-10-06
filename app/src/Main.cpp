@@ -1342,7 +1342,7 @@ private:
 
     void openLastProject()
     {
-        mainComponent->showProjectPicker();
+        mainComponent->showStartup();
     }
 
     /** 初回起動時、デバイスが対応していれば 48kHz にする（プロジェクトは 48kHz 固定、§8.1）。 */

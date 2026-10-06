@@ -338,12 +338,71 @@ juce::Font LookAndFeel::getTextButtonFont (juce::TextButton&, int buttonHeight)
     return juce::FontOptions (juce::jmin (16.5f, (float) buttonHeight * 0.68f));
 }
 
+void LookAndFeel::drawToggleButton (juce::Graphics& g, juce::ToggleButton& button, bool highlighted, bool down)
+{
+    // ラジオボタン（どれか 1 つを選ぶもの）は丸、チェックボックスは四角（JUCE の既定）
+    if (button.getRadioGroupId() == 0)
+        return juce::LookAndFeel_V4::drawToggleButton (g, button, highlighted, down);
+
+    const float fontSize = juce::jmin (15.0f, (float) button.getHeight() * 0.75f);
+    const float size = juce::jmin (16.0f, (float) button.getHeight() - 4.0f);
+    const auto circle = juce::Rectangle<float> (4.0f, ((float) button.getHeight() - size) * 0.5f, size, size);
+
+    g.setColour (button.isEnabled() ? text.withAlpha (highlighted ? 0.9f : 0.65f) : text.withAlpha (0.3f));
+    g.drawEllipse (circle.reduced (0.75f), 1.5f);
+
+    if (button.getToggleState())
+    {
+        g.setColour (button.isEnabled() ? accent : accent.withAlpha (0.4f));
+        g.fillEllipse (circle.reduced (size * 0.27f));
+    }
+
+    g.setColour (button.findColour (juce::ToggleButton::textColourId).withMultipliedAlpha (button.isEnabled() ? 1.0f : 0.5f));
+    g.setFont (fontSize);
+    g.drawFittedText (button.getButtonText(), button.getLocalBounds().withTrimmedLeft (juce::roundToInt (size) + 10).withTrimmedRight (2),
+                      juce::Justification::centredLeft, 10);
+}
+
+void LookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& button, bool, bool)
+{
+    const bool on = button.getToggleState();
+    auto colour = button.findColour (on ? juce::TextButton::textColourOnId : juce::TextButton::textColourOffId);
+
+    // 色を付けたボタン（青い「開く」など）は、地の色で文字が読みにくくならないように、地の明るさで白か黒にする
+    const auto background = button.findColour (on ? juce::TextButton::buttonOnColourId : juce::TextButton::buttonColourId);
+    const bool plain = background == findColour (juce::TextButton::buttonColourId);
+
+    if (! plain && button.isEnabled() && background.getFloatAlpha() > 0.6f)
+    {
+        const auto fill = light ? background.interpolatedWith (panel, on ? 0.0f : 0.15f) : background;
+
+        if (std::abs (fill.getPerceivedBrightness() - colour.getPerceivedBrightness()) < 0.45f)
+            colour = fill.getPerceivedBrightness() < 0.55f ? juce::Colours::white : juce::Colour (0xff1d1f23);
+    }
+
+    const auto font = getTextButtonFont (button, button.getHeight());
+    g.setFont (font);
+    g.setColour (colour.withMultipliedAlpha (button.isEnabled() ? 1.0f : 0.5f));
+
+    const int yIndent = juce::jmin (4, button.proportionOfHeight (0.3f));
+    const int cornerSize = juce::jmin (button.getHeight(), button.getWidth()) / 2;
+    const int fontHeight = juce::roundToInt (font.getHeight() * 0.6f);
+    const int leftIndent = juce::jmin (fontHeight, 2 + cornerSize / (button.isConnectedOnLeft() ? 4 : 2));
+    const int rightIndent = juce::jmin (fontHeight, 2 + cornerSize / (button.isConnectedOnRight() ? 4 : 2));
+    const int textWidth = button.getWidth() - leftIndent - rightIndent;
+
+    if (textWidth > 0)
+        g.drawFittedText (button.getButtonText(), leftIndent, yIndent, textWidth, button.getHeight() - yIndent * 2,
+                          juce::Justification::centred, 2);
+}
+
 void LookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& b, const juce::Colour& backgroundColour,
                                         bool highlighted, bool down)
 {
     auto r = b.getLocalBounds().toFloat().reduced (1.0f, 1.5f);
     const float radius = juce::jmin (r.getHeight() * 0.5f, 10.0f);
-    const bool plain = backgroundColour == findColour (juce::TextButton::buttonColourId);   // 色を指定していないボタン
+    // 色を指定していないボタン。色付きのボタンも、押せないときはふつうのボタンと同じ地にする（色の上の薄い文字は読みにくい）
+    const bool plain = backgroundColour == findColour (juce::TextButton::buttonColourId) || ! b.isEnabled();
 
     // ライト: ニューモーフィズム（浮き上がったボタン、押している・オンのときは凹む）。
     // 影がボタンの外にはみ出すと四角く切れるので、影の分だけ内側に描く

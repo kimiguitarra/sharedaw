@@ -5,11 +5,13 @@
 #include "Dialogs.h"
 #include "sync/SyncManager.h"
 
-void MainComponent::checkForUpdates (bool interactive)
+void MainComponent::checkForUpdates (bool interactive, std::function<void()> then)
 {
+    auto proceed = [then] { if (then) then(); };
+
     // 起動時の自動確認は、CI でビルドしたアプリ（ビルド番号あり）で、同期サーバーを設定済みのときだけ
     if (! interactive && Updater::currentBuild() <= 0)
-        return;
+        return proceed();
 
     if (! sync.hasCredentials())
     {
@@ -17,32 +19,36 @@ void MainComponent::checkForUpdates (bool interactive)
             Dialogs::showInfo ("アップデート"_ju,
                                "アップデートは同期サーバーから配信されます。\n"_ju
                                "同期 → サーバー設定… でサーバーの URL とトークンを設定してから、もう一度お試しください。"_ju);
-        return;
+        return proceed();
     }
 
     if (updateCheckRunning.exchange (true))
-        return;
+        return proceed();
+
+    if (then)
+        updateBusy = std::make_unique<SyncUI::BusyOverlay> (this, "新しいバージョンを確認しています…"_ju);
 
     auto client = sync.makeClient();
     juce::Component::SafePointer<MainComponent> safe (this);
 
-    juce::Thread::launch ([client, safe, interactive]
+    juce::Thread::launch ([client, safe, interactive, then, proceed]
     {
         std::optional<Updater::Info> info;
         auto result = Updater::fetchLatest (client, info);
 
-        juce::MessageManager::callAsync ([safe, interactive, result, info]
+        juce::MessageManager::callAsync ([safe, interactive, result, info, then, proceed]
         {
             if (safe == nullptr)
                 return;
 
             safe->updateCheckRunning = false;
+            safe->updateBusy = nullptr;
 
             if (result.failed())
             {
                 if (interactive)
                     Dialogs::showError ("アップデート"_ju, "更新を確認できませんでした: "_ju + result.getErrorMessage());
-                return;
+                return proceed();
             }
 
             const int current = Updater::currentBuild();
@@ -53,19 +59,19 @@ void MainComponent::checkForUpdates (bool interactive)
                     Dialogs::showInfo ("アップデート"_ju,
                                        ! info ? "配信されている更新はまだありません。"_ju
                                               : "最新のバージョンです（"_ju + Updater::versionText (current) + "）。"_ju);
-                return;
+                return proceed();
             }
 
             // 自動の確認では「このバージョンをスキップ」したものは聞かない
             if (! interactive && safe->settings.getIntValue ("skippedUpdateBuild") == info->build)
-                return;
+                return proceed();
 
-            safe->offerUpdate (*info, interactive);
+            safe->offerUpdate (*info, interactive, then);
         });
     });
 }
 
-void MainComponent::offerUpdate (const Updater::Info& info, bool interactive)
+void MainComponent::offerUpdate (const Updater::Info& info, bool interactive, std::function<void()> then)
 {
     const int current = Updater::currentBuild();
     auto message = "新しいバージョンがあります。\n\n"_ju
@@ -92,20 +98,24 @@ void MainComponent::offerUpdate (const Updater::Info& info, bool interactive)
 
     juce::Component::SafePointer<MainComponent> safe (this);
 
-    juce::AlertWindow::showAsync (options, [safe, info, interactive] (int result)
+    juce::AlertWindow::showAsync (options, [safe, info, interactive, then] (int result)
     {
         if (safe == nullptr)
             return;
 
         // 結果は 1, 2, …、最後のボタン（あとで）は 0
         if (result == 1)
-            safe->installUpdate (info);
-        else if (result == 2 && ! interactive)
+            return safe->installUpdate (info, then);
+
+        if (result == 2 && ! interactive)
             safe->settings.setValue ("skippedUpdateBuild", info.build);
+
+        if (then)
+            then();
     });
 }
 
-void MainComponent::installUpdate (const Updater::Info& info)
+void MainComponent::installUpdate (const Updater::Info& info, std::function<void()> then)
 {
     struct Task  : public juce::ThreadWithProgressWindow
     {
@@ -137,10 +147,22 @@ void MainComponent::installUpdate (const Updater::Info& info)
     {
         Dialogs::showError ("アップデート"_ju, "更新できませんでした。\n"_ju + task.result.getErrorMessage()
                                                  + "\n\n今のバージョンはそのまま使えます。"_ju);
+
+        if (then)
+            then();
+
         return;
     }
 
     settings.removeValue ("skippedUpdateBuild");
+
+    // 起動時（まだ曲を開いていない）: そのまま再起動する
+    if (then)
+    {
+        Updater::requestRelaunch();
+        juce::JUCEApplication::getInstance()->systemRequestedQuit();
+        return;
+    }
 
     Dialogs::confirm ("アップデート"_ju,
                       Updater::versionText (info.build) + " に更新しました。\n再起動すると新しいバージョンになります。今すぐ再起動しますか？"_ju,
@@ -151,4 +173,13 @@ void MainComponent::installUpdate (const Updater::Info& info)
                           juce::JUCEApplication::getInstance()->systemRequestedQuit();
                       },
                       this);
+}
+
+void MainComponent::showStartup()
+{
+    checkForUpdates (false, [safe = juce::Component::SafePointer<MainComponent> (this)]
+    {
+        if (safe != nullptr)
+            safe->showProjectPicker();
+    });
 }
