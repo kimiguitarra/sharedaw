@@ -45,6 +45,25 @@ void confirm (const juce::String& title, const juce::String& message, const juce
     });
 }
 
+void askChoice (const juce::String& title, const juce::String& message, const juce::StringArray& buttons,
+                std::function<void (int)> onResult, juce::Component* associated)
+{
+    auto* window = new juce::AlertWindow (title, message, juce::MessageBoxIconType::QuestionIcon, associated);
+
+    for (int i = 0; i < buttons.size(); ++i)
+        window->addButton (buttons[i], i + 1, {}, i == buttons.size() - 1 ? juce::KeyPress (juce::KeyPress::escapeKey) : juce::KeyPress());
+
+    for (int i = 0; i < window->getNumButtons(); ++i)
+        if (auto* b = window->getButton (i))
+            b->setWantsKeyboardFocus (false);
+
+    window->enterModalState (true, juce::ModalCallbackFunction::create ([onResult = std::move (onResult)] (int result)
+    {
+        if (onResult)
+            onResult (result);
+    }), true);
+}
+
 void askSaveChanges (const juce::String& message, std::function<void (int)> onResult)
 {
     auto options = juce::MessageBoxOptions::makeOptionsYesNoCancel (juce::MessageBoxIconType::QuestionIcon,

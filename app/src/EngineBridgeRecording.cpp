@@ -508,7 +508,7 @@ void EngineBridge::deliverRecordings()
     if (! edit->getTransport().isRecording())
     {
         for (auto& [id, b] : bindings)
-            b.clipsKey = {};
+            b.clipsValid = false;
 
         sync();
     }

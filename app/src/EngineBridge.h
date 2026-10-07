@@ -259,6 +259,10 @@ public:
     void sync();
 
 private:
+    // trackFingerprint の結果（トラックの内容とプラグインの状態ファイルの日付・大きさが同じなら計算し直さない。
+    // 状態ファイルは大きいことがあり、画面を描くたびに読んでハッシュを取ると重かった）
+    struct FingerprintCache { collab::Track track; std::string stamp, fingerprint; };
+    mutable std::map<std::string, FingerprintCache> fingerprintCache;
     /** トラックの音量メーター（ミキサー用）。トラックを消す前に外す。 */
     struct Meter
     {
@@ -282,7 +286,12 @@ private:
         ChannelStripPlugin* stripWithEq() const     { return stripEqPre ? stripPre : strip; }
         bool stripCompPre = false, stripEqPre = false;
         juce::String sfzText;
-        std::string clipsKey;
+        // いま鳴らしているクリップの元（同じなら作り直さない）。clipsValid = false で次の sync() で作り直す
+        std::vector<collab::MidiClip> syncedMidiClips;
+        std::vector<collab::AudioClip> syncedAudioClips;
+        std::optional<collab::Render> syncedRender;
+        bool syncedRenderMode = false, clipsValid = false;
+        std::optional<collab::Instrument> syncedInstrument;   // 内蔵音源の SFZ を作ったときの設定
         std::string automationKey;   // 音量・パンのオートメーション（変わったときだけ作り直す）
         juce::uint32 clipsRebuiltAt = 0;   // クリップを作り直した時刻（直後の試し弾きは少し待つ）
         juce::String problem;
@@ -346,6 +355,8 @@ private:
     SfizzPlugin* chordSynth = nullptr;
     juce::String chordSfzText;
     std::string chordKey;
+    std::vector<collab::ChordEvent> syncedChords;   // コードの MIDI を作ったときのコードと曲の長さ
+    collab::Tick syncedContentEnd = -1;
 
     // 曲の音がまとまるミックスバス（マスターのリミッターとラウドネス計測。メトロノームは通さない）
     te::AudioTrack::Ptr mixTrack;

@@ -16,6 +16,12 @@ namespace AppPaths
     */
     bool isSafeRelativePath (const juce::String& path);
 
+    /**
+        アプリのデータフォルダの記録ファイル（sync.log など）に 1 行足す（時刻付き。どのスレッドからでもよい）。
+        1 MB を超えたら作り直す。落ちたり失敗したりしたときに、どこまで進んだか分かるように。
+    */
+    void appendLog (const juce::String& fileName, const juce::String& text);
+
     /** 一時ファイルに書いてから置き換える（途中で落ちても壊れたファイルを残さない）。 */
     juce::Result writeFileAtomically (const juce::File& target, const void* data, size_t size);
 }

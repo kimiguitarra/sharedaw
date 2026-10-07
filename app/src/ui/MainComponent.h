@@ -44,6 +44,9 @@ public:
     */
     void runSmokeSteps (const juce::File& project, std::function<void()> done);
 
+    /** 動作の重さを測る（--perf-test）: 待機・再生・編集しながら再生・ミキサーを開いて再生の、CPU 時間と画面の間隔を出す。 */
+    void runPerfTest (const juce::File& project, std::function<void()> done);
+
     juce::ApplicationCommandManager& getCommandManager()     { return commandManager; }
 
     /** ウィンドウタイトルの更新用。 */
@@ -174,6 +177,9 @@ private:
     juce::String editorStateJson() const;
     juce::String lastSavedEditorState;
     juce::uint32 lastEditorStateCheck = 0;
+    bool commandsDirty = false;
+    std::function<void()> perfFrame;   // 重さの計測中は、画面の更新（タイマー）ごとに呼ぶ
+    juce::uint32 lastCommandUpdate = 0;
     bool restoringInputs = false;
     void showPluginManager();
     PluginWindows pluginWindows;

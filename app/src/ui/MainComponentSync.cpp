@@ -1,6 +1,7 @@
 // MainComponent の同期まわり（仕様書 §4）。
 
 #include "MainComponent.h"
+#include "AppPaths.h"
 #include "collab/Render.h"
 
 #include "Dialogs.h"
@@ -393,8 +394,12 @@ void MainComponent::uploadFromPanel (const std::set<std::string>& excluded, cons
 
         if (result == 1)
             for (auto& id : toBounce)
+            {
+                AppPaths::appendLog ("sync.log", "bounce " + toJuce (id));
+
                 if (auto r = safe->ctx.bounceTrackNow (id); r.failed())
                     return Dialogs::showError ("バウンスできませんでした"_ju, r.getErrorMessage());
+            }
 
         safe->uploadAfterBounce (excluded, message, choices);
     });
@@ -421,6 +426,8 @@ void MainComponent::uploadAfterBounce (const std::set<std::string>& excluded, co
     if (scopes.empty())
         return setStatus ("アップする変更はありません"_ju);
 
+    AppPaths::appendLog ("sync.log", "upload: " + juce::String ((int) scopes.size()) + " scopes, "
+                                       + juce::String ((int) document.getProject().tracks.size()) + " tracks");
     auto plan = std::make_shared<SyncManager::UploadPlan>();
     const auto snapshot = document.getProject();
     auto r = SyncUI::runWithProgress ("サーバーを確認しています"_ju, [&] { return sync.fetchUploadPlan (snapshot, scopes, *plan); });

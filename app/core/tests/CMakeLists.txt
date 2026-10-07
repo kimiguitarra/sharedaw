@@ -10,6 +10,7 @@ add_executable(collab_core_tests
     StretchTests.cpp
     GridTests.cpp
     ProjectDiffTests.cpp
+    ProjectHistoryTests.cpp
     ProjectJsonTests.cpp
     RecordingTests.cpp
     RenderTests.cpp

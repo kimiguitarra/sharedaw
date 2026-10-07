@@ -4,6 +4,7 @@
 
 #include "Common.h"
 #include "collab/Project.h"
+#include "collab/ProjectHistory.h"
 #include "collab/TempoMap.h"
 
 /**
@@ -87,9 +88,13 @@ public:
 private:
     struct UndoEntry
     {
-        collab::Project before;
+        collab::ProjectDelta delta;   // 変わったトラックだけ（曲全体の写しは持たない）
         juce::String description;
     };
+
+    // 自動保存は別のスレッドで書く（大きな曲を書き出す間、画面が止まらないように）
+    juce::ThreadPool autosavePool { 1 };
+    std::shared_ptr<std::atomic<bool>> alive = std::make_shared<std::atomic<bool>> (true);
 
     collab::Project project;
     collab::TempoMap tempoMap;

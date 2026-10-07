@@ -786,12 +786,19 @@ void SyncPanel::visibilityChanged()
 
 void SyncPanel::changeListenerCallback (juce::ChangeBroadcaster*)
 {
-    dirty = true;   // 編集のたびに計算し直すと重いので、タイマーでまとめて
+    // 編集のたびに計算し直すと重いので、タイマーでまとめて（編集が続いている間は 3 秒に 1 回まで）
+    if (! dirty)
+        dirtySince = juce::Time::getMillisecondCounter();
+
+    dirty = true;
+    lastChange = juce::Time::getMillisecondCounter();
 }
 
 void SyncPanel::timerCallback()
 {
-    if (dirty || ++ticks >= 30)
+    const auto now = juce::Time::getMillisecondCounter();
+
+    if ((dirty && (now - lastChange > 600 || now - dirtySince > 3000)) || ++ticks >= 30)
         rebuild();
 }
 

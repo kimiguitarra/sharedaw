@@ -224,12 +224,16 @@ void TrackLanes::paint (juce::Graphics& g)
 
     g.fillAll (Theme::background);
 
+    // 描き直す範囲（再生位置の線が動いたときなどは細い帯だけ）の外は計算しない
+    const auto dirty = g.getClipBounds();
+    const float dirtyLeft = (float) dirty.getX() - 2.0f, dirtyRight = (float) dirty.getRight() + 2.0f;
+
     for (size_t i = 0; i < project.tracks.size(); ++i)
     {
         const auto& t = project.tracks[i];
         const auto row = juce::Rectangle<int> (0, rowTop ((int) i) - scrollY, getWidth(), rowHeightAt ((int) i));
 
-        if (row.getHeight() <= 0 || row.getBottom() < 0 || row.getY() > getHeight())
+        if (row.getHeight() <= 0 || ! row.intersects (dirty))
             continue;
 
         const auto laneColour = t.id == ctx.state.selectedTrackId ? Theme::lane.brighter (0.06f) : (i % 2 ? Theme::laneAlt : Theme::lane);
@@ -247,7 +251,7 @@ void TrackLanes::paint (juce::Graphics& g)
             const float x1 = (float) axis.tickToX ((double) c.startTick);
             const float x2 = (float) axis.tickToX ((double) c.endTick());
 
-            if (x2 < 0 || x1 > (float) getWidth())
+            if (x2 < dirtyLeft || x1 > dirtyRight)
                 continue;
 
             paintMidiClip (g, c, juce::Rectangle<float> (x1, (float) lane.getY() + 3.0f, x2 - x1, (float) lane.getHeight() - 7.0f),
@@ -261,7 +265,7 @@ void TrackLanes::paint (juce::Graphics& g)
             const float x1 = (float) axis.tickToX ((double) c.startTick);
             const float x2 = (float) axis.tickToX ((double) collab::audioClipEndTick (c, map));
 
-            if (x2 < 0 || x1 > (float) getWidth())
+            if (x2 < dirtyLeft || x1 > dirtyRight)
                 continue;
 
             const auto r = juce::Rectangle<float> (x1, (float) lane.getY() + 3.0f, juce::jmax (2.0f, x2 - x1), (float) lane.getHeight() - 7.0f);
@@ -445,6 +449,7 @@ void TrackLanes::paintMidiClip (juce::Graphics& g, const collab::MidiClip& c, ju
     const float range = (float) juce::jmax (12, hi - lo + 1);
     const auto inner = r.reduced (2.0f, 4.0f);
     const auto& axis = this->axis();
+    const auto dirty = g.getClipBounds().toFloat();
 
     g.setColour (colour.brighter (0.6f));
 
@@ -455,6 +460,10 @@ void TrackLanes::paintMidiClip (juce::Graphics& g, const collab::MidiClip& c, ju
 
         const float x1 = (float) axis.tickToX ((double) (c.startTick + juce::jmax<collab::Tick> (0, n.tick)));
         const float x2 = (float) axis.tickToX ((double) juce::jmin (c.startTick + n.endTick(), c.endTick()));
+
+        if (x2 < dirty.getX() - 2.0f || x1 > dirty.getRight() + 2.0f)
+            continue;
+
         const float y = inner.getBottom() - ((float) (n.pitch - lo) + 0.5f) / range * inner.getHeight();
         g.fillRect (juce::Rectangle<float> (x1, y - 1.0f, juce::jmax (1.5f, x2 - x1), 2.5f));
     }

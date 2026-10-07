@@ -979,7 +979,7 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
         }
 
         updateTitle();
-        commandManager.commandStatusChanged();
+        commandsDirty = true;   // メニューの状態（元に戻すなど）は、まとめて後で（編集のたびにメニューを作り直すと重い）
 
         // 外部プラグインのトラックをバウンスしたトラックは、持ち主の PC では表示しない（元のトラックで編集・再生する）
         std::set<std::string> hidden;
@@ -1046,6 +1046,17 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
 
 void MainComponent::timerCallback()
 {
+    if (perfFrame)
+        perfFrame();
+
+    // メニューの状態の更新は 0.3 秒に 1 回まで（macOS ではメニューバーを丸ごと作り直すため）
+    if (commandsDirty && juce::Time::getMillisecondCounter() - lastCommandUpdate > 300)
+    {
+        commandsDirty = false;
+        lastCommandUpdate = juce::Time::getMillisecondCounter();
+        commandManager.commandStatusChanged();
+    }
+
     // 作業の状態（ロケーター・クオンタイズなど）は、変わっていたら 2 秒おきに保存する
     if (const auto now = juce::Time::getMillisecondCounter(); now - lastEditorStateCheck > 2000)
     {

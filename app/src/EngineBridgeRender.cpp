@@ -219,7 +219,30 @@ juce::Result EngineBridge::renderOneTrack (const std::string& trackId, const juc
 std::string EngineBridge::trackFingerprint (const collab::Track& t) const
 {
     const auto dir = document.getProjectDir();
-    return collab::trackSourceFingerprint (t, [dir] (const std::string& ref) { return PluginHost::stateHash (dir, ref); });
+
+    // プラグインの状態ファイルの日付と大きさ（中身が変われば変わる）
+    std::string stamp = dir.getFullPathName().toStdString();
+    auto addStamp = [&] (const std::string& ref)
+    {
+        if (ref.empty())
+            return;
+
+        const auto f = PluginHost::stateFile (dir, ref);
+        stamp += "|" + ref + ":" + std::to_string (f.getLastModificationTime().toMilliseconds()) + ":" + std::to_string (f.getSize());
+    };
+
+    if (t.instrument)
+        addStamp (t.instrument->stateRef);
+
+    for (auto& e : t.effects)
+        addStamp (e.stateRef);
+
+    if (auto it = fingerprintCache.find (t.id); it != fingerprintCache.end() && it->second.stamp == stamp && it->second.track == t)
+        return it->second.fingerprint;
+
+    auto fp = collab::trackSourceFingerprint (t, [dir] (const std::string& ref) { return PluginHost::stateHash (dir, ref); });
+    fingerprintCache[t.id] = { t, stamp, fp };
+    return fp;
 }
 
 juce::Result EngineBridge::bounceTrack (const std::string& trackId, collab::Render& result, collab::SampleCount& lengthSamples)

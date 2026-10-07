@@ -11,6 +11,8 @@
 
 namespace
 {
+    void syncLog (const juce::String& text)   { AppPaths::appendLog ("sync.log", text); }
+
     juce::File collabDir (const juce::File& projectDir)   { return projectDir.getChildFile (".collab"); }
 
     std::vector<std::string> referencedAudio (const collab::Project& p)
@@ -413,7 +415,10 @@ juce::Result SyncManager::uploadMissingBlobs (const SyncClient& client, const st
     auto check = client.post ("/blobs/check", { { "hashes", list } });
 
     if (! check.ok())
+    {
+        syncLog ("blobs/check failed: " + check.message());
         return juce::Result::fail (check.message());
+    }
 
     // 送るものの一覧と合計サイズ（進み具合の表示用）
     struct Item { TransferUrl url; juce::File file; const std::string* inlineText = nullptr; juce::int64 size = 0; };
@@ -446,10 +451,13 @@ juce::Result SyncManager::uploadMissingBlobs (const SyncClient& client, const st
 
     juce::int64 doneBytes = 0;
     int index = 0;
+    syncLog ("upload " + juce::String ((int) items.size()) + " files, " + megabytes (totalBytes));
 
     for (auto& item : items)
     {
         ++index;
+        syncLog ("  " + juce::String (index) + ": " + (item.inlineText != nullptr ? juce::String ("project.json") : item.file.getFileName())
+                 + " (" + megabytes (item.size) + ")");
         juce::MemoryBlock data;
 
         if (item.inlineText != nullptr)
@@ -472,7 +480,10 @@ juce::Result SyncManager::uploadMissingBlobs (const SyncClient& client, const st
             return juce::Result::fail ("中止しました"_ju);
 
         if (auto r = client.uploadBlob (item.url, data, onBytes, &directUploadBroken); r.failed())
+        {
+            syncLog ("  failed: " + r.getErrorMessage());
             return r;
+        }
 
         doneBytes += item.size;
     }
@@ -793,6 +804,7 @@ juce::Result SyncManager::runUpload (const UploadPlan& plan, const juce::String&
     for (auto& id : plan.diff.changedScopeIds)
         changed.push_back (id);
 
+    syncLog ("register revision (parent " + juce::String (meta.baseRevision) + ", " + juce::String ((int) changed.size()) + " scopes)");
     auto r = client.post ("/projects/" + toJuce (meta.projectId) + "/revisions",
                           { { "parentNumber", meta.baseRevision }, { "message", toStd (message) }, { "projectJsonHash", hash },
                             { "changedTrackIds", changed } });
@@ -802,6 +814,7 @@ juce::Result SyncManager::runUpload (const UploadPlan& plan, const juce::String&
                                                                : r.message());
 
     newRevision = r.body.value ("number", meta.baseRevision + 1);
+    syncLog ("uploaded revision " + juce::String (newRevision));
     return juce::Result::ok();
 }
 

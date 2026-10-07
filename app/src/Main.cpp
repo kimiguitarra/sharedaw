@@ -169,6 +169,15 @@ public:
     // コマンドライン操作（--render / --sync-*）は GUI と同時に動かせるようにする
     bool moreThanOneInstanceAllowed() override             { return getCommandLineParameters().isNotEmpty(); }
 
+    /** 落ちたときの記録があれば、その場所の案内（不具合を知らせてもらうとき用）。 */
+    static juce::String crashLogNote()
+    {
+        const auto log = AppPaths::getAppDataDir().getChildFile ("crash.log");
+        return log.existsAsFile() && log.getLastModificationTime() > juce::Time::getCurrentTime() - juce::RelativeTime::days (1)
+                 ? "\n\n落ちたときの記録: "_ju + log.getFullPathName()
+                 : juce::String();
+    }
+
     void initialise (const juce::String& commandLine) override
     {
         // プラグインのスキャン用の子プロセスとして起動された場合（§3.4: スキャンは別プロセス）
@@ -177,6 +186,14 @@ public:
             childProcessMode = true;
             return;
         }
+
+        // 落ちたときに、どこで落ちたか（呼び出しの履歴）を残す。次に起動したときに知らせる
+        juce::SystemStats::setApplicationCrashHandler ([] (void*)
+        {
+            AppPaths::getAppDataDir().getChildFile ("crash.log")
+                .appendText (juce::Time::getCurrentTime().toISO8601 (true) + "  ShareDAW " + Updater::versionText (Updater::currentBuild())
+                             + "\n" + juce::SystemStats::getStackBacktrace() + "\n");
+        });
 
         juce::LookAndFeel::setDefaultLookAndFeel (&lookAndFeel);
         installJapaneseTranslations();
@@ -265,6 +282,16 @@ public:
             return;
         }
 
+        // --perf-test <曲のフォルダ>: 動作の重さを測って終わる
+        if (auto args = getCommandLineParameterArray(); args.size() >= 2 && args[0] == "--perf-test")
+        {
+            juce::Timer::callAfterDelay (1000, [this, folder = juce::File (args[1])]
+            {
+                mainComponent->runPerfTest (folder, [this] { setApplicationReturnValue (0); quit(); });
+            });
+            return;
+        }
+
         // 前回の異常終了を検知したら、自動保存からの復旧を確認する（§3.10）
         if (auto crashed = sessionGuard.findCrashedSession())
         {
@@ -273,7 +300,7 @@ public:
 
             juce::AlertWindow::showAsync (juce::MessageBoxOptions::makeOptionsYesNo (
                                               juce::MessageBoxIconType::WarningIcon, "前回は正常に終了しませんでした"_ju,
-                                              "自動保存から復旧しますか？\n\n"_ju + where, "復旧する"_ju, "復旧しない"_ju),
+                                              "自動保存から復旧しますか？\n\n"_ju + where + crashLogNote(), "復旧する"_ju, "復旧しない"_ju),
                                           [this, info] (int result)
             {
                 if (result == 1)
@@ -308,7 +335,7 @@ public:
         collab::setOwnedPluginTrackCheck ({});   // document を参照しているので、消す前に外す
 
         if (document != nullptr)
-            document->writeAutosave();
+            document->writeAutosave (true);
 
         mainWindow = nullptr;
         sync = nullptr;

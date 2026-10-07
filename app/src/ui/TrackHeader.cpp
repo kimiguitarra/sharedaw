@@ -39,9 +39,9 @@ TrackHeader::TrackHeader (AppContext& c, const std::string& id)
         // 複数選択しているなら、選んでいるトラックをまとめて（押したトラックに合わせる）
         const bool arm = ! ctx.isRecordArmed (trackId);
 
-        for (auto& id : ctx.state.tracksToActOn (trackId))
-            if (ctx.isRecordArmed (id) != arm)
-                ctx.setRecordArm (id, arm, true);
+        for (auto& target : ctx.state.tracksToActOn (trackId))
+            if (ctx.isRecordArmed (target) != arm)
+                ctx.setRecordArm (target, arm, true);
     };
     addChildComponent (armButton);
 
@@ -83,8 +83,8 @@ TrackHeader::TrackHeader (AppContext& c, const std::string& id)
 
         ctx.document.perform (description, [ids, on, solo] (collab::Project& p)
         {
-            for (auto& id : ids)
-                if (auto* track = p.findTrack (id))
+            for (auto& target : ids)
+                if (auto* track = p.findTrack (target))
                     (solo ? track->solo : track->mute) = on;
         });
     };

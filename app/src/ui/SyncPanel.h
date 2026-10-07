@@ -90,6 +90,8 @@ private:
     bool offline = false;
 
     bool dirty = true;
+
+    juce::uint32 lastChange = 0, dirtySince = 0;
     int ticks = 0;
     bool laidOutLinked = false;   // 最後に resized() したときに、サーバーにある曲だったか
 

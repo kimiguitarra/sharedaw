@@ -105,6 +105,7 @@ public:
     {
         const float levels[2] = { peak.left, peak.right };
         const auto now = juce::Time::getMillisecondCounter();
+        const float before[4] = { shown[0], shown[1], peakHold[0], peakHold[1] };
 
         for (int ch = 0; ch < 2; ++ch)
         {
@@ -119,7 +120,10 @@ public:
             }
         }
 
-        repaint();
+        // 変わったときだけ描き直す（鳴っていないトラックのメーターまで毎回描くと、ミキサーが重かった）
+        if (! (juce::exactlyEqual (before[0], shown[0]) && juce::exactlyEqual (before[1], shown[1])
+               && juce::exactlyEqual (before[2], peakHold[0]) && juce::exactlyEqual (before[3], peakHold[1])))
+            repaint();
     }
 
     /** 直近 3 秒の最大値（左右の大きい方）。 */
@@ -1085,8 +1089,15 @@ public:
 
         if (isMaster())
         {
-            masterSection.status = ctx.engine.pollMaster();
-            masterSection.repaint();
+            const auto st = ctx.engine.pollMaster();
+            auto same = [] (double a, double b) { return std::abs (a - b) < 0.05; };
+
+            if (! (same (st.gainReductionDb, masterSection.status.gainReductionDb) && same (st.shortTermLufs, masterSection.status.shortTermLufs)
+                   && same (st.integratedLufs, masterSection.status.integratedLufs) && same (st.momentaryLufs, masterSection.status.momentaryLufs)))
+            {
+                masterSection.status = st;
+                masterSection.repaint();
+            }
         }
 
         if (isTrack())

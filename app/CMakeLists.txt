@@ -108,6 +108,7 @@ target_sources(ShareDAW PRIVATE
     src/ui/MainComponentWindows.cpp
     src/ui/MainComponentSync.cpp
     src/ui/MainComponentUpdate.cpp
+    src/ui/MainComponentPerf.cpp
     src/ui/KeyLane.cpp
     src/ui/MarkerLane.cpp
     src/ui/MidiInputPanel.cpp

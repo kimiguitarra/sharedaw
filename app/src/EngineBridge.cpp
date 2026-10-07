@@ -31,6 +31,62 @@ namespace
             c->removeFromParent();
     }
 
+    /** MIDI クリップを 1 つ Tracktion のトラックに置く（名前はクリップの ID。差し替えるときに探す）。 */
+    void addMidiClip (te::AudioTrack& track, const collab::MidiClip& c, const collab::TempoMap& map)
+    {
+        const double start = map.tickToSeconds ((double) c.startTick);
+        const double end = map.tickToSeconds ((double) c.endTick());
+
+        auto clip = track.insertMIDIClip (toJuce (c.id), te::TimeRange (secondsToTime (start), secondsToTime (end)), nullptr);
+
+        if (clip == nullptr)
+            return;
+
+        auto& seq = clip->getSequence();
+
+        for (auto& n : c.notes)
+        {
+            const double ns = map.tickToSeconds ((double) (c.startTick + n.tick)) - start;
+            const double ne = map.tickToSeconds ((double) (c.startTick + n.tick + n.lengthTick)) - start;
+
+            if (ns < 0.0 || ns >= end - start)
+                continue;
+
+            seq.addNote (n.pitch, secondsToBeats (ns), te::BeatDuration::fromBeats (juce::jmax (0.001, ne - ns)),
+                         n.velocity, 0, nullptr);
+        }
+
+        // ピッチベンド（Tracktion の値は 0〜16383、中央 8192）。クリップの頭と終わりは中央にして、前後の音に残さない
+        if (! c.pitchBends.empty())
+        {
+            auto addBend = [&] (double seconds, int value)
+            {
+                seq.addControllerEvent (secondsToBeats (juce::jlimit (0.0, end - start, seconds)), te::MidiControllerEvent::pitchWheelType,
+                                        juce::jlimit (0, 16383, value + 8192), nullptr);
+            };
+
+            if (c.pitchBends.front().tick > 0)
+                addBend (0.0, 0);
+
+            // 点の間の直線は、細かいイベントで埋めて鳴らす
+            for (auto& b : collab::densePitchBends (c.pitchBends))
+                if (b.tick >= 0 && b.tick < c.lengthTick)
+                    addBend (map.tickToSeconds ((double) (c.startTick + b.tick)) - start, b.value);
+
+            if (collab::pitchBendAt (c.pitchBends, c.lengthTick - 1) != 0)
+                addBend (end - start - 0.0005, 0);
+        }
+    }
+
+    void removeMidiClip (te::AudioTrack& track, const std::string& clipId)
+    {
+        const juce::Array<te::Clip*> clips (track.getClips());
+
+        for (auto* c : clips)
+            if (dynamic_cast<te::MidiClip*> (c) != nullptr && c->getName() == toJuce (clipId))
+                c->removeFromParent();
+    }
+
     std::string makeTempoKey (const collab::Project& p)
     {
         std::ostringstream s;
@@ -39,37 +95,6 @@ namespace
         for (auto& e : p.tempoTrack.events)   s << e.tick << ':' << e.bpm << ';';
         s << '|';
         for (auto& e : p.meterTrack.events)   s << e.bar << ':' << e.numerator << '/' << e.denominator << ';';
-
-        return s.str();
-    }
-
-    std::string makeClipsKey (const collab::Track& t)
-    {
-        std::ostringstream s;
-
-        for (auto& c : t.midiClips)
-        {
-            s << c.id << '@' << c.startTick << '+' << c.lengthTick << '[';
-
-            for (auto& n : c.notes)
-                s << n.tick << ',' << n.lengthTick << ',' << n.pitch << ',' << n.velocity << ';';
-
-            s << "]b[";
-
-            for (auto& b : c.pitchBends)
-                s << b.tick << ',' << b.value << ';';
-
-            s << ']';
-        }
-
-        for (auto& c : t.audioClips)
-            s << "A" << c.id << '@' << c.startTick << ':' << c.audioHash << ':' << c.sourceOffsetSamples << ':' << c.lengthSamples
-              << ':' << c.gainDb << ':' << c.fadeInSamples << ':' << c.fadeOutSamples << ':' << c.pitchSemitones << ';';
-
-        s << "X";
-
-        if (t.render)
-            s << "R" << t.render->audioHash;
 
         return s.str();
     }
@@ -547,12 +572,40 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
     }
 
     // クリップ（tick → 秒 → Tracktion の拍）
-    auto key = makeClipsKey (t) + (renderMode ? "#render" : "");
-
-    if (key == b.clipsKey && ! tempoChanged)
+    if (b.clipsValid && ! tempoChanged && b.syncedRenderMode == renderMode && b.syncedMidiClips == t.midiClips
+         && b.syncedAudioClips == t.audioClips && b.syncedRender == t.render)
         return;
 
-    b.clipsKey = key;
+    // MIDI クリップだけが変わった（ノートの編集など）: 変わったクリップだけを置き直す
+    // （前はトラックの全部のクリップを作り直していて、大きな曲ではノートを 1 つ動かすたびに重かった）
+    if (b.clipsValid && ! tempoChanged && ! renderMode && ! b.syncedRenderMode && b.syncedAudioClips == t.audioClips
+         && b.syncedRender == t.render)
+    {
+        const auto& map = document.getTempoMap();
+        auto same = [] (const std::vector<collab::MidiClip>& list, const collab::MidiClip& c)
+        {
+            auto it = std::find_if (list.begin(), list.end(), [&] (const collab::MidiClip& x) { return x.id == c.id; });
+            return it != list.end() && *it == c;
+        };
+
+        for (auto& old : b.syncedMidiClips)
+            if (! same (t.midiClips, old))
+                removeMidiClip (track, old.id);
+
+        for (auto& c : t.midiClips)
+            if (! same (b.syncedMidiClips, c))
+                addMidiClip (track, c, map);
+
+        b.syncedMidiClips = t.midiClips;
+        b.clipsRebuiltAt = juce::Time::getMillisecondCounter();
+        return;
+    }
+
+    b.syncedMidiClips = t.midiClips;
+    b.syncedAudioClips = t.audioClips;
+    b.syncedRender = t.render;
+    b.syncedRenderMode = renderMode;
+    b.clipsValid = true;
     b.clipsRebuiltAt = juce::Time::getMillisecondCounter();
 
     // getClips() は消すと縮む本物の一覧なので、写しを取ってから消す（そのまま回すと 1 つおきに消し残し、
@@ -652,50 +705,7 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
     }
 
     for (auto& c : t.midiClips)
-    {
-        const double start = map.tickToSeconds ((double) c.startTick);
-        const double end = map.tickToSeconds ((double) c.endTick());
-
-        auto clip = track.insertMIDIClip (toJuce (c.id), te::TimeRange (secondsToTime (start), secondsToTime (end)), nullptr);
-
-        if (clip == nullptr)
-            continue;
-
-        auto& seq = clip->getSequence();
-
-        for (auto& n : c.notes)
-        {
-            const double ns = map.tickToSeconds ((double) (c.startTick + n.tick)) - start;
-            const double ne = map.tickToSeconds ((double) (c.startTick + n.tick + n.lengthTick)) - start;
-
-            if (ns < 0.0 || ns >= end - start)
-                continue;
-
-            seq.addNote (n.pitch, secondsToBeats (ns), te::BeatDuration::fromBeats (juce::jmax (0.001, ne - ns)),
-                         n.velocity, 0, nullptr);
-        }
-
-        // ピッチベンド（Tracktion の値は 0〜16383、中央 8192）。クリップの頭と終わりは中央にして、前後の音に残さない
-        if (! c.pitchBends.empty())
-        {
-            auto addBend = [&] (double seconds, int value)
-            {
-                seq.addControllerEvent (secondsToBeats (juce::jlimit (0.0, end - start, seconds)), te::MidiControllerEvent::pitchWheelType,
-                                        juce::jlimit (0, 16383, value + 8192), nullptr);
-            };
-
-            if (c.pitchBends.front().tick > 0)
-                addBend (0.0, 0);
-
-            // 点の間の直線は、細かいイベントで埋めて鳴らす
-            for (auto& b : collab::densePitchBends (c.pitchBends))
-                if (b.tick >= 0 && b.tick < c.lengthTick)
-                    addBend (map.tickToSeconds ((double) (c.startTick + b.tick)) - start, b.value);
-
-            if (collab::pitchBendAt (c.pitchBends, c.lengthTick - 1) != 0)
-                addBend (end - start - 0.0005, 0);
-        }
-    }
+        addMidiClip (track, c, map);
 }
 
 //==============================================================================
@@ -1118,7 +1128,7 @@ juce::File EngineBridge::pitchedFile (const collab::AudioClip& c, bool waitUntil
 
                 // 鳴らすファイルが変わったので、オーディオのクリップを作り直す
                 for (auto& [id, b] : bindings)
-                    b.clipsKey.clear();
+                    b.clipsValid = false;
 
                 sync();
             });
@@ -1142,7 +1152,7 @@ void EngineBridge::preparePitchedAudio()
 
     if (made)
         for (auto& [id, b] : bindings)
-            b.clipsKey.clear();   // 次の sync() で、できたファイルに差し替える
+            b.clipsValid = false;   // 次の sync() で、できたファイルに差し替える
 }
 
 juce::String EngineBridge::describeChannel (const std::string& trackId) const
@@ -1253,6 +1263,10 @@ void EngineBridge::syncInstrument (const collab::Track& t, Binding& b)
         return;
     }
 
+    // 音源の設定が前と同じなら作り直さない（編集のたびに全トラックの SFZ を作ると重かった）
+    if (b.syncedInstrument && *b.syncedInstrument == *t.instrument && b.sfzText.isNotEmpty())
+        return;
+
     const auto& params = t.instrument->params;
     auto text = toJuce (collab::generateSfz (*manifest, params));
 
@@ -1266,6 +1280,7 @@ void EngineBridge::syncInstrument (const collab::Track& t, Binding& b)
 
     auto resolved = collab::resolveInstrumentParams (*manifest, params);
     b.synth->setGainAndPan ((float) resolved.volumeDb, (float) resolved.pan);
+    b.syncedInstrument = *t.instrument;
 }
 
 //==============================================================================
@@ -1440,8 +1455,15 @@ void EngineBridge::syncChordTrack (bool tempoChanged)
         if (std::abs (vol->getVolumeDb() - (float) playback.volumeDb) > 0.001f)
             vol->setVolumeDb ((float) playback.volumeDb);
 
-    // コードイベントから MIDI を生成（§3.8: 全音符ベタ、小節の頭で弾き直し）
+    // コードイベントから MIDI を生成（§3.8: 全音符ベタ、小節の頭で弾き直し）。コードと曲の長さが前と同じなら作り直さない
     const auto& map = document.getTempoMap();
+    const auto contentEnd = project.contentEndTick();
+
+    if (! tempoChanged && ! chordKey.empty() && syncedChords == project.chordTrack.events && syncedContentEnd == contentEnd)
+        return;
+
+    syncedChords = project.chordTrack.events;
+    syncedContentEnd = contentEnd;
     const auto notes = collab::renderChordTrack (project, map);
 
     std::ostringstream keyStream;

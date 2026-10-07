@@ -128,13 +128,15 @@ void NoteGrid::paint (juce::Graphics& g)
                       && ((track->instrument && track->instrument->id == "builtin.bass")
                           || toJuce (track->name).containsIgnoreCase ("bass") || toJuce (track->name).contains ("ベース"_ju));
 
+    const auto dirty = g.getClipBounds().toFloat();   // 描き直す範囲の外のノートは描かない
+
     for (auto& n : clip->notes)
     {
         const float x1 = (float) axis.tickToX ((double) (clip->startTick + n.tick));
         const float x2 = (float) axis.tickToX ((double) (clip->startTick + n.endTick()));
         const float y = owner.pitchToY (n.pitch);
 
-        if (x2 < 0 || x1 > (float) getWidth() || y + (float) owner.noteHeight < 0 || y > (float) getHeight())
+        if (x2 < dirty.getX() - 4.0f || x1 > dirty.getRight() + 4.0f || y + (float) owner.noteHeight < dirty.getY() || y > dirty.getBottom())
             continue;
 
         const bool selected = owner.selectedNotes.count (n.id) > 0;

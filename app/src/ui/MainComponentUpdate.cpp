@@ -83,27 +83,21 @@ void MainComponent::offerUpdate (const Updater::Info& info, bool interactive, st
 
     message << "\n"_ju << "変わったファイルだけをダウンロードして、このアプリを置き換えます。"_ju;
 
-    auto options = juce::MessageBoxOptions()
-                     .withIconType (juce::MessageBoxIconType::QuestionIcon)
-                     .withTitle ("アップデート"_ju)
-                     .withMessage (message)
-                     .withButton ("更新する"_ju)
-                     .withAssociatedComponent (this);
+    // 起動時の確認では「このバージョンをスキップ」も選べる。Enter・スペースでは押されない（押し間違いで更新が始まらないように）
+    juce::StringArray buttons { "更新する"_ju };
 
-    // 起動時の確認では「このバージョンをスキップ」も選べる
     if (! interactive)
-        options = options.withButton ("このバージョンをスキップ"_ju);
+        buttons.add ("このバージョンをスキップ"_ju);
 
-    options = options.withButton ("あとで"_ju);
+    buttons.add ("あとで"_ju);
 
     juce::Component::SafePointer<MainComponent> safe (this);
 
-    juce::AlertWindow::showAsync (options, [safe, info, interactive, then] (int result)
+    Dialogs::askChoice ("アップデート"_ju, message, buttons, [safe, info, interactive, then] (int result)
     {
         if (safe == nullptr)
             return;
 
-        // 結果は 1, 2, …、最後のボタン（あとで）は 0
         if (result == 1)
             return safe->installUpdate (info, then);
 
@@ -112,7 +106,7 @@ void MainComponent::offerUpdate (const Updater::Info& info, bool interactive, st
 
         if (then)
             then();
-    });
+    }, this);
 }
 
 void MainComponent::installUpdate (const Updater::Info& info, std::function<void()> then)
@@ -156,23 +150,27 @@ void MainComponent::installUpdate (const Updater::Info& info, std::function<void
 
     settings.removeValue ("skippedUpdateBuild");
 
-    // 起動時（まだ曲を開いていない）: そのまま再起動する
-    if (then)
-    {
-        Updater::requestRelaunch();
-        juce::JUCEApplication::getInstance()->systemRequestedQuit();
-        return;
-    }
-
-    Dialogs::confirm ("アップデート"_ju,
-                      Updater::versionText (info.build) + " に更新しました。\n再起動すると新しいバージョンになります。今すぐ再起動しますか？"_ju,
-                      "再起動"_ju,
-                      []
-                      {
-                          Updater::requestRelaunch();
-                          juce::JUCEApplication::getInstance()->systemRequestedQuit();
-                      },
-                      this);
+    // 再起動はいつも聞いてから（勝手に再起動しない）。あとでにしたら、次に起動したときから新しいバージョン
+    Dialogs::askChoice ("アップデート"_ju,
+                        Updater::versionText (info.build) + " に更新しました。\n再起動すると新しいバージョンになります。"_ju,
+                        { "今すぐ再起動"_ju, "あとで"_ju },
+                        [safe = juce::Component::SafePointer<MainComponent> (this), then] (int result)
+                        {
+                            if (result == 1 && safe != nullptr)
+                            {
+                                // 保存の確認で「キャンセル」したら再起動しない（前は再起動の印だけ残り、あとで普通に終了したときに再起動していた）
+                                safe->confirmDiscardChanges ([]
+                                {
+                                    Updater::requestRelaunch();
+                                    juce::JUCEApplication::getInstance()->quit();
+                                });
+                            }
+                            else if (then)
+                            {
+                                then();
+                            }
+                        },
+                        this);
 }
 
 void MainComponent::showStartup()

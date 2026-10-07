@@ -22,6 +22,8 @@ ProjectDocument::ProjectDocument()
 ProjectDocument::~ProjectDocument()
 {
     stopTimer();
+    *alive = false;
+    autosavePool.removeAllJobs (false, 30000);   // 書いている途中の自動保存は終わるまで待つ
 }
 
 void ProjectDocument::perform (const juce::String& description, const std::function<void (collab::Project&)>& fn,
@@ -35,10 +37,14 @@ void ProjectDocument::perform (const juce::String& description, const std::funct
 
     if (mergeId.isEmpty() || mergeId != lastMergeId || undoStack.empty())
     {
-        undoStack.push_back ({ std::move (before), description });
+        undoStack.push_back ({ collab::makeDelta (std::move (before), project), description });
 
         if (undoStack.size() > maxUndoSteps)
             undoStack.erase (undoStack.begin());
+    }
+    else
+    {
+        collab::extendDelta (undoStack.back().delta, before, project);   // ドラッグ中など: 1 回の元に戻すにまとめる
     }
 
     lastMergeId = mergeId;
@@ -64,8 +70,9 @@ bool ProjectDocument::undo()
 
     auto entry = std::move (undoStack.back());
     undoStack.pop_back();
-    redoStack.push_back ({ project, entry.description });
-    project = std::move (entry.before);
+    auto restored = collab::applyDelta (entry.delta, project);
+    redoStack.push_back ({ collab::makeDelta (project, restored), entry.description });
+    project = std::move (restored);
     lastMergeId = {};
     dirty = true;
     changed();
@@ -79,8 +86,9 @@ bool ProjectDocument::redo()
 
     auto entry = std::move (redoStack.back());
     redoStack.pop_back();
-    undoStack.push_back ({ project, entry.description });
-    project = std::move (entry.before);
+    auto restored = collab::applyDelta (entry.delta, project);
+    undoStack.push_back ({ collab::makeDelta (project, restored), entry.description });
+    project = std::move (restored);
     lastMergeId = {};
     dirty = true;
     changed();
@@ -221,16 +229,31 @@ void ProjectDocument::writeAutosave (bool force)
     if (beforeSave && hasLocation())
         beforeSave();
 
-    auto r = writeTextAtomically (getAutosaveFile(), collab::serialiseProject (project));
+    autosaveDirty = false;
 
-    if (r.wasOk())
+    // 終了するとき（force）は、その場で書く
+    if (force)
     {
-        autosaveDirty = false;
+        autosavePool.removeAllJobs (false, 30000);
+
+        if (auto r = writeTextAtomically (getAutosaveFile(), collab::serialiseProject (project)); r.failed())
+            DBG ("autosave failed: " << r.getErrorMessage());
+
+        return;
     }
-    else
+
+    // ふだんは写しを別のスレッドで書き出す（前の自動保存がまだ書いている途中なら、次の機会に）
+    if (autosavePool.getNumJobs() > 0)
     {
-        DBG ("autosave failed: " << r.getErrorMessage());
+        autosaveDirty = true;
+        return;
     }
+
+    autosavePool.addJob ([snapshot = project, file = getAutosaveFile(), flag = alive, this]
+    {
+        if (auto r = writeTextAtomically (file, collab::serialiseProject (snapshot)); r.failed())
+            juce::MessageManager::callAsync ([flag, this] { if (*flag) autosaveDirty = true; });   // 次の機会に書き直す
+    });
 }
 
 void ProjectDocument::recoverFromAutosave (const juce::File& autosaveFile, const juce::File& folder)

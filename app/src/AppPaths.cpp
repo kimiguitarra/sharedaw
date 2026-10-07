@@ -45,6 +45,18 @@ bool isSafeRelativePath (const juce::String& p)
     return true;
 }
 
+void appendLog (const juce::String& fileName, const juce::String& text)
+{
+    static juce::CriticalSection lock;
+    const juce::ScopedLock sl (lock);
+    auto file = getAppDataDir().getChildFile (fileName);
+
+    if (file.getSize() > 1024 * 1024)
+        file.deleteFile();
+
+    file.appendText (juce::Time::getCurrentTime().toString (true, true, true, true) + "  " + text + "\n");
+}
+
 juce::Result writeFileAtomically (const juce::File& target, const void* data, size_t size)
 {
     target.getParentDirectory().createDirectory();

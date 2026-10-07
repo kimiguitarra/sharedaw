@@ -24,6 +24,7 @@ add_library(collab_core STATIC
     src/Grid.cpp
     src/Project.cpp
     src/ProjectDiff.cpp
+    src/ProjectHistory.cpp
     src/ProjectJson.cpp
     src/Recording.cpp
     src/Render.cpp
