@@ -92,13 +92,14 @@ namespace
         }
     };
 
-    KnobLook& knobLook()
-    {
-        static KnobLook look;
-        return look;
-    }
 
     constexpr int knobWidth = 92, knobHeight = 118, headerHeight = 44, meterWidth = 150;
+}
+
+juce::LookAndFeel& knobLook()
+{
+    static KnobLook look;
+    return look;
 }
 
 //==============================================================================

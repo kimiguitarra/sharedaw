@@ -77,8 +77,8 @@ void PianoKeyboard::mouseWheelMove (const juce::MouseEvent& e, const juce::Mouse
 //==============================================================================
 VelocityLane::VelocityLane (PianoRollView& o, bool pitchBendLane) : owner (o), bendMode (pitchBendLane)
 {
-    setTooltip (bendMode ? "鉛筆ツールでクリックすると点を置きます（時間はグリッド、高さは半音の線に合わせる。Alt で自由に）。点はドラッグで動かし、ダブルクリックで消します"_ju
-                         : "ノートを選んでから、上下にドラッグでベロシティを変えます（選んだノートはまとめて）"_ju);
+    setTooltip (bendMode ? "ピッチベンド"_ju
+                         : "ベロシティ"_ju);
 }
 
 void VelocityLane::resized() {}

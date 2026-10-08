@@ -720,7 +720,7 @@ void TrackLanes::showClipMenu (const collab::Track& track, const std::string& cl
 
                 if (count > 1)
                 {
-                    m.addSubMenu ("テイク（選んだものを一番上に）"_ju, takes);
+                    m.addSubMenu ("テイク"_ju, takes);
                     m.addSeparator();
                 }
             }
@@ -761,7 +761,7 @@ void TrackLanes::showClipMenu (const collab::Track& track, const std::string& cl
                     if (t.findMidiClip (id) != nullptr)
                         midiIds.insert (id);
 
-            m.addSubMenu ("伸び縮み（音価を変える）"_ju, AppContext::stretchMenu ([this, midiIds] (double f) { ctx.stretchMidiClips (midiIds, f); }));
+            m.addSubMenu ("伸び縮み"_ju, AppContext::stretchMenu ([this, midiIds] (double f) { ctx.stretchMidiClips (midiIds, f); }));
         }
 
         m.addItem ("複製"_ju, [this, trackId, clipId]
@@ -973,14 +973,14 @@ void TrackLanes::showLaneMenu (const collab::Track* track, collab::Tick at)
     // Cubase と同じく、空いている所の右クリックでツールと貼り付けなど
     juce::PopupMenu m;
     const std::pair<EditTool, juce::String> list[] = {
-        { EditTool::select, "選択（1）"_ju }, { EditTool::pencil, "鉛筆（2）"_ju }, { EditTool::split, "はさみ（3）"_ju }
+        { EditTool::select, "選択  1"_ju }, { EditTool::pencil, "鉛筆  2"_ju }, { EditTool::split, "はさみ  3"_ju }
     };
 
     for (auto& [tool, name] : list)
         m.addItem (name, true, ctx.state.tool == tool, [this, tool = tool] { ctx.state.tool = tool; ctx.state.changed(); });
 
     m.addSeparator();
-    m.addItem ("貼り付け（再生位置へ）"_ju, ctx.hasClipsInClipboard(), false, [this]
+    m.addItem ("貼り付け"_ju, ctx.hasClipsInClipboard(), false, [this]
     {
         ctx.pasteClips ((collab::Tick) std::llround (ctx.state.snapCursor (ctx.state.playheadTick, ctx.document.getTempoMap(), {})));
     });

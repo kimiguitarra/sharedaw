@@ -34,9 +34,9 @@ namespace
 ToolBar::ToolBar (AppContext& c) : ctx (c)
 {
     // ツール（Cubase と同じ番号）
-    selectTool.setTooltip ("選択（1）"_ju);
-    pencilTool.setTooltip ("鉛筆（2）"_ju);
-    splitTool.setTooltip ("はさみ（3）"_ju);
+    selectTool.setTooltip ("選択  1"_ju);
+    pencilTool.setTooltip ("鉛筆  2"_ju);
+    splitTool.setTooltip ("はさみ  3"_ju);
 
     for (auto* b : { &selectTool, &pencilTool, &splitTool })
     {
@@ -59,11 +59,11 @@ ToolBar::ToolBar (AppContext& c) : ctx (c)
     addAndMakeVisible (quantiseBox);
 
 
-    snapButton.setTooltip ("スナップ（J）"_ju);
+    snapButton.setTooltip ("スナップ  J"_ju);
     snapButton.onClick = [this] { ctx.state.setSnapEnabled (! ctx.state.snapEnabled()); };
 
 
-    autoScrollButton.setTooltip ("自動スクロール（F）"_ju);
+    autoScrollButton.setTooltip ("自動スクロール  F"_ju);
     autoScrollButton.onClick = [this]
     {
         ctx.state.autoScroll = ! ctx.state.autoScroll;
@@ -71,7 +71,7 @@ ToolBar::ToolBar (AppContext& c) : ctx (c)
     };
 
 
-    metronomeButton.setTooltip ("メトロノーム（C）"_ju);
+    metronomeButton.setTooltip ("メトロノーム  C"_ju);
     metronomeButton.onClick = [this]
     {
         ctx.state.metronomeEnabled = ! ctx.state.metronomeEnabled;
@@ -370,10 +370,10 @@ TransportBar::TransportBar (AppContext& c) : ctx (c)
     }
 
     // 中央: サイクル・停止・再生・録音、その右に現在の位置
-    loopButton.setTooltip ("サイクル（L）"_ju);
+    loopButton.setTooltip ("サイクル  L"_ju);
     stopButton.setTooltip ("停止"_ju);
-    playButton.setTooltip ("再生（Space）"_ju);
-    recordButton.setTooltip ("録音（*）"_ju);
+    playButton.setTooltip ("再生  Space"_ju);
+    recordButton.setTooltip ("録音  *"_ju);
 
     loopButton.setClickingTogglesState (false);
     loopButton.onClick = [this]
@@ -400,13 +400,13 @@ TransportBar::TransportBar (AppContext& c) : ctx (c)
         addAndMakeVisible (b);
 
     // 右下: ミキサー（F3）
-    mixerButton.setTooltip ("ミキサー（F3）"_ju);
+    mixerButton.setTooltip ("ミキサー  F3"_ju);
     mixerButton.setClickingTogglesState (false);
     mixerButton.onClick = [this] { if (onMixer) onMixer(); };
     addAndMakeVisible (mixerButton);
 
     // その左: ピアノロールを全画面に（もう一度押すと戻る）
-    pianoButton.setTooltip ("ピアノロールを全画面に（E）"_ju);
+    pianoButton.setTooltip ("ピアノロール全画面  E"_ju);
     pianoButton.setClickingTogglesState (false);
     pianoButton.onClick = [this] { if (onPianoFull) onPianoFull(); };
     addAndMakeVisible (pianoButton);
@@ -643,19 +643,19 @@ AudioClipFields::AudioClipFields (AppContext& c, bool fades) : ctx (c), withFade
 
     struct Field { ValueLabel* label; juce::String tip; double min, max, step; std::function<double (const collab::AudioClip&)> get; std::function<void (collab::AudioClip&, double)> set; };
     const Field fields[] = {
-        { &gainLabel, "クリップの音量（dB）"_ju, -60.0, 24.0, 0.5,
+        { &gainLabel, "クリップの音量"_ju, -60.0, 24.0, 0.5,
           [] (const collab::AudioClip& clip) { return clip.gainDb; },
           [] (collab::AudioClip& clip, double v) { clip.gainDb = v; } },
-        { &pitchLabel, "ピッチ（半音、上下 1 オクターブまで。長さは変わりません）"_ju, -12.0, 12.0, 1.0,
+        { &pitchLabel, "ピッチ"_ju, -12.0, 12.0, 1.0,
           [] (const collab::AudioClip& clip) { return clip.pitchSemitones; },
           [] (collab::AudioClip& clip, double v) { clip.pitchSemitones = v; } },
-        { &fadeInLabel, "フェードイン（ms）"_ju, 0.0, 60000.0, 5.0,
+        { &fadeInLabel, "フェードイン"_ju, 0.0, 60000.0, 5.0,
           [] (const collab::AudioClip& clip) { return (double) clip.fadeInSamples * 1000.0 / collab::kSampleRate; },
           [] (collab::AudioClip& clip, double v) { clip.fadeInSamples = juce::jlimit<collab::SampleCount> (0, clip.lengthSamples - clip.fadeOutSamples, (collab::SampleCount) std::llround (v * collab::kSampleRate / 1000.0)); } },
-        { &fadeOutLabel, "フェードアウト（ms）"_ju, 0.0, 60000.0, 5.0,
+        { &fadeOutLabel, "フェードアウト"_ju, 0.0, 60000.0, 5.0,
           [] (const collab::AudioClip& clip) { return (double) clip.fadeOutSamples * 1000.0 / collab::kSampleRate; },
           [] (collab::AudioClip& clip, double v) { clip.fadeOutSamples = juce::jlimit<collab::SampleCount> (0, clip.lengthSamples - clip.fadeInSamples, (collab::SampleCount) std::llround (v * collab::kSampleRate / 1000.0)); } },
-        { &bpmLabel, "元の素材のテンポ"_ju, 20.0, 400.0, 1.0,
+        { &bpmLabel, "素材のテンポ"_ju, 20.0, 400.0, 1.0,
           [] (const collab::AudioClip& clip) { return clip.sourceBpm; },
           [] (collab::AudioClip& clip, double v) { clip.sourceBpm = v; } },
     };
@@ -664,7 +664,7 @@ AudioClipFields::AudioClipFields (AppContext& c, bool fades) : ctx (c), withFade
     {
         auto* l = f.label;
         styleValue (*l, 15.0f, false, true);
-        l->setTooltip (f.tip + "（クリックで入力、ホイールで増減）"_ju);
+        l->setTooltip (f.tip);
 
         if (l == &bpmLabel)
             addChildComponent (l);   // テンポを合わせているときだけ出す（refresh）

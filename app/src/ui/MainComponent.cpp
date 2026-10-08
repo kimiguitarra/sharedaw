@@ -895,6 +895,8 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
             auto pads = collab::samplerPads (t.instrument->params);
             pads[0].audioHash = hash;
             pads[0].name = "Smoke";
+            pads[0].eqHighDb = 3.0;   // 加工したファイルを作る
+            pads[0].driveDb = 6.0;
             t.instrument->params = collab::withSamplerPads (t.instrument->params, pads);
         }, {});
         m.openSampler (samplerId);
@@ -906,7 +908,9 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
 
         auto* panel = m.samplerWindow->getContentComponent();
         const auto id = m.state.selectedTrackId;
-        std::cout << "sampler: " << (m.bridge.getInstrumentProblem (id).isEmpty() && panel != nullptr ? "ok" : "FAILED") << std::endl;
+        const auto rendered = juce::File (m.document.getProjectDir()).getChildFile ("cache/pad").findChildFiles (juce::File::findFiles, false, "*.wav");
+        std::cout << "sampler: " << (m.bridge.getInstrumentProblem (id).isEmpty() && panel != nullptr && rendered.size() == 1 ? "ok" : "FAILED")
+                  << " (pad files " << rendered.size() << ")" << std::endl;
 
         if (const auto dir = juce::SystemStats::getEnvironmentVariable ("SHAREDAW_SMOKE_SHOTS", {}); dir.isNotEmpty() && panel != nullptr)
         {
@@ -1279,7 +1283,7 @@ juce::PopupMenu MainComponent::addTrackMenu()
         plugins.addItem (d.name + " (" + d.manufacturerName + ")", [this, d] { ctx.addExternalMidiTrack (d); });
 
     if (plugins.getNumItems() == 0)
-        plugins.addItem ("プラグインがありません（設定 → プラグイン… でスキャン）"_ju, false, false, nullptr);
+        plugins.addItem ("プラグインがありません"_ju, false, false, nullptr);
 
     instruments.addSeparator();
     instruments.addSubMenu ("外部プラグイン"_ju, plugins);

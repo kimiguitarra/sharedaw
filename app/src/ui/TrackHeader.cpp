@@ -138,7 +138,7 @@ void TrackHeader::update()
     else if (t->type == collab::TrackType::midi)
         armButton.setToggleState (ctx.state.midiArmedTrackId == trackId, juce::dontSendNotification);
 
-    armButton.setTooltip ("録音待機（R）"_ju);
+    armButton.setTooltip ("録音待機  R"_ju);
 
     const bool canArm = t->type == collab::TrackType::audio || t->type == collab::TrackType::midi;
 
@@ -500,7 +500,7 @@ void TrackHeader::showMenu()
         m.addSubMenu ("エフェクト"_ju, fx);
 
         if (t->type == collab::TrackType::midi || ! t->effects.empty())
-            m.addItem ("バウンス（オーディオに書き出す）"_ju, [this] { ctx.bounceTrack (trackId); });
+            m.addItem ("バウンス"_ju, [this] { ctx.bounceTrack (trackId); });
     }
 
     m.addSeparator();

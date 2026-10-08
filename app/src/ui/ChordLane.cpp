@@ -203,7 +203,7 @@ void ChordLane::mouseDown (const juce::MouseEvent& e)
             const auto& inst = ctx.document.getProject().chordTrack.playback.instrument;
 
             if (auto* latest = ctx.library.findLatest (inst.id); latest != nullptr && latest->version != inst.version)
-                m.addItem ("コードの音源を新しい版（"_ju + toJuce (latest->version) + "）に更新"_ju, [this, v = latest->version]
+                m.addItem ("コードの音源を "_ju + toJuce (latest->version) + " に更新"_ju, [this, v = latest->version]
                 {
                     ctx.document.perform ("コードの音源の更新"_ju, [v] (collab::Project& p) { p.chordTrack.playback.instrument.version = v; });
                 });
@@ -227,7 +227,7 @@ void ChordLane::mouseDown (const juce::MouseEvent& e)
 
         juce::PopupMenu m;
         m.addItem ("コードを編集…"_ju, [this, id] { openEditor (id); });
-        m.addItem ("ノーコード（X）にする"_ju, [this, id]
+        m.addItem ("ノーコードにする"_ju, [this, id]
         {
             ctx.document.perform ("コードの変更"_ju, [id] (collab::Project& p)
             {
@@ -241,8 +241,8 @@ void ChordLane::mouseDown (const juce::MouseEvent& e)
             });
         });
         m.addSeparator();
-        m.addItem ("コピー（Ctrl+C）"_ju, [this] { copySelected (false); });
-        m.addItem ("切り取り（Ctrl+X）"_ju, [this] { copySelected (true); });
+        m.addItem ("コピー  Ctrl+C"_ju, [this] { copySelected (false); });
+        m.addItem ("切り取り  Ctrl+X"_ju, [this] { copySelected (true); });
         m.addItem ("削除"_ju, [this] { deleteSelected(); });
         m.addSeparator();
         m.addItem ("コードを一括入力…"_ju, [this, x = e.position.x]

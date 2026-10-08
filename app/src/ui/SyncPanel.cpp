@@ -476,7 +476,7 @@ void SyncPanel::setCollapsed (bool c)
 
     // 畳むと «（開く）、開くと »（畳む）
     toggleButton.setButtonText (juce::String::fromUTF8 (collapsed ? "\xC2\xAB" : "\xC2\xBB"));
-    toggleButton.setTooltip (collapsed ? "開く（F7）"_ju : "畳む（F7）"_ju);
+    toggleButton.setTooltip (collapsed ? "開く  F7"_ju : "畳む  F7"_ju);
     setTooltip (collapsed ? "同期"_ju : juce::String());
 
     for (auto* c2 : std::initializer_list<juce::Component*> { &viewport, &statusLabel, &autoPull, &downloadButton, &uploadButton,

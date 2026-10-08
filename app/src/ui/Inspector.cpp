@@ -102,7 +102,7 @@ public:
             // MIDI の入力: どの MIDI 鍵盤（機器）から受けるか
             const auto choice = ctx.engine.getTrackMidiInput (trackId);
             inputButton.setButtonText (choice.isEmpty() ? "すべての MIDI 入力"_ju : choice == "-" ? "なし"_ju : choice);
-            inputButton.setTooltip ("MIDI の入力（鍵盤など）"_ju);
+            inputButton.setTooltip ("MIDI 入力"_ju);
         }
         instrumentButton.setVisible (midi);
         adjustButton.setVisible (midi);
@@ -293,14 +293,13 @@ private:
             });
 
         m.addSeparator();
-        m.addItem ("ソフトウェアモニタリング（入力の音をこのトラックで鳴らす）"_ju, current.device.isNotEmpty(), current.monitor, [this]
+        m.addItem ("ソフトウェアモニタリング"_ju, current.device.isNotEmpty(), current.monitor, [this]
         {
             auto in = ctx.engine.getTrackInput (trackId);
             in.monitor = ! in.monitor;
             ctx.engine.setTrackInput (trackId, in);
             ctx.state.changed();
         });
-        m.addItem ("（オーディオインターフェースのダイレクトモニタリングがおすすめです）"_ju, false, false, nullptr);
 
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&inputButton));
     }
@@ -326,7 +325,7 @@ private:
         }
 
         if (! any)
-            m.addItem ("MIDI 鍵盤が有効になっていません（設定 → オーディオ・MIDI の設定）"_ju, false, false, nullptr);
+            m.addItem ("MIDI 鍵盤が有効になっていません"_ju, false, false, nullptr);
 
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&inputButton));
     }
@@ -351,7 +350,7 @@ private:
             plugins.addItem (d.name + " (" + d.manufacturerName + ")", [this, d] { ctx.setExternalInstrument (trackId, d); });
 
         if (plugins.getNumItems() == 0)
-            plugins.addItem ("プラグインがありません（設定 → プラグイン… でスキャン）"_ju, false, false, nullptr);
+            plugins.addItem ("プラグインがありません"_ju, false, false, nullptr);
 
         juce::PopupMenu m;
         m.addSubMenu ("内蔵音源に変更"_ju, builtins);

@@ -154,7 +154,7 @@ ProjectPicker::ProjectPicker (SyncManager& s, juce::PropertiesFile& p, juce::Fil
     };
 
     openButton.onClick = [this] { openSelected(); };
-    freshButton.setTooltip ("この PC のコピーとは別のフォルダに、サーバーの最新をイチからダウンロードして開きます"_ju);
+    freshButton.setTooltip ("最新を別フォルダに取得"_ju);
     freshButton.onClick = [this] { downloadSelectedFresh(); };
     closeButton.onClick = [this] { close(); };
 

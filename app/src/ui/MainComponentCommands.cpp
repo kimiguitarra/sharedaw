@@ -87,17 +87,17 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdDuplicate:  info.setInfo ("複製"_ju, {}, "Edit", 0); info.addDefaultKeypress ('d', cmd); break;
         case cmdCopy:       info.setInfo ("コピー"_ju, {}, "Edit", 0); info.addDefaultKeypress ('c', cmd); break;
         case cmdCut:        info.setInfo ("切り取り"_ju, {}, "Edit", 0); info.addDefaultKeypress ('x', cmd); break;
-        case cmdPaste:      info.setInfo ("貼り付け（再生位置へ）"_ju, {}, "Edit", 0); info.addDefaultKeypress ('v', cmd); break;
+        case cmdPaste:      info.setInfo ("貼り付け"_ju, {}, "Edit", 0); info.addDefaultKeypress ('v', cmd); break;
         case cmdNudgeLeft:  info.setInfo ("クリップを左へずらす"_ju, {}, "Edit", 0); info.addDefaultKeypress (KP::leftKey, cmd); break;
         case cmdNudgeRight: info.setInfo ("クリップを右へずらす"_ju, {}, "Edit", 0); info.addDefaultKeypress (KP::rightKey, cmd); break;
         case cmdForward:    info.setInfo ("1 小節進む"_ju, {}, "Transport", 0); info.addDefaultKeypress (KP::numberPadAdd, 0); break;
         case cmdRewind:     info.setInfo ("1 小節戻る"_ju, {}, "Transport", 0); info.addDefaultKeypress (KP::numberPadSubtract, 0); break;
         case cmdShortcuts:  info.setInfo ("操作とショートカットの一覧…"_ju, {}, "Help", 0); info.addDefaultKeypress (KP::F1Key, 0); break;
         case cmdToLoopStart: info.setInfo ("左ロケーターへ移動"_ju, {}, "Transport", 0); info.addDefaultKeypress (KP::numberPad1, 0); break;
-        case cmdCursorLeft:  info.setInfo ("クリップ・再生位置を左へ（グリッド 1 つ）"_ju, {}, "Edit", 0); info.addDefaultKeypress (KP::leftKey, 0); break;
-        case cmdCursorRight: info.setInfo ("クリップ・再生位置を右へ（グリッド 1 つ）"_ju, {}, "Edit", 0); info.addDefaultKeypress (KP::rightKey, 0); break;
-        case cmdBarLeft:     info.setInfo ("クリップ・再生位置を左へ（1 小節）"_ju, {}, "Edit", 0); info.addDefaultKeypress (KP::leftKey, shift); break;
-        case cmdBarRight:    info.setInfo ("クリップ・再生位置を右へ（1 小節）"_ju, {}, "Edit", 0); info.addDefaultKeypress (KP::rightKey, shift); break;
+        case cmdCursorLeft:  info.setInfo ("1 グリッド左へ"_ju, {}, "Edit", 0); info.addDefaultKeypress (KP::leftKey, 0); break;
+        case cmdCursorRight: info.setInfo ("1 グリッド右へ"_ju, {}, "Edit", 0); info.addDefaultKeypress (KP::rightKey, 0); break;
+        case cmdBarLeft:     info.setInfo ("1 小節左へ"_ju, {}, "Edit", 0); info.addDefaultKeypress (KP::leftKey, shift); break;
+        case cmdBarRight:    info.setInfo ("1 小節右へ"_ju, {}, "Edit", 0); info.addDefaultKeypress (KP::rightKey, shift); break;
         case cmdTrackUp:     info.setInfo ("上のトラックを選ぶ"_ju, {}, "Track", 0); info.addDefaultKeypress (KP::upKey, 0); break;
         case cmdPianoFull:
             info.setInfo ("ピアノロールを全画面に"_ju, {}, "View", 0);
@@ -119,15 +119,15 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
             info.defaultKeypresses.add (state.behaviour().toStartKey);
             break;
         case cmdStop:
-            info.setInfo ("停止（停止中なら先頭へ）"_ju, {}, "Transport", 0);
+            info.setInfo ("停止"_ju, {}, "Transport", 0);
             info.defaultKeypresses.add (state.behaviour().stopKey);
             break;
         case cmdZoomIn:
-            info.setInfo ("拡大（横）"_ju, {}, "View", 0);
+            info.setInfo ("横に拡大"_ju, {}, "View", 0);
             info.defaultKeypresses.add (state.behaviour().zoomInKey);
             break;
         case cmdZoomOut:
-            info.setInfo ("縮小（横）"_ju, {}, "View", 0);
+            info.setInfo ("横に縮小"_ju, {}, "View", 0);
             info.defaultKeypresses.add (state.behaviour().zoomOutKey);
             break;
         case cmdWaveBigger:
@@ -214,7 +214,7 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdAddBass:    info.setInfo ("ベース"_ju, {}, "Track", 0); break;
         case cmdAddPiano:   info.setInfo ("ピアノ"_ju, {}, "Track", 0); break;
         case cmdAddEPiano:  info.setInfo ("エレピ"_ju, {}, "Track", 0); break;
-        case cmdAddSampler: info.setInfo ("サンプラー（オーディオを MIDI で鳴らす）"_ju, {}, "Track", 0); break;
+        case cmdAddSampler: info.setInfo ("サンプラー"_ju, {}, "Track", 0); break;
         case cmdToolSelect:
             info.setInfo ("選択ツール"_ju, {}, "Edit", 0);
             info.defaultKeypresses.add (state.behaviour().selectToolKey);
@@ -740,7 +740,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addCommandItem (cm, cmdTransientsAtPeak);
             m.addCommandItem (cm, cmdAutoScroll);
             m.addSeparator();
-            m.addSubMenu ("文字サイズ（画面共有用）"_ju, sizes);
+            m.addSubMenu ("文字サイズ"_ju, sizes);
             break;
         }
         case 7:

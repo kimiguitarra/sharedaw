@@ -2,10 +2,13 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <iomanip>
 #include <sstream>
 
+#include "collab/BuiltinEffects.h"
 #include "collab/BuiltinInstruments.h"
+#include "collab/ChannelStripDsp.h"
 
 namespace collab
 {
@@ -21,6 +24,12 @@ namespace
     }
 }
 
+int samplerPadNote (int index)
+{
+    static constexpr int steps[] = { 0, 2, 4, 5, 7, 9, 11 };
+    return 36 + 12 * (index / 7) + steps[index % 7];
+}
+
 bool isSampler (const Instrument& i)
 {
     return i.kind == Instrument::Kind::builtin && i.id == builtin::sampler;
@@ -31,7 +40,7 @@ std::vector<SamplerPad> samplerPads (const nlohmann::json& params)
     std::vector<SamplerPad> pads ((size_t) kSamplerPads);
 
     for (int i = 0; i < kSamplerPads; ++i)
-        pads[(size_t) i].note = 36 + i;
+        pads[(size_t) i].note = samplerPadNote (i);
 
     if (! params.is_object() || ! params.contains ("pads") || ! params["pads"].is_array())
         return pads;
@@ -46,7 +55,6 @@ std::vector<SamplerPad> samplerPads (const nlohmann::json& params)
             continue;
 
         auto& p = pads[i];
-        p.note = std::clamp (j.value ("note", p.note), 0, 127);
         p.audioHash = j.value ("audioHash", std::string());
         p.name = j.value ("name", std::string());
         p.gainDb = std::clamp (j.value ("gainDb", 0.0), -60.0, 24.0);
@@ -56,6 +64,13 @@ std::vector<SamplerPad> samplerPads (const nlohmann::json& params)
         p.chokeGroup = std::clamp (j.value ("choke", 0), 0, 16);
         p.sourceBpm = j.value ("bpm", 0.0);
         p.sourceBpm = p.sourceBpm > 0.0 ? std::clamp (p.sourceBpm, 20.0, 400.0) : 0.0;
+        p.startSamples = std::max<SampleCount> (0, j.value ("start", (SampleCount) 0));
+        p.endSamples = std::max<SampleCount> (0, j.value ("end", (SampleCount) 0));
+        p.eqLowDb = std::clamp (j.value ("eqLow", 0.0), -18.0, 18.0);
+        p.eqMidDb = std::clamp (j.value ("eqMid", 0.0), -18.0, 18.0);
+        p.eqMidHz = std::clamp (j.value ("eqMidHz", 1000.0), 100.0, 10000.0);
+        p.eqHighDb = std::clamp (j.value ("eqHigh", 0.0), -18.0, 18.0);
+        p.driveDb = std::clamp (j.value ("drive", 0.0), 0.0, 24.0);
     }
 
     return pads;
@@ -78,6 +93,13 @@ nlohmann::json withSamplerPads (const nlohmann::json& params, const std::vector<
         if (! p.oneShot)            j["oneShot"] = false;
         if (p.chokeGroup != 0)      j["choke"] = p.chokeGroup;
         if (p.sourceBpm > 0.0)      j["bpm"] = p.sourceBpm;
+        if (p.startSamples > 0)     j["start"] = p.startSamples;
+        if (p.endSamples > 0)       j["end"] = p.endSamples;
+        if (p.eqLowDb != 0.0)       j["eqLow"] = p.eqLowDb;
+        if (p.eqMidDb != 0.0)       j["eqMid"] = p.eqMidDb;
+        if (p.eqMidHz != 1000.0)    j["eqMidHz"] = p.eqMidHz;
+        if (p.eqHighDb != 0.0)      j["eqHigh"] = p.eqHighDb;
+        if (p.driveDb != 0.0)       j["drive"] = p.driveDb;
 
         list.push_back (j);
     }
@@ -120,12 +142,6 @@ std::string generateSamplerSfz (const nlohmann::json& params, const std::functio
         if (p.pan != 0.0)
             s << " pan=" << fmt (p.pan * 100.0);
 
-        if (p.tuneSemitones != 0.0)
-        {
-            const double cents = std::round (p.tuneSemitones * 100.0);
-            s << " transpose=" << (int) (cents / 100.0) << " tune=" << (int) std::fmod (cents, 100.0);
-        }
-
         // チョーク: 同じグループの音は後の音が前を止める。グループがなければ同じパッドの重なりだけ止めない
         if (p.chokeGroup > 0)
             s << " group=" << (100 + p.chokeGroup) << " off_by=" << (100 + p.chokeGroup) << " off_mode=fast";
@@ -160,6 +176,88 @@ std::vector<std::string> referencedAudio (const Project& p)
     }
 
     return hashes;
+}
+
+bool padNeedsRender (const SamplerPad& p, double speed)
+{
+    return p.startSamples > 0 || p.endSamples > 0 || p.tuneSemitones != 0.0 || std::abs (speed - 1.0) > 1.0e-6
+        || p.eqLowDb != 0.0 || p.eqMidDb != 0.0 || p.eqHighDb != 0.0 || p.driveDb != 0.0;
+}
+
+std::string padRenderKey (const SamplerPad& p, double speed)
+{
+    std::ostringstream s;
+    s.imbue (std::locale::classic());
+    s << p.audioHash << '|' << p.startSamples << '|' << p.endSamples << '|' << fmt (p.tuneSemitones) << '|' << std::setprecision (8) << speed
+      << '|' << fmt (p.eqLowDb) << '|' << fmt (p.eqMidDb) << '|' << fmt (p.eqMidHz) << '|' << fmt (p.eqHighDb) << '|' << fmt (p.driveDb);
+
+    // FNV-1a（ファイル名を短くする）
+    std::uint64_t h = 1469598103934665603ull;
+
+    for (unsigned char c : s.str())
+        h = (h ^ c) * 1099511628211ull;
+
+    std::ostringstream out;
+    out << std::hex << std::setw (16) << std::setfill ('0') << h;
+    return out.str();
+}
+
+void processPadAudio (std::vector<std::vector<float>>& channels, double sampleRate, const SamplerPad& p)
+{
+    std::vector<Biquad> bands;
+
+    if (p.eqLowDb != 0.0)   bands.push_back (Biquad::lowShelf (sampleRate, 100.0, p.eqLowDb));
+    if (p.eqMidDb != 0.0)   bands.push_back (Biquad::peak (sampleRate, p.eqMidHz, 0.9, p.eqMidDb));
+    if (p.eqHighDb != 0.0)  bands.push_back (Biquad::highShelf (sampleRate, 8000.0, p.eqHighDb));
+
+    for (auto& ch : channels)
+        for (auto& b : bands)
+        {
+            BiquadState state;
+
+            for (auto& x : ch)
+                x = state.process (b, x);
+        }
+
+    if (p.driveDb <= 0.0 || channels.empty())
+        return;
+
+    auto rms = [&channels]
+    {
+        double sum = 0.0;
+        size_t n = 0;
+
+        for (auto& ch : channels)
+        {
+            for (float x : ch)
+                sum += (double) x * x;
+
+            n += ch.size();
+        }
+
+        return n > 0 ? std::sqrt (sum / (double) n) : 0.0;
+    };
+
+    const double before = rms();
+    auto sat = fx::createProcessor (fx::Type::saturator);
+    sat->prepare (sampleRate);
+    sat->setParams ({ { "drive", p.driveDb }, { "warmth", 50.0 }, { "output", 0.0 }, { "mix", 100.0 } });
+
+    const int numChannels = std::min ((int) channels.size(), 2);
+    const int length = (int) channels[0].size();
+    constexpr int block = 512;
+
+    for (int pos = 0; pos < length; pos += block)
+    {
+        float* ptrs[2] = { channels[0].data() + pos, channels[(size_t) (numChannels - 1)].data() + pos };
+        sat->process (ptrs, numChannels, std::min (block, length - pos));
+    }
+
+    // 歪ませても音の大きさは変えない
+    if (const double after = rms(); before > 0.0 && after > 0.0)
+        for (auto& ch : channels)
+            for (auto& x : ch)
+                x = (float) (x * before / after);
 }
 
 }

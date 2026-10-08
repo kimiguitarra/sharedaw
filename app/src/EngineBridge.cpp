@@ -559,8 +559,8 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
     {
         removeInstrument (b);
         removeEffects (b);
-        b.problem = t.render ? "プラグインを鳴らせないため、バウンスした音で再生しています（"_ju + liveProblem + "）"_ju
-                             : "プラグインを鳴らせず、バウンスもありません（"_ju + liveProblem + "）"_ju;
+        b.problem = t.render ? "バウンスした音で再生中: "_ju + liveProblem
+                             : liveProblem;
     }
     else
     {
@@ -1121,9 +1121,34 @@ juce::File EngineBridge::stretchedFile (const std::string& hash, double semitone
 {
     const auto projectDir = document.getProjectDir();
     const auto source = AudioFiles::fileForHash (projectDir, hash);
-    auto dest = PitchShift::cachedFile (projectDir, hash, semitones, speed);
+    const auto dest = PitchShift::cachedFile (projectDir, hash, semitones, speed);
 
-    if (dest.existsAsFile() || ! source.existsAsFile())
+    if (! source.existsAsFile())
+        return dest;
+
+    return makeFile (dest, [source, dest, semitones, speed] { PitchShift::render (source, dest, semitones, speed); }, waitUntilReady);
+}
+
+juce::File EngineBridge::padFile (const collab::SamplerPad& pad, bool waitUntilReady)
+{
+    const auto projectDir = document.getProjectDir();
+    const auto source = AudioFiles::fileForHash (projectDir, pad.audioHash);
+    const double speed = samplerPadSpeed (pad);
+
+    if (! collab::padNeedsRender (pad, speed))
+        return source;
+
+    const auto dest = PitchShift::padFile (projectDir, pad, speed);
+
+    if (! source.existsAsFile())
+        return dest;
+
+    return makeFile (dest, [source, dest, pad, speed] { PitchShift::renderPad (source, dest, pad, speed); }, waitUntilReady);
+}
+
+juce::File EngineBridge::makeFile (const juce::File& dest, std::function<void()> job, bool waitUntilReady)
+{
+    if (dest.existsAsFile())
         return dest;
 
     if (waitUntilReady)
@@ -1133,16 +1158,16 @@ juce::File EngineBridge::stretchedFile (const std::string& hash, double semitone
             juce::Thread::sleep (20);
 
         if (! dest.existsAsFile())
-            PitchShift::render (source, dest, semitones, speed);
+            job();
 
         return dest;
     }
 
     if (pitchJobs.insert (dest.getFullPathName()).second)
     {
-        pitchPool.addJob ([this, source, dest, semitones, speed, alive = std::weak_ptr<bool> (aliveFlag)]
+        pitchPool.addJob ([this, dest, job, alive = std::weak_ptr<bool> (aliveFlag)]
         {
-            PitchShift::render (source, dest, semitones, speed);
+            job();
 
             juce::MessageManager::callAsync ([this, dest, alive]
             {
@@ -1192,8 +1217,13 @@ void EngineBridge::preparePitchedAudio()
 
         if (t.instrument && collab::isSampler (*t.instrument))
             for (auto& pad : collab::samplerPads (t.instrument->params))
-                if (! pad.audioHash.empty())
-                    prepare (pad.audioHash, 0.0, samplerPadSpeed (pad));
+                if (! pad.audioHash.empty() && collab::padNeedsRender (pad, samplerPadSpeed (pad))
+                     && ! PitchShift::padFile (dir, pad, samplerPadSpeed (pad)).existsAsFile()
+                     && AudioFiles::fileForHash (dir, pad.audioHash).existsAsFile())
+                {
+                    padFile (pad, true);
+                    made = true;
+                }
     }
 
     if (made)
@@ -1306,10 +1336,9 @@ void EngineBridge::syncInstrument (const collab::Track& t, Binding& b)
             if (! located || ! f.existsAsFile())
                 return std::string();
 
-            // テンポに合わせるパッドは、伸び縮みさせたファイル（できるまでは元の音）
-            if (const double speed = samplerPadSpeed (pad); speed != 1.0)
-                if (auto made = stretchedFile (pad.audioHash, 0.0, speed, false); made.existsAsFile())
-                    f = made;
+            // 切る・高さ・テンポ・EQ・サチュレーションを変えたパッドは、加工したファイル（できるまでは元の音）
+            if (auto made = padFile (pad, false); made.existsAsFile())
+                f = made;
 
             return f.getFullPathName().toStdString();
         }));
@@ -1488,7 +1517,7 @@ juce::String EngineBridge::getInstrumentProblem (const std::string& trackId) con
         return {};
 
     if (it->second.missingAudio > 0)
-        return "オーディオが "_ju + juce::String (it->second.missingAudio) + " 個見つかりません（取り込みが必要です）"_ju;
+        return "オーディオが "_ju + juce::String (it->second.missingAudio) + " 個見つかりません"_ju;
 
     return it->second.problem;
 }

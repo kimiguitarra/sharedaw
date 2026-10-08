@@ -331,7 +331,7 @@ juce::PopupMenu AppContext::addEffectMenu (const std::string& trackId)
         add.addItem (d.name + " (" + d.manufacturerName + ")", [this, trackId, d] { addEffect (trackId, d); });
 
     if (add.getNumItems() == before)
-        add.addItem ("プラグインがありません（設定 → プラグイン… でスキャン）"_ju, false, false, nullptr);
+        add.addItem ("プラグインがありません"_ju, false, false, nullptr);
 
     return add;
 }
@@ -890,7 +890,7 @@ juce::PopupMenu AppContext::sendMenu (const std::string& trackId)
         else
         {
             juce::PopupMenu one;
-            one.addItem ("プリフェーダー（音量の前から送る）"_ju, true, it->preFader,
+            one.addItem ("プリフェーダー"_ju, true, it->preFader,
                          [this, trackId, id = b.id, pre = it->preFader] { setSend (trackId, id, std::nullopt, ! pre); });
             one.addItem ("センドを外す"_ju, [this, trackId, id = b.id] { removeSend (trackId, id); });
             sends.addSubMenu (toJuce (b.name) + "（"_ju + juce::String (it->levelDb, 1) + " dB）"_ju, one);
@@ -1039,7 +1039,7 @@ juce::PopupMenu AppContext::stretchMenu (std::function<void (double)> apply)
 {
     juce::PopupMenu m;
 
-    const std::pair<double, juce::String> choices[] = { { 0.5, "1/2 にする（倍速）"_ju }, { 2.0, "2 倍にする（半分の速さ）"_ju },
+    const std::pair<double, juce::String> choices[] = { { 0.5, "1/2 にする"_ju }, { 2.0, "2 倍にする"_ju },
                                                         { 2.0 / 3.0, "2/3 にする"_ju }, { 1.5, "3/2 にする"_ju } };
 
     for (auto& [factor, label] : choices)

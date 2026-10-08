@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Common.h"
+#include "collab/Sampler.h"
 
 /**
     オーディオクリップのピッチ・テンポ合わせ（§3.6）: 元のファイルを、半音単位で高さを変え、speed 倍の速さにした（長さ 1/speed）ファイルにして
@@ -17,4 +18,13 @@ namespace PitchShift
         時間がかかるので、画面のスレッドでは呼ばない。
     */
     bool render (const juce::File& source, const juce::File& dest, double semitones, double speed = 1.0);
+
+    /** channels の高さを semitones 変え、speed 倍の速さにしたもの（音の位置は 1/speed 倍の所にそろえる）。 */
+    std::vector<std::vector<float>> apply (const std::vector<std::vector<float>>& channels, double sampleRate, double semitones, double speed);
+
+    /** サンプラーのパッドを加工したファイルの置き場所（設定ごとに別のファイル）。 */
+    juce::File padFile (const juce::File& projectDir, const collab::SamplerPad&, double speed);
+
+    /** パッドの音を加工して dest に書く: 使う範囲を切り、高さ・テンポを変え、EQ・サチュレーションをかける。 */
+    bool renderPad (const juce::File& source, const juce::File& dest, const collab::SamplerPad&, double speed);
 }

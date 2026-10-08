@@ -663,7 +663,7 @@ class MasterSection  : public MixSection
 {
 public:
     // EQ・COMP と同じ: 見出しの丸でオン・オフ、中をクリックでリミッターの画面（F4）
-    MasterSection (AppContext& c) : MixSection (c, {}, "LIMITER") { setTooltip ("リミッター（F4）"_ju); }
+    MasterSection (AppContext& c) : MixSection (c, {}, "LIMITER") { setTooltip ("リミッター  F4"_ju); }
 
     EngineBridge::MasterStatus status;
 
@@ -788,7 +788,7 @@ public:
         if (e.mods.isPopupMenu())
         {
             juce::PopupMenu m;
-            m.addItem ("プリフェーダー（音量の前から送る）"_ju, true, s.preFader,
+            m.addItem ("プリフェーダー"_ju, true, s.preFader,
                        [this, id = s.busId, pre = s.preFader] { ctx.setSend (trackId, id, std::nullopt, ! pre); });
             m.addItem ("センドを外す"_ju, [this, id = s.busId] { ctx.removeSend (trackId, id); });
             m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this));
@@ -950,13 +950,13 @@ public:
         addAndMakeVisible (value);
         meter.dbToProportion = [this] (double db) { return fader.valueToProportionOfLength (db); };
         addAndMakeVisible (meter);
-        peak.setTooltip ("直近のピーク（クリックで戻す）"_ju);
+        peak.setTooltip ("ピーク"_ju);
         peak.onClick = [this] { meter.resetHold(); peak.setDb (meterFloorDb); };
         meter.onReset = [this] { peak.setDb (meterFloorDb); };
         addAndMakeVisible (peak);
 
         mute.setButtonText (isMetronome() ? "オン"_ju : juce::String ("M"));
-        mute.setTooltip (isMetronome() ? "メトロノームを鳴らす（C）"_ju : "ミュート"_ju);
+        mute.setTooltip (isMetronome() ? "メトロノーム  C"_ju : "ミュート"_ju);
         mute.setColour (juce::TextButton::buttonOnColourId, isMetronome() ? Theme::accent.darker (0.3f) : juce::Colour (0xffe57373));
         solo.setButtonText ("S");
         solo.setTooltip ("ソロ"_ju);

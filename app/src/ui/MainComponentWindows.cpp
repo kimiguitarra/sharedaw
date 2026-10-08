@@ -247,7 +247,7 @@ void MainComponent::openSampler (const std::string& trackId)
         panel->onTitleChanged = [w, panel] { w->setName (panel->getTitle()); };
         window->setContentOwned (panel, true);
         window->setResizable (true, false);
-        window->setResizeLimits (420, 380, 1600, 1400);
+        window->setResizeLimits (900, 560, 2000, 1400);
         window->addKeyListener (&numpadKeys);
 
         if (auto* top = getTopLevelComponent())
@@ -649,8 +649,8 @@ void MainComponent::showStretchSongDialog()
                                      juce::MessageBoxIconType::NoIcon, this);
 
     const std::vector<std::pair<double, juce::String>> factors {
-        { 0.5, "1/2 にする（例: 3/4 の曲を 6/8・半分の BPM で数え直す）"_ju },
-        { 2.0, "2 倍にする（例: 6/8 の曲を 3/4・倍の BPM で数え直す）"_ju },
+        { 0.5, "1/2 にする"_ju },
+        { 2.0, "2 倍にする"_ju },
         { 2.0 / 3.0, "2/3 にする"_ju },
         { 1.5, "3/2 にする"_ju } };
     juce::StringArray factorNames;
@@ -659,7 +659,7 @@ void MainComponent::showStretchSongDialog()
         factorNames.add (f.second);
 
     w->addComboBox ("factor", factorNames, "位置と長さ"_ju);
-    w->addComboBox ("tempo", { "同じ割合で変える（聞こえ方はそのまま）"_ju, "変えない（曲の速さが変わる）"_ju }, "テンポ"_ju);
+    w->addComboBox ("tempo", { "同じ割合で変える"_ju, "変えない"_ju }, "テンポ"_ju);
 
     const std::vector<std::pair<int, int>> meters { { 6, 8 }, { 3, 4 }, { 4, 4 }, { 2, 4 }, { 12, 8 }, { 9, 8 }, { 3, 8 } };
     juce::StringArray meterNames { "変えない"_ju };

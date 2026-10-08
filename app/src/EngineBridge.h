@@ -458,6 +458,10 @@ private:
     /** 高さを semitones 変え、speed 倍の速さにしたファイル（なければ裏で作り始める。waitUntilReady なら作り終わるまで待つ）。 */
     juce::File stretchedFile (const std::string& hash, double semitones, double speed, bool waitUntilReady);
     double samplerPadSpeed (const collab::SamplerPad&) const;
+    /** パッドの鳴らすファイル（加工が要れば加工したもの。なければ裏で作り始め、まだないファイルを返す）。 */
+    juce::File padFile (const collab::SamplerPad&, bool waitUntilReady);
+    /** dest がなければ job で作る（裏のスレッドで。waitUntilReady ならその場で）。できたらクリップ・サンプラーを作り直す。 */
+    juce::File makeFile (const juce::File& dest, std::function<void()> job, bool waitUntilReady);
     std::vector<RecordedMidi> pendingMidi;
     void refreshMidiInputs();
     CountInPlugin* countIn = nullptr;

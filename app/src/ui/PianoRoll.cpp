@@ -40,17 +40,17 @@ PianoRollView::PianoRollView (AppContext& c)
 
     snapToggle.setToggleState (true, juce::dontSendNotification);
     snapToggle.setClickingTogglesState (false);
-    snapToggle.setTooltip ("スナップ（J）"_ju);
+    snapToggle.setTooltip ("スナップ  J"_ju);
     snapToggle.onClick = [this] { ctx.state.setSnapEnabled (! ctx.state.snapEnabled()); };
     addAndMakeVisible (snapToggle);
 
-    quantiseButton.setTooltip ("クオンタイズ（Q）"_ju);
+    quantiseButton.setTooltip ("クオンタイズ  Q"_ju);
     quantiseButton.onClick = [this] { quantiseSelection(); };
     addAndMakeVisible (quantiseButton);
 
     // ナッジ（Superior Drummer と同じく、少しずつずらす。量は決まっていて、大きく動かすときは何回か押す）
-    nudgeLeftButton.setTooltip ("ナッジ: 選んだノートを少し前へ（Ctrl+Alt+←）"_ju);
-    nudgeRightButton.setTooltip ("ナッジ: 選んだノートを少し後ろへ（Ctrl+Alt+→）"_ju);
+    nudgeLeftButton.setTooltip ("少し前へ  Ctrl+Alt+←"_ju);
+    nudgeRightButton.setTooltip ("少し後ろへ  Ctrl+Alt+→"_ju);
     nudgeLeftButton.onClick = [this] { nudgeSelection (-1); };
     nudgeRightButton.onClick = [this] { nudgeSelection (1); };
 
@@ -67,7 +67,7 @@ PianoRollView::PianoRollView (AppContext& c)
     };
     addAndMakeVisible (staffButton);
 
-    bendRange.setTooltip ("ピッチベンドの段の上下の範囲"_ju);
+    bendRange.setTooltip ("ベンド幅"_ju);
     bendRange.setWantsKeyboardFocus (false);
     bendRange.setButtonText (ctx.state.pitchBendViewSemitones == 2 ? "±1音"_ju : "±半音"_ju);
     bendRange.onClick = [this]
@@ -88,7 +88,7 @@ PianoRollView::PianoRollView (AppContext& c)
 
     bassClefButton.setClickingTogglesState (true);
     bassClefButton.setToggleState (true, juce::dontSendNotification);
-    bassClefButton.setTooltip ("ヘ音記号の段を使う（オフでト音記号だけ）"_ju);
+    bassClefButton.setTooltip ("ヘ音記号"_ju);
     bassClefButton.onClick = [this] { staff.setUseBassClef (bassClefButton.getToggleState()); };
     addChildComponent (bassClefButton);
 

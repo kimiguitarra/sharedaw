@@ -164,56 +164,109 @@ juce::File cachedFile (const juce::File& projectDir, const std::string& hash, do
     return projectDir.getChildFile ("cache").getChildFile ("pitch").getChildFile (name + ".wav");
 }
 
-bool render (const juce::File& source, const juce::File& dest, double semitones, double speed)
+namespace
 {
-    juce::AudioFormatManager formats;
-    formats.registerBasicFormats();
-    std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (source));
-
-    if (reader == nullptr || reader->lengthInSamples <= 0 || reader->lengthInSamples > std::numeric_limits<int>::max() / 2)
-        return false;
-
-    const int numChannels = (int) reader->numChannels;
-    const int length = (int) reader->lengthInSamples;
-    juce::AudioBuffer<float> buffer (numChannels, length);
-    reader->read (&buffer, 0, length, 0, true, true);
-
-    std::vector<std::vector<float>> input ((size_t) numChannels);
-
-    for (int ch = 0; ch < numChannels; ++ch)
-        input[(size_t) ch].assign (buffer.getReadPointer (ch), buffer.getReadPointer (ch) + length);
-
-    const auto shifted = process (input, reader->sampleRate, semitones, speed, lagFor (reader->sampleRate, semitones, speed));
-    const int outLength = numChannels > 0 ? (int) shifted[0].size() : 0;
-    buffer.setSize (numChannels, outLength);
-
-    for (int ch = 0; ch < numChannels; ++ch)
-        std::copy (shifted[(size_t) ch].begin(), shifted[(size_t) ch].end(), buffer.getWritePointer (ch));
-
-    // 書き終わってから名前を付ける（途中のファイルを鳴らさない）
-    dest.getParentDirectory().createDirectory();
-    const auto temp = dest.getSiblingFile (dest.getFileNameWithoutExtension() + ".part.wav");
-    temp.deleteFile();
-
+    bool readChannels (const juce::File& source, std::vector<std::vector<float>>& channels, double& sampleRate)
     {
-        std::unique_ptr<juce::OutputStream> stream (temp.createOutputStream());
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (source));
 
-        if (stream == nullptr)
+        if (reader == nullptr || reader->lengthInSamples <= 0 || reader->lengthInSamples > std::numeric_limits<int>::max() / 2)
             return false;
 
-        juce::WavAudioFormat wav;
-        std::unique_ptr<juce::AudioFormatWriter> writer (wav.createWriterFor (stream.get(), reader->sampleRate, (unsigned int) numChannels,
-                                                                              32, {}, 0));
+        const int numChannels = (int) reader->numChannels;
+        const int length = (int) reader->lengthInSamples;
+        juce::AudioBuffer<float> buffer (numChannels, length);
+        reader->read (&buffer, 0, length, 0, true, true);
+        sampleRate = reader->sampleRate;
+        channels.assign ((size_t) numChannels, {});
 
-        if (writer == nullptr)
-            return false;
+        for (int ch = 0; ch < numChannels; ++ch)
+            channels[(size_t) ch].assign (buffer.getReadPointer (ch), buffer.getReadPointer (ch) + length);
 
-        stream.release();   // writer が持つ
-
-        if (! writer->writeFromAudioSampleBuffer (buffer, 0, outLength))
-            return false;
+        return true;
     }
 
-    return temp.moveFileTo (dest);
+    /** 書き終わってから名前を付ける（途中のファイルを鳴らさない）。 */
+    bool writeChannels (const juce::File& dest, const std::vector<std::vector<float>>& channels, double sampleRate)
+    {
+        const int numChannels = (int) channels.size();
+        const int length = numChannels > 0 ? (int) channels[0].size() : 0;
+        juce::AudioBuffer<float> buffer (numChannels, std::max (1, length));
+        buffer.clear();
+
+        for (int ch = 0; ch < numChannels; ++ch)
+            std::copy (channels[(size_t) ch].begin(), channels[(size_t) ch].end(), buffer.getWritePointer (ch));
+
+        dest.getParentDirectory().createDirectory();
+        const auto temp = dest.getSiblingFile (dest.getFileNameWithoutExtension() + ".part.wav");
+        temp.deleteFile();
+
+        {
+            std::unique_ptr<juce::OutputStream> stream (temp.createOutputStream());
+
+            if (stream == nullptr)
+                return false;
+
+            juce::WavAudioFormat wav;
+            std::unique_ptr<juce::AudioFormatWriter> writer (wav.createWriterFor (stream.get(), sampleRate, (unsigned int) numChannels, 32, {}, 0));
+
+            if (writer == nullptr)
+                return false;
+
+            stream.release();   // writer が持つ
+
+            if (! writer->writeFromAudioSampleBuffer (buffer, 0, std::max (1, length)))
+                return false;
+        }
+
+        return temp.moveFileTo (dest);
+    }
+}
+
+std::vector<std::vector<float>> apply (const std::vector<std::vector<float>>& input, double sampleRate, double semitones, double speed)
+{
+    if (semitones == 0.0 && std::abs (speed - 1.0) < 1.0e-9)
+        return input;
+
+    return process (input, sampleRate, semitones, speed, lagFor (sampleRate, semitones, speed));
+}
+
+bool render (const juce::File& source, const juce::File& dest, double semitones, double speed)
+{
+    std::vector<std::vector<float>> channels;
+    double sampleRate = 0.0;
+
+    if (! readChannels (source, channels, sampleRate))
+        return false;
+
+    return writeChannels (dest, apply (channels, sampleRate, semitones, speed), sampleRate);
+}
+
+juce::File padFile (const juce::File& projectDir, const collab::SamplerPad& pad, double speed)
+{
+    return projectDir.getChildFile ("cache").getChildFile ("pad").getChildFile (toJuce (collab::padRenderKey (pad, speed)) + ".wav");
+}
+
+bool renderPad (const juce::File& source, const juce::File& dest, const collab::SamplerPad& pad, double speed)
+{
+    std::vector<std::vector<float>> channels;
+    double sampleRate = 0.0;
+
+    if (! readChannels (source, channels, sampleRate) || channels.empty())
+        return false;
+
+    // 使う範囲だけにする
+    const auto length = (collab::SampleCount) channels[0].size();
+    const auto from = std::clamp<collab::SampleCount> (pad.startSamples, 0, length - 1);
+    const auto to = pad.endSamples > from ? std::min (pad.endSamples, length) : length;
+
+    for (auto& ch : channels)
+        ch = std::vector<float> (ch.begin() + from, ch.begin() + to);
+
+    auto out = apply (channels, sampleRate, pad.tuneSemitones, speed);
+    collab::processPadAudio (out, sampleRate, pad);
+    return writeChannels (dest, out, sampleRate);
 }
 }

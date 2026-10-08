@@ -157,7 +157,7 @@ void MarkerLane::mouseDown (const juce::MouseEvent& e)
         dragId = {};
 
         juce::PopupMenu m;
-        m.addItem ("ここへ移動（再生位置）"_ju, [this, at] { ctx.engine.setPositionTick ((double) at); });
+        m.addItem ("ここへ移動"_ju, [this, at] { ctx.engine.setPositionTick ((double) at); });
         m.addItem ("名前を変更…"_ju, [this, id] { rename (id); });
         m.addItem ("削除"_ju, [this] { deleteSelected(); });
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this));
