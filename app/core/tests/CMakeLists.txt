@@ -11,6 +11,7 @@ add_executable(collab_core_tests
     GridTests.cpp
     ProjectDiffTests.cpp
     ProjectHistoryTests.cpp
+    SamplerTests.cpp
     ProjectJsonTests.cpp
     RecordingTests.cpp
     RenderTests.cpp

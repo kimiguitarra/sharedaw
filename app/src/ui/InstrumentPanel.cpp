@@ -1,4 +1,5 @@
 #include "InstrumentPanel.h"
+#include "collab/Sampler.h"
 
 #include "Theme.h"
 
@@ -217,6 +218,15 @@ void InstrumentPanel::show (AppContext& ctx, const std::string& trackId, juce::C
         // 外部の音源はプラグインの画面で調整する
         if (ctx.openPluginEditor)
             ctx.openPluginEditor (trackId, {});
+
+        return;
+    }
+
+    // サンプラーはパッドの画面で
+    if (collab::isSampler (*t->instrument))
+    {
+        if (ctx.openSampler)
+            ctx.openSampler (trackId);
 
         return;
     }

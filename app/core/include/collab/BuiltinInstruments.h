@@ -64,7 +64,7 @@ struct BuiltinInstrumentManifest
     std::string version;      // "0.1.0"
     std::string samplesFrom;  // サンプルを置いている版（空なら version。前の版のサンプルをそのまま使う新しい版で指定する）
     std::string displayName;
-    std::string type;         // "drums" | "melodic"
+    std::string type;         // "drums" | "melodic" | "sampler"
     std::string mainSfz;      // melodic のときのメイン SFZ（相対パス。presets があれば不要）
     std::vector<InstrumentPreset> presets;                            // melodic の音色
     std::vector<DrumPiece> pieces;                                    // drums のみ
@@ -124,6 +124,7 @@ namespace builtin
     inline constexpr const char* bass  = "builtin.bass";
     inline constexpr const char* piano = "builtin.piano";
     inline constexpr const char* epiano = "builtin.epiano";
+    inline constexpr const char* sampler = "builtin.sampler";
 }
 
 } // namespace collab

@@ -1,4 +1,5 @@
 #include "AudioFilesPanel.h"
+#include "collab/Sampler.h"
 
 #include <set>
 
@@ -25,6 +26,11 @@ namespace
 
             for (auto& c : t.audioClips)
                 result[c.audioHash].addIfNotAlreadyThere (toJuce (t.name));
+
+            if (t.instrument && collab::isSampler (*t.instrument))
+                for (auto& pad : collab::samplerPads (t.instrument->params))
+                    if (! pad.audioHash.empty())
+                        result[pad.audioHash].addIfNotAlreadyThere (toJuce (t.name) + "（サンプラー）"_ju);
         }
 
         return result;

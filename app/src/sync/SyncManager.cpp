@@ -7,6 +7,7 @@
 #include "collab/ProjectJson.h"
 #include "collab/Sha256.h"
 #include "collab/Render.h"
+#include "collab/Sampler.h"
 #include "plugins/PluginHost.h"
 
 namespace
@@ -15,27 +16,7 @@ namespace
 
     juce::File collabDir (const juce::File& projectDir)   { return projectDir.getChildFile (".collab"); }
 
-    std::vector<std::string> referencedAudio (const collab::Project& p)
-    {
-        std::vector<std::string> hashes;
-
-        auto add = [&] (const std::string& h)
-        {
-            if (! h.empty() && std::find (hashes.begin(), hashes.end(), h) == hashes.end())
-                hashes.push_back (h);
-        };
-
-        for (auto& t : p.tracks)
-        {
-            if (t.render)
-                add (t.render->audioHash);
-
-            for (auto& c : t.audioClips)
-                add (c.audioHash);
-        }
-
-        return hashes;
-    }
+    using collab::referencedAudio;   // クリップ・バウンス・サンプラーのパッド
 
     juce::String megabytes (juce::int64 bytes)
     {
@@ -629,6 +610,11 @@ juce::Result SyncManager::runDownloadAudio (const collab::Project& p, const juce
         for (auto& c : t.audioClips)
             if (! labels.count (c.audioHash))
                 labels[c.audioHash] = toJuce (t.name) + "_" + toJuce (c.displayName);
+
+        if (t.instrument && collab::isSampler (*t.instrument))
+            for (auto& pad : collab::samplerPads (t.instrument->params))
+                if (! pad.audioHash.empty() && ! labels.count (pad.audioHash))
+                    labels[pad.audioHash] = toJuce (t.name) + "_" + toJuce (pad.name);
     }
 
     int index = 0;

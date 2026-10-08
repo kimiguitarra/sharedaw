@@ -3039,6 +3039,10 @@ function referencedBlobs(p) {
   for (const t of p.tracks) {
     if (t.render?.audioHash) hashes.add(t.render.audioHash);
     for (const c of t.clips) if (c.audioHash) hashes.add(c.audioHash);
+    const pads = t.instrument?.id === "builtin.sampler" ? t.instrument.params?.pads : void 0;
+    if (Array.isArray(pads)) {
+      for (const pad of pads) if (pad && typeof pad.audioHash === "string" && pad.audioHash) hashes.add(pad.audioHash);
+    }
   }
   return [...hashes];
 }

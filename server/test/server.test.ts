@@ -229,6 +229,21 @@ describe("tracks, blobs and locks", () => {
     expect(r.data.hashes.sort()).toEqual(["a".repeat(64), "c".repeat(64)]);
   });
 
+  it("requires the built-in sampler's pad audio too", async () => {
+    const project = clone(fullFixture) as any;
+    project.tracks[2].clips[0].audioHash = await upload(alice, new Uint8Array([1, 2, 3, 4]));
+    project.tracks[1].render.audioHash = await upload(alice, new Uint8Array([5, 6, 7]));
+    project.tracks[0].instrument = { kind: "builtin", id: "builtin.sampler", version: "1.0.0",
+                                     params: { pads: [{ note: 36, audioHash: "d".repeat(64), name: "kick" }, { note: 37 }] } };
+
+    const r = await push(alice, pid, project, 0);
+    expect(r.status).toBe(400);
+    expect(r.data.hashes).toEqual(["d".repeat(64)]);
+
+    project.tracks[0].instrument.params.pads[0].audioHash = await upload(alice, new Uint8Array([9, 9]));
+    expect((await push(alice, pid, project, 0)).status).toBe(201);
+  });
+
   it("lets any member change and delete tracks without locks", async () => {
     // フィクスチャが参照するハッシュに合う内容は用意できないので、参照を実際の実体に差し替える
     const project = clone(fullFixture) as any;

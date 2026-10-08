@@ -19,6 +19,7 @@ export interface ProjectJson {
     type: "midi" | "audio" | "bus";
     render?: { audioHash: string };
     clips: Array<{ audioHash?: string }>;
+    instrument?: { kind?: string; id?: string; params?: { pads?: Array<{ audioHash?: string } | null> } };
   }>;
 }
 
@@ -94,13 +95,16 @@ export function changedScopes(parent: ProjectJson | null, next: ProjectJson): Sc
   return result;
 }
 
-/** 参照しているオーディオ実体（録音・読み込み・バウンス）のハッシュ。 */
+/** 参照しているオーディオ実体（録音・読み込み・バウンス・内蔵サンプラーのパッド）のハッシュ。 */
 export function referencedBlobs(p: ProjectJson): string[] {
   const hashes = new Set<string>();
 
   for (const t of p.tracks) {
     if (t.render?.audioHash) hashes.add(t.render.audioHash);
     for (const c of t.clips) if (c.audioHash) hashes.add(c.audioHash);
+
+    const pads = t.instrument?.id === "builtin.sampler" ? t.instrument.params?.pads : undefined;
+    if (Array.isArray(pads)) for (const pad of pads) if (pad && typeof pad.audioHash === "string" && pad.audioHash) hashes.add(pad.audioHash);
   }
 
   return [...hashes];

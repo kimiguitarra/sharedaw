@@ -1,0 +1,8 @@
+{
+  "id": "builtin.sampler",
+  "version": "1.0.0",
+  "displayName": "サンプラー",
+  "type": "sampler",
+  "credits": [],
+  "defaultParams": { "volumeDb": 0.0, "pan": 0.0, "pads": [] }
+}

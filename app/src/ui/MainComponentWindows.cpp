@@ -1,6 +1,7 @@
 // MainComponent の別のウィンドウ・ダイアログ: ピアノロールの画面、ミキサー、エフェクト・EQ/Comp・マスターの画面、設定、ショートカット一覧、クレジット
 
 #include "MainComponent.h"
+#include "SamplerPanel.h"
 #include "collab/Stretch.h"
 #include "MainComponentCommands.h"
 
@@ -223,6 +224,46 @@ void MainComponent::openChannelStrip (const std::string& trackId, bool compresso
 
     slot->setVisible (true);
     slot->toFront (true);
+}
+
+void MainComponent::openSampler (const std::string& trackId)
+{
+    if (document.getProject().findTrack (trackId) == nullptr)
+        return;
+
+    // サンプラーの画面は 1 つを使い回し、開くトラックを切り替える
+    if (samplerWindow == nullptr)
+    {
+        struct Window  : public juce::DocumentWindow
+        {
+            Window() : DocumentWindow ("Sampler", Theme::panel, DocumentWindow::closeButton) {}
+            void closeButtonPressed() override      { setVisible (false); }
+        };
+
+        auto window = std::make_unique<Window>();
+        window->setUsingNativeTitleBar (true);
+        auto* panel = new SamplerPanel (ctx, trackId);
+        auto* w = window.get();
+        panel->onTitleChanged = [w, panel] { w->setName (panel->getTitle()); };
+        window->setContentOwned (panel, true);
+        window->setResizable (true, false);
+        window->setResizeLimits (420, 380, 1600, 1400);
+        window->addKeyListener (&numpadKeys);
+
+        if (auto* top = getTopLevelComponent())
+            window->setTopLeftPosition (top->getX() + 140, top->getY() + 120);
+
+        samplerWindow = std::move (window);
+    }
+
+    if (auto* panel = dynamic_cast<SamplerPanel*> (samplerWindow->getContentComponent()))
+    {
+        panel->setTrack (trackId);
+        samplerWindow->setName (panel->getTitle());
+    }
+
+    samplerWindow->setVisible (true);
+    samplerWindow->toFront (true);
 }
 
 void MainComponent::openMaster()

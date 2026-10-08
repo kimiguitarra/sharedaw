@@ -806,6 +806,7 @@ void TrackLanes::mouseDown (const juce::MouseEvent& e)
 {
     grabKeyboardFocus();
     automationDrag.reset();
+    seekOnClick = false;
 
     if (const int row = rowAt (e.position.y); row >= 0 && automationArea (row).contains (e.position))
         return automationMouseDown (e, row);
@@ -839,6 +840,9 @@ void TrackLanes::mouseDown (const juce::MouseEvent& e)
             createMidiClip (track->id, bar, true);
             return;
         }
+
+        // 何もない所をクリック（ドラッグせずに離した）したら、そこへ再生位置を動かす（離したときに）
+        seekOnClick = ! additive;
 
         // 選択ツール: ドラッグで範囲選択（Ctrl / Shift で追加）
         if (! additive)
@@ -1228,8 +1232,11 @@ void TrackLanes::mouseDrag (const juce::MouseEvent& e)
     }
 }
 
-void TrackLanes::mouseUp (const juce::MouseEvent&)
+void TrackLanes::mouseUp (const juce::MouseEvent& e)
 {
+    if (std::exchange (seekOnClick, false) && e.mouseWasClicked())
+        ctx.engine.setPositionTick (ctx.state.snapCursor (juce::jmax (0.0, axis().xToTick (e.position.x)), ctx.document.getTempoMap(), e.mods));
+
     if (automationDrag)
     {
         automationDrag.reset();

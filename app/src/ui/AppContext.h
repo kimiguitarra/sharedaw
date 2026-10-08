@@ -177,6 +177,7 @@ struct AppContext
 
     /** トラックの EQ・コンプの画面を開く（MainComponent が設定する）。 */
     std::function<void (const std::string& trackId, bool compressor)> openChannelStrip;   // EQ か Compressor の画面
+    std::function<void (const std::string& trackId)> openSampler;   // 内蔵サンプラーのパッドの画面
 
     /** マスターの画面（リミッター・ラウドネス）を開く。 */
     std::function<void()> openMaster;

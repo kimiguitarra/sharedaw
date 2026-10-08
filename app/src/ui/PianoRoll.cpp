@@ -1,4 +1,5 @@
 #include "PianoRoll.h"
+#include "collab/Sampler.h"
 #include "PianoRollDetail.h"
 
 #include "TimeGrid.h"
@@ -165,6 +166,21 @@ void PianoRollView::rebuildDrumRows()
     auto used = [clip] (int p) { return clip != nullptr && std::any_of (clip->notes.begin(), clip->notes.end(), [p] (auto& n) { return n.pitch == p; }); };
     auto listed = [this] (int p) { return std::find (drumRows.begin(), drumRows.end(), p) != drumRows.end(); };
 
+    // サンプラー: パッドの順（パッド 1 がいちばん下）。パッドにないノートを使っていれば、その上に
+    if (auto* t = getTrack(); t != nullptr && t->instrument && collab::isSampler (*t->instrument))
+    {
+        for (auto& pad : collab::samplerPads (t->instrument->params))
+            if (! listed (pad.note))
+                drumRows.push_back (pad.note);
+
+        for (int p = 0; p < 128; ++p)
+            if (! listed (p) && used (p))
+                drumRows.push_back (p);
+
+        std::reverse (drumRows.begin(), drumRows.end());
+        return;
+    }
+
     // パーツの行と、その下に（使っていれば）同じ音で鳴る別のノート（Superior Drummer のクローズ・エッジなど）の行
     auto addPiece = [&] (int note)
     {
@@ -224,6 +240,18 @@ juce::String PianoRollView::drumPieceName (int note) const
 {
     std::string name;
 
+    if (auto* t = getTrack(); t != nullptr && t->instrument && collab::isSampler (*t->instrument))
+    {
+        const auto pads = collab::samplerPads (t->instrument->params);
+
+        for (size_t i = 0; i < pads.size(); ++i)
+            if (pads[i].note == note)
+                return pads[i].audioHash.empty() ? "パッド "_ju + juce::String ((int) i + 1)
+                                                 : toJuce (pads[i].name.empty() ? "パッド " + std::to_string (i + 1) : pads[i].name);   // utf8-std
+
+        return {};
+    }
+
     if (auto* m = drumManifest(); m != nullptr && m->findPieceForNote (note, &name) != nullptr)
         return toJuce (name);
 
@@ -244,7 +272,7 @@ bool PianoRollView::isDrumTrack() const
 {
     auto* t = getTrack();
     return t != nullptr && t->instrument && t->instrument->kind == collab::Instrument::Kind::builtin
-             && t->instrument->id == collab::builtin::drums;
+             && (t->instrument->id == collab::builtin::drums || t->instrument->id == collab::builtin::sampler);   // サンプラーもパッドの行で
 }
 
 void PianoRollView::paint (juce::Graphics& g)

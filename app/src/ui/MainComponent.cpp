@@ -1,4 +1,5 @@
 #include "MainComponent.h"
+#include "collab/Sampler.h"
 #include "AudioFilesPanel.h"
 #include "collab/Automation.h"
 #include "collab/Render.h"
@@ -186,6 +187,7 @@ MainComponent::MainComponent (te::Engine& e, ProjectDocument& d, EngineBridge& b
     commandManager.getKeyMappings()->resetToDefaultMappings();
     ctx.addTrackMenu = [this] { return addTrackMenu(); };
     ctx.openChannelStrip = [this] (const std::string& id, bool compressor) { openChannelStrip (id, compressor); };
+    ctx.openSampler = [this] (const std::string& id) { openSampler (id); };
     ctx.openMaster = [this] { openMaster(); };
     bridge.onRecordingFinished = [this] (std::vector<EngineBridge::RecordedTake> takes) { importTakes (std::move (takes)); };
     bridge.onMidiRecorded = [this] (std::vector<EngineBridge::RecordedMidi> recs) { importMidiRecording (std::move (recs)); };
@@ -212,6 +214,7 @@ MainComponent::~MainComponent()
     saveEditorState();
     eqWindow = nullptr;
     compWindow = nullptr;
+    samplerWindow = nullptr;
     mixerWindow = nullptr;
 
     if (pianoFullScreen)
@@ -876,6 +879,46 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
         std::cout << "audio editor: " << (stillSelected && shown && split ? "ok" : "FAILED")
                   << " (selected " << stillSelected << " shown " << shown << " split " << split << ")" << std::endl;
     }, "audio editor" });
+    // サンプラー: 録ったオーディオをパッド 1 に入れたトラックを作って、画面を開く
+    steps->push_back ({ 600, [] (MainComponent& m)
+    {
+        auto* audio = m.document.getProject().findTrack (audioTrackId);
+
+        if (audio == nullptr || audio->audioClips.empty())
+            return;
+
+        const auto hash = audio->audioClips[0].audioHash;
+        m.ctx.addBuiltinMidiTrack (collab::builtin::sampler, "Sampler");
+        const auto samplerId = m.state.selectedTrackId;
+        m.ctx.editTrack (samplerId, "smoke", [hash] (collab::Track& t)
+        {
+            auto pads = collab::samplerPads (t.instrument->params);
+            pads[0].audioHash = hash;
+            pads[0].name = "Smoke";
+            t.instrument->params = collab::withSamplerPads (t.instrument->params, pads);
+        }, {});
+        m.openSampler (samplerId);
+    }, "sampler: open" });
+    steps->push_back ({ 800, [] (MainComponent& m)
+    {
+        if (m.samplerWindow == nullptr)
+            return;
+
+        auto* panel = m.samplerWindow->getContentComponent();
+        const auto id = m.state.selectedTrackId;
+        std::cout << "sampler: " << (m.bridge.getInstrumentProblem (id).isEmpty() && panel != nullptr ? "ok" : "FAILED") << std::endl;
+
+        if (const auto dir = juce::SystemStats::getEnvironmentVariable ("SHAREDAW_SMOKE_SHOTS", {}); dir.isNotEmpty() && panel != nullptr)
+        {
+            juce::FileOutputStream out (juce::File (dir).getChildFile ("sampler.png"));
+            out.setPosition (0);
+            out.truncate();
+            juce::PNGImageFormat().writeImageToStream (panel->createComponentSnapshot (panel->getLocalBounds()), out);
+        }
+
+        m.samplerWindow->setVisible (false);
+        m.document.perform ("smoke", [id] (collab::Project& p) { std::erase_if (p.tracks, [&] (auto& t) { return t.id == id; }); });
+    }, "sampler: check" });
     steps->push_back ({ 1500, [] (MainComponent& m)
     {
         if (audioTrackId.empty())
@@ -1198,6 +1241,7 @@ juce::PopupMenu MainComponent::addTrackMenu()
     instruments.addCommandItem (&commandManager, cmdAddBass);
     instruments.addCommandItem (&commandManager, cmdAddPiano);
     instruments.addCommandItem (&commandManager, cmdAddEPiano);
+    instruments.addCommandItem (&commandManager, cmdAddSampler);
 
     juce::PopupMenu plugins;
 

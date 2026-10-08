@@ -126,6 +126,7 @@ private:
     std::atomic<bool> updateCheckRunning { false };
     std::unique_ptr<juce::DocumentWindow> mixerWindow;
     void openChannelStrip (const std::string& trackId, bool compressor);
+    void openSampler (const std::string& trackId);
 
     /** 内蔵エフェクトなら画面を開いて true。 */
     bool openBuiltinEffect (const std::string& trackId, const std::string& effectId);
@@ -133,7 +134,7 @@ private:
 
     /** MIDI キーボードの録音先（録音待機の MIDI トラック、なければ選択中の MIDI トラック）。 */
     const collab::Track* midiRecordTarget() const;
-    std::unique_ptr<juce::DocumentWindow> eqWindow, compWindow;
+    std::unique_ptr<juce::DocumentWindow> eqWindow, compWindow, samplerWindow;
     void openMaster();
     /** 書き出し: パネルで形式（WAV・MP3・パラデータ・MIDI。いくつでも）と保存先・名前を選んで書き出す。 */
     void showExportPanel();

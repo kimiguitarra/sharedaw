@@ -116,7 +116,7 @@ BuiltinInstrumentManifest BuiltinInstrumentManifest::fromJson (const json& j)
             if (m.mainSfz.empty() && m.presets.empty())
                 throw std::runtime_error ("melodic instrument needs 'main' or 'presets'");
         }
-        else
+        else if (m.type != "sampler")   // サンプラーは曲のオーディオを鳴らす（SFZ は collab/Sampler.h で作る）
         {
             throw std::runtime_error ("unknown instrument type: " + m.type);
         }

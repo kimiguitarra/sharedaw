@@ -9,6 +9,7 @@
 #include "audio/PitchShift.h"
 #include "audio/BuiltinEffectPlugin.h"
 #include "audio/MasterLimiterPlugin.h"
+#include "collab/Sampler.h"
 #include "audio/CountInPlugin.h"
 #include "collab/Recording.h"
 #include "collab/ChordPlayback.h"
@@ -1247,6 +1248,32 @@ void EngineBridge::syncInstrument (const collab::Track& t, Binding& b)
 
     if (b.synth == nullptr)
         return;
+
+    // 内蔵サンプラー: 曲のオーディオ（パッドに入れたもの）を鳴らす。まだダウンロードしていない音は、届いたら鳴る（SFZ が変わる）
+    if (collab::isSampler (*t.instrument))
+    {
+        const auto dir = document.getProjectDir();
+        const bool located = document.hasLocation();
+        auto text = toJuce (collab::generateSamplerSfz (t.instrument->params, [dir, located] (const std::string& hash)
+        {
+            const auto f = AudioFiles::fileForHash (dir, hash);
+            return located && f.existsAsFile() ? f.getFullPathName().toStdString() : std::string();
+        }));
+
+        if (text != b.sfzText)
+        {
+            if (! text.contains ("<region>"))
+                b.synth->clearSfz();   // パッドが空（まだ何も入れていない）
+            else if (! b.synth->setSfz (dir.getChildFile ("sampler.sfz").getFullPathName(), text))
+                b.problem = "サンプラーの読み込みに失敗しました"_ju;
+
+            b.sfzText = text;
+        }
+
+        const auto& params = t.instrument->params;
+        b.synth->setGainAndPan ((float) params.value ("volumeDb", 0.0), (float) juce::jlimit (-1.0, 1.0, params.value ("pan", 0.0)));
+        return;
+    }
 
     auto* manifest = library.find (t.instrument->id, t.instrument->version);
 

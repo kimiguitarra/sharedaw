@@ -125,6 +125,7 @@ private:
     void paintMidiClip (juce::Graphics&, const collab::MidiClip&, juce::Rectangle<float>, juce::Colour, bool selected) const;
     void paintAudioClip (juce::Graphics&, const collab::AudioClip&, juce::Rectangle<float>, juce::Colour, bool selected);
     void reverseClip (const std::string& trackId, const std::string& clipId);
+    bool seekOnClick = false;   // 何もない所を押した（離したときにドラッグしていなければ再生位置を動かす）
     void paintLiveRecording (juce::Graphics&, const EngineBridge::LiveRecording&, juce::Rectangle<float> row) const;
     void showClipMenu (const collab::Track&, const std::string& clipId, bool audio);
     void createMidiClip (const std::string& trackId, int bar, bool thenDragLength);

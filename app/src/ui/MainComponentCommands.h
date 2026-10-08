@@ -8,7 +8,7 @@ namespace MainCommands
     {
         cmdNew = 0x2000, cmdOpen, cmdSave, cmdUndo, cmdRedo, cmdDelete, cmdSelectAll, cmdDuplicate,
         cmdPlay, cmdToStart, cmdLoop, cmdMetronome, cmdQuantise,
-        cmdAddDrums, cmdAddBass, cmdAddPiano, cmdAddEPiano,
+        cmdAddDrums, cmdAddBass, cmdAddPiano, cmdAddEPiano, cmdAddSampler,
         cmdAudioSettings, cmdCredits, cmdAbout, cmdCheckUpdate,
         cmdFont100, cmdFont125, cmdFont150, cmdFont175, cmdFont200,
         cmdSyncSettings, cmdSyncRegister, cmdSyncOpen, cmdSyncPull, cmdSyncPush, cmdSyncHistory,
