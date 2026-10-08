@@ -165,7 +165,8 @@ Tick contentEndTick (const Project& p, const TempoMap& map)
         for (auto& c : t.audioClips)
         {
             const double startSec = map.tickToSeconds ((double) c.startTick);
-            const double endSec = startSec + (double) c.lengthSamples / kSampleRate;
+            const double speed = c.sourceBpm > 0.0 ? std::clamp (map.bpmAtTick (c.startTick) / c.sourceBpm, 0.25, 4.0) : 1.0;
+            const double endSec = startSec + (double) c.lengthSamples / kSampleRate / speed;   // audioClipSeconds と同じ
             end = std::max (end, (Tick) std::ceil (map.secondsToTick (endSec)));
         }
     }

@@ -354,6 +354,7 @@ struct AudioClip
     SampleCount fadeInSamples = 0;
     SampleCount fadeOutSamples = 0;
     double pitchSemitones = 0.0;   // 音の高さ（半音、-12〜+12。長さは変えない）
+    double sourceBpm = 0.0;        // 元の素材のテンポ。0 より大きければ、曲のテンポに合わせて伸び縮みさせる（Cubase の ♩）
 
     bool operator== (const AudioClip&) const = default;
 };

@@ -98,13 +98,15 @@ private:
     const bool withFades;
     bool shown = false;
     juce::Label title;
-    ValueLabel gainLabel, pitchLabel, fadeInLabel, fadeOutLabel;
+    ValueLabel gainLabel, pitchLabel, fadeInLabel, fadeOutLabel, bpmLabel;
+    Theme::IconButton tempoButton { "note" };   // 曲のテンポに合わせる（Cubase の ♩）
     juce::String wheelMergeId;
     juce::uint32 lastWheelTime = 0;
 
     std::optional<std::pair<std::string, collab::AudioClip>> selected() const;
     void refresh();
     void edit (const juce::String& description, std::function<void (collab::AudioClip&)> fn, const juce::String& mergeId = {});
+    void toggleTempoSync();
     juce::String nextWheelMergeId();
     void changeListenerCallback (juce::ChangeBroadcaster*) override   { refresh(); }
 };

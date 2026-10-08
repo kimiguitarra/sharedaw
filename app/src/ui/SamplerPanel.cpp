@@ -3,6 +3,7 @@
 #include "Dialogs.h"
 #include "Theme.h"
 #include "audio/AudioFiles.h"
+#include "collab/ClipEditing.h"
 #include "collab/GmDrumMap.h"
 
 SamplerPanel::SamplerPanel (AppContext& c, std::string id) : ctx (c), trackId (std::move (id))
@@ -131,6 +132,7 @@ void SamplerPanel::paint (juce::Graphics& g)
         if (std::abs (pad.tuneSemitones) > 0.01)  info.add ((pad.tuneSemitones > 0 ? "+" : "") + juce::String (pad.tuneSemitones, 1) + " st");
         if (! pad.oneShot)                        info.add ("離すと止める"_ju);
         if (pad.chokeGroup > 0)                   info.add ("チョーク "_ju + juce::String (pad.chokeGroup));
+        if (pad.sourceBpm > 0.0)                  info.add (juce::String (pad.sourceBpm, 2).trimCharactersAtEnd ("0").trimCharactersAtEnd (".") + " BPM");
 
         auto infoRow = inner.removeFromBottom (16.0f);
         g.setColour (Theme::textDim);
@@ -341,6 +343,32 @@ void SamplerPanel::showPadMenu (int index)
         });
 
     m.addSubMenu ("チョーク（同じ番号の音を止める）"_ju, choke, ! pad.audioHash.empty());
+    m.addSeparator();
+
+    // テンポ合わせ（Splice などのループを曲のテンポで鳴らす）。素材のテンポは名前か長さから推測し、違えば直せる
+    m.addItem ("曲のテンポに合わせる"_ju, ! pad.audioHash.empty(), pad.sourceBpm > 0.0, [this, index, pad]
+    {
+        if (pad.sourceBpm > 0.0)
+        {
+            editPads ("パッドのテンポ合わせ"_ju, [index] (auto& list) { list[(size_t) index].sourceBpm = 0.0; });
+            return;
+        }
+
+        const auto length = ctx.audioCache.getLengthSamples (ctx.document.getProjectDir(), pad.audioHash);
+        const double bpm = collab::guessSourceBpm (pad.name, (double) length / collab::kSampleRate, ctx.document.getTempoMap().bpmAtTick (0));
+        editPads ("パッドのテンポ合わせ"_ju, [index, bpm] (auto& list) { list[(size_t) index].sourceBpm = bpm; });
+    });
+
+    m.addItem ("元のテンポ…"_ju, pad.sourceBpm > 0.0, false, [this, index, pad]
+    {
+        Dialogs::askText ("元のテンポ"_ju, "BPM（例: 100）"_ju, juce::String (pad.sourceBpm, 2).trimCharactersAtEnd ("0").trimCharactersAtEnd ("."),
+                          [this, index] (const juce::String& text)
+        {
+            if (const double bpm = text.getDoubleValue(); bpm > 0.0)
+                editPads ("パッドのテンポ合わせ"_ju, [index, bpm = juce::jlimit (20.0, 400.0, bpm)] (auto& list) { list[(size_t) index].sourceBpm = bpm; });
+        });
+    });
+
     m.addSeparator();
     m.addItem ("空にする"_ju, ! pad.audioHash.empty(), false, [this, index]
     {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "collab/MasterDsp.h"
+#include "collab/Sampler.h"
 
 #include <limits>
 #include <map>
@@ -145,7 +146,7 @@ public:
     /** トラックのコンプのゲインリダクション（dB、0 以上）。 */
     float getTrackGainReductionDb (const std::string& trackId) const;
 
-    /** ピッチを変えたオーディオクリップの音（高さを変えたファイル）を、まだなければ作る（書き出しの前に。終わるまで待つ）。 */
+    /** ピッチを変えた・テンポに合わせるクリップとサンプラーのパッドの音を、まだなければ作る（書き出しの前に。終わるまで待つ）。 */
     void preparePitchedAudio();
 
     /** 確認用: トラックのインサートと EQ・コンプの並び（例 "eq | fx | comp"）。 */
@@ -454,7 +455,9 @@ private:
     // ピッチを変えたクリップのファイルを裏で作る
     juce::ThreadPool pitchPool { 1 };
     std::set<juce::String> pitchJobs;   // 作っている途中のファイル
-    juce::File pitchedFile (const collab::AudioClip&, bool waitUntilReady);
+    /** 高さを semitones 変え、speed 倍の速さにしたファイル（なければ裏で作り始める。waitUntilReady なら作り終わるまで待つ）。 */
+    juce::File stretchedFile (const std::string& hash, double semitones, double speed, bool waitUntilReady);
+    double samplerPadSpeed (const collab::SamplerPad&) const;
     std::vector<RecordedMidi> pendingMidi;
     void refreshMidiInputs();
     CountInPlugin* countIn = nullptr;

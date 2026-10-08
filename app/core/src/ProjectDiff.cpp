@@ -355,6 +355,7 @@ namespace
             if (std::abs (ca->gainDb - cb.gainDb) > 1e-9)                                           what.push_back ("音量");
             if (ca->fadeInSamples != cb.fadeInSamples || ca->fadeOutSamples != cb.fadeOutSamples)   what.push_back ("フェード");
             if (std::abs (ca->pitchSemitones - cb.pitchSemitones) > 1e-9)                           what.push_back ("ピッチ");
+            if (std::abs (ca->sourceBpm - cb.sourceBpm) > 1e-9)                                     what.push_back ("テンポ合わせ");
             if (ca->audioHash != cb.audioHash)                                                     what.push_back ("差し替え");
             if (ca->displayName != cb.displayName)                                                 what.push_back ("名前");
 

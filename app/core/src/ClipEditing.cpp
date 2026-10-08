@@ -1,7 +1,9 @@
 #include "collab/ClipEditing.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <cstdlib>
 
 namespace collab
 {
@@ -11,9 +13,97 @@ namespace
     constexpr SampleCount minLength = kSampleRate / 100;   // 10ms
 }
 
+double audioClipSpeed (const AudioClip& c, const TempoMap& map)
+{
+    if (c.sourceBpm <= 0.0)
+        return 1.0;
+
+    return std::clamp (map.bpmAtTick (c.startTick) / c.sourceBpm, 0.25, 4.0);
+}
+
+double audioClipSeconds (const AudioClip& c, const TempoMap& map)
+{
+    return (double) c.lengthSamples / kSampleRate / audioClipSpeed (c, map);
+}
+
+double guessSourceBpm (const std::string& name, double lengthSeconds, double songBpm)
+{
+    // 名前を数と、それ以外の文字の並びに分ける
+    struct Token { std::string text; bool number = false; };
+    std::vector<Token> tokens;
+
+    for (char ch : name)
+    {
+        const bool digit = ch >= '0' && ch <= '9';
+        const bool dot = ch == '.' && ! tokens.empty() && tokens.back().number;
+        const bool alpha = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
+
+        if (! digit && ! dot && ! alpha)
+        {
+            tokens.push_back ({});   // 区切り
+            continue;
+        }
+
+        const bool number = digit || dot;
+
+        if (tokens.empty() || tokens.back().number != number || tokens.back().text.empty())
+            tokens.push_back ({ {}, number });
+
+        tokens.back().text += (char) std::tolower ((unsigned char) ch);
+    }
+
+    auto value = [] (const Token& t) { return t.number ? std::atof (t.text.c_str()) : 0.0; };
+    auto inRange = [] (double v, double lo, double hi) { return v >= lo && v <= hi; };
+
+    for (size_t i = 0; i < tokens.size(); ++i)
+    {
+        if (tokens[i].text != "bpm")
+            continue;
+
+        for (size_t k : { i - 1, i + 1 })   // 「100bpm」「100 BPM」「bpm100」（i - 1 が回り込んでも範囲外）
+        {
+            for (size_t j = k; j < tokens.size(); j += (k < i ? (size_t) -1 : 1))
+            {
+                if (tokens[j].text.empty())
+                    continue;   // 区切りは飛ばす
+
+                if (const double v = value (tokens[j]); inRange (v, 20.0, 400.0))
+                    return v;
+
+                break;
+            }
+        }
+    }
+
+    // 区切りで囲まれた数（「_128_」）。キーや番号の「01」などは外す
+    for (size_t i = 0; i < tokens.size(); ++i)
+    {
+        const bool alone = (i == 0 || tokens[i - 1].text.empty()) && (i + 1 == tokens.size() || tokens[i + 1].text.empty());
+
+        if (tokens[i].number && alone && tokens[i].text[0] != '0')
+            if (const double v = value (tokens[i]); inRange (v, 60.0, 200.0))
+                return v;
+    }
+
+    if (lengthSeconds > 0.0)
+    {
+        double best = 0.0;
+
+        for (int beats = 1; beats <= 256; beats *= 2)
+            if (const double v = beats * 60.0 / lengthSeconds; inRange (v, 70.0, 180.0)
+                 && (best == 0.0 || std::abs (std::log (v / songBpm)) < std::abs (std::log (best / songBpm))))
+                best = v;
+
+        if (best > 0.0)
+            return std::round (best * 100.0) / 100.0;
+    }
+
+    return songBpm;
+}
+
 Tick audioClipEndTick (const AudioClip& c, const TempoMap& map)
 {
-    const double end = map.tickToSeconds ((double) c.startTick) + (double) c.lengthSamples / kSampleRate;
+    const double end = map.tickToSeconds ((double) c.startTick) + audioClipSeconds (c, map);
     return (Tick) std::llround (map.secondsToTick (end));
 }
 
@@ -24,7 +114,7 @@ SampleCount samplesBetween (Tick from, Tick to, const TempoMap& map)
 
 std::optional<std::pair<AudioClip, AudioClip>> splitAudioClip (const AudioClip& c, Tick at, const TempoMap& map, const std::string& newId)
 {
-    const auto leftLength = samplesBetween (c.startTick, at, map);
+    const auto leftLength = (SampleCount) std::llround ((double) samplesBetween (c.startTick, at, map) * audioClipSpeed (c, map));
 
     if (at <= c.startTick || leftLength < minLength || c.lengthSamples - leftLength < minLength)
         return std::nullopt;
@@ -106,14 +196,16 @@ AudioClip trimAudioClipStart (const AudioClip& c, Tick newStart, const TempoMap&
     const Tick end = audioClipEndTick (c, map);
     newStart = std::clamp<Tick> (newStart, 0, end);
 
-    auto delta = samplesBetween (c.startTick, newStart, map);
+    // delta は元ファイル上のサンプル数（テンポに合わせて伸び縮みするクリップは speed 倍）
+    const double speed = audioClipSpeed (c, map);
+    auto delta = (SampleCount) std::llround ((double) samplesBetween (c.startTick, newStart, map) * speed);
     delta = std::max (delta, -c.sourceOffsetSamples);           // 実体の頭より前には伸ばせない
     delta = std::min (delta, c.lengthSamples - minLength);
 
     AudioClip r = c;
     r.sourceOffsetSamples += delta;
     r.lengthSamples -= delta;
-    r.startTick = (Tick) std::llround (map.secondsToTick (map.tickToSeconds ((double) c.startTick) + (double) delta / kSampleRate));
+    r.startTick = (Tick) std::llround (map.secondsToTick (map.tickToSeconds ((double) c.startTick) + (double) delta / kSampleRate / speed));
     r.fadeInSamples = std::min (r.fadeInSamples, r.lengthSamples);
     r.fadeOutSamples = std::min (r.fadeOutSamples, r.lengthSamples);
     return r;
@@ -122,7 +214,7 @@ AudioClip trimAudioClipStart (const AudioClip& c, Tick newStart, const TempoMap&
 AudioClip trimAudioClipEnd (const AudioClip& c, Tick newEnd, SampleCount sourceLength, const TempoMap& map)
 {
     AudioClip r = c;
-    auto length = samplesBetween (c.startTick, newEnd, map);
+    auto length = (SampleCount) std::llround ((double) samplesBetween (c.startTick, newEnd, map) * audioClipSpeed (c, map));
     length = std::max (length, minLength);
 
     if (sourceLength > 0)
@@ -267,7 +359,7 @@ std::optional<AudioClip> glueAudioClips (const AudioClip& a, const AudioClip& b,
     const auto& second = a.startTick <= b.startTick ? b : a;
 
     // 同じ実体で、元ファイル上もタイムライン上も続いていること（分割したものを元に戻す）
-    if (first.audioHash != second.audioHash || first.pitchSemitones != second.pitchSemitones
+    if (first.audioHash != second.audioHash || first.pitchSemitones != second.pitchSemitones || first.sourceBpm != second.sourceBpm
         || first.sourceOffsetSamples + first.lengthSamples != second.sourceOffsetSamples
         || std::llabs (audioClipEndTick (first, map) - second.startTick) > 2)
         return std::nullopt;
@@ -287,7 +379,7 @@ std::vector<AudibleSegment> audibleSegments (const std::vector<AudioClip>& clips
     for (auto& c : clips)
     {
         const double start = map.tickToSeconds ((double) c.startTick);
-        ranges.push_back ({ start, start + (double) c.lengthSamples / rate });
+        ranges.push_back ({ start, start + audioClipSeconds (c, map) });
     }
 
     // time の所で、index より前（下）のクリップが鳴っているか

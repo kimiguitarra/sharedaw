@@ -6,6 +6,7 @@
 #include "TempoMeterLanes.h"
 
 #include <collab/ChordPlayback.h>
+#include <collab/ClipEditing.h>
 
 namespace
 {
@@ -654,6 +655,9 @@ AudioClipFields::AudioClipFields (AppContext& c, bool fades) : ctx (c), withFade
         { &fadeOutLabel, "フェードアウト（ms）"_ju, 0.0, 60000.0, 5.0,
           [] (const collab::AudioClip& clip) { return (double) clip.fadeOutSamples * 1000.0 / collab::kSampleRate; },
           [] (collab::AudioClip& clip, double v) { clip.fadeOutSamples = juce::jlimit<collab::SampleCount> (0, clip.lengthSamples - clip.fadeInSamples, (collab::SampleCount) std::llround (v * collab::kSampleRate / 1000.0)); } },
+        { &bpmLabel, "元の素材のテンポ"_ju, 20.0, 400.0, 1.0,
+          [] (const collab::AudioClip& clip) { return clip.sourceBpm; },
+          [] (collab::AudioClip& clip, double v) { clip.sourceBpm = v; } },
     };
 
     for (auto& f : fields)
@@ -662,7 +666,9 @@ AudioClipFields::AudioClipFields (AppContext& c, bool fades) : ctx (c), withFade
         styleValue (*l, 15.0f, false, true);
         l->setTooltip (f.tip + "（クリックで入力、ホイールで増減）"_ju);
 
-        if (withFades || (l != &fadeInLabel && l != &fadeOutLabel))
+        if (l == &bpmLabel)
+            addChildComponent (l);   // テンポを合わせているときだけ出す（refresh）
+        else if (withFades || (l != &fadeInLabel && l != &fadeOutLabel))
             addAndMakeVisible (l);
 
         l->onEditorShow = [l]
@@ -700,6 +706,10 @@ AudioClipFields::AudioClipFields (AppContext& c, bool fades) : ctx (c), withFade
         };
     }
 
+    tempoButton.setTooltip ("曲のテンポに合わせる"_ju);
+    tempoButton.onClick = [this] { toggleTempoSync(); };
+    addAndMakeVisible (tempoButton);
+
     ctx.state.addChangeListener (this);
     ctx.document.addChangeListener (this);
     refresh();
@@ -713,7 +723,7 @@ AudioClipFields::~AudioClipFields()
 
 int AudioClipFields::preferredWidth() const
 {
-    return 64 + 84 + 84 + (withFades ? 90 + 96 : 0);
+    return 64 + 84 + 84 + 34 + 80 + (withFades ? 90 + 96 : 0);
 }
 
 void AudioClipFields::resized()
@@ -722,6 +732,8 @@ void AudioClipFields::resized()
     title.setBounds (area.removeFromLeft (64));
     gainLabel.setBounds (area.removeFromLeft (84));
     pitchLabel.setBounds (area.removeFromLeft (84));
+    tempoButton.setBounds (area.removeFromLeft (34).withSizeKeepingCentre (30, juce::jmin (30, getHeight())));
+    bpmLabel.setBounds (area.removeFromLeft (80));
 
     if (withFades)
     {
@@ -778,6 +790,36 @@ void AudioClipFields::refresh()
 
     if (! fadeOutLabel.isBeingEdited())
         fadeOutLabel.setText ("out " + ms (c.fadeOutSamples), juce::dontSendNotification);
+
+    tempoButton.setToggleState (c.sourceBpm > 0.0, juce::dontSendNotification);
+    bpmLabel.setVisible (c.sourceBpm > 0.0);
+
+    if (! bpmLabel.isBeingEdited())
+    {
+        const bool whole = std::abs (c.sourceBpm - std::round (c.sourceBpm)) < 1e-6;
+        bpmLabel.setText (juce::String (c.sourceBpm, whole ? 0 : 2) + " BPM", juce::dontSendNotification);
+    }
+}
+
+void AudioClipFields::toggleTempoSync()
+{
+    auto sel = selected();
+
+    if (! sel)
+        return;
+
+    const auto& c = sel->second;
+
+    if (c.sourceBpm > 0.0)
+    {
+        edit ("テンポに合わせるのをやめる"_ju, [] (collab::AudioClip& clip) { clip.sourceBpm = 0.0; });
+        return;
+    }
+
+    // 素材のテンポ: 名前（100bpm など）か、長さが拍のきりのよい数になるテンポ。違っていたら BPM の欄で直す
+    const auto& map = ctx.document.getTempoMap();
+    const double bpm = collab::guessSourceBpm (c.displayName, (double) c.lengthSamples / collab::kSampleRate, map.bpmAtTick (c.startTick));
+    edit ("曲のテンポに合わせる"_ju, [bpm] (collab::AudioClip& clip) { clip.sourceBpm = bpm; });
 }
 
 void AudioClipFields::edit (const juce::String& description, std::function<void (collab::AudioClip&)> fn, const juce::String& mergeId)

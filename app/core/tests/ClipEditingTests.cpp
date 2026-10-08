@@ -81,6 +81,59 @@ TEST_CASE ("trim end clamps to the source length")
     CHECK (longer.lengthSamples == 200000 - 48000);
 }
 
+TEST_CASE ("a clip with a source tempo follows the song tempo (Cubase musical mode)")
+{
+    // 素材は 60BPM で 4 秒（= 4 拍）。曲は 120BPM なので 2 倍の速さで、2 秒（= 4 拍）になる
+    auto c = clip();
+    c.sourceBpm = 60.0;
+    c.sourceOffsetSamples = 0;
+    c.lengthSamples = 4 * 48000;
+    c.fadeInSamples = c.fadeOutSamples = 0;
+    const TempoMap map;
+    CHECK (audioClipSpeed (c, map) == doctest::Approx (2.0));
+    CHECK (audioClipSeconds (c, map) == doctest::Approx (2.0));
+    CHECK (audioClipEndTick (c, map) == 3840 + 4 * 960);
+
+    // テンポを変えても拍の数は同じ
+    auto p = Project::createEmpty ("t");
+    p.tempoTrack.events = { { "t1", 0, 90.0 } };
+    const TempoMap slower (p);
+    CHECK (audioClipEndTick (c, slower) == 3840 + 4 * 960);
+
+    // 1 拍目で分割すると、元ファイル上は 1 秒（素材の 1 拍）
+    auto r = splitAudioClip (c, 3840 + 960, map, "b");
+    REQUIRE (r);
+    CHECK (r->first.lengthSamples == 48000);
+    CHECK (r->second.sourceOffsetSamples == 48000);
+    CHECK (r->second.sourceBpm == 60.0);
+    CHECK (audioClipEndTick (r->second, map) == 3840 + 4 * 960);
+    CHECK (glueAudioClips (r->first, r->second, map));
+
+    auto t = trimAudioClipStart (c, 3840 + 960, map);
+    CHECK (t.sourceOffsetSamples == 48000);
+    CHECK (t.startTick == 3840 + 960);
+    CHECK (audioClipEndTick (t, map) == 3840 + 4 * 960);
+
+    auto e = trimAudioClipEnd (c, 3840 + 2 * 960, 4 * 48000, map);
+    CHECK (e.lengthSamples == 2 * 48000);
+
+    // 素材のテンポがなければ今まで通り
+    c.sourceBpm = 0.0;
+    CHECK (audioClipSpeed (c, map) == 1.0);
+    CHECK (audioClipEndTick (c, map) == 3840 + 8 * 960);
+}
+
+TEST_CASE ("guess the source tempo from the name or the length")
+{
+    CHECK (guessSourceBpm ("drum_loop_100bpm", 0.0, 120.0) == 100.0);
+    CHECK (guessSourceBpm ("Drums 92 BPM Cmin", 0.0, 120.0) == 92.0);
+    CHECK (guessSourceBpm ("BPM128_house", 0.0, 120.0) == 128.0);
+    CHECK (guessSourceBpm ("KSHMR_Kick_Loop_126_Fmin", 0.0, 120.0) == 126.0);
+    CHECK (guessSourceBpm ("vocal_01_take3", 0.0, 120.0) == 120.0);           // 番号はテンポにしない
+    CHECK (guessSourceBpm ("loop", 4.8, 105.0) == doctest::Approx (100.0));   // 8 拍で 4.8 秒 = 100BPM
+    CHECK (guessSourceBpm ("loop", 2.0, 128.0) == doctest::Approx (120.0));   // 4 拍で 2 秒
+}
+
 TEST_CASE ("split MIDI clip")
 {
     MidiClip c { "m", 0, 3840, { { "n1", 0, 960, 60, 100 }, { "n2", 1440, 960, 62, 100 }, { "n3", 2880, 480, 64, 100 } } };

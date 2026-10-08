@@ -119,7 +119,7 @@ TrackLanes::Hit TrackLanes::findHit (juce::Point<float> p) const
 
             for (auto& left : track.audioClips)
                 if (&left != &right
-                     && std::abs (map.tickToSeconds ((double) left.startTick) + (double) left.lengthSamples / (double) collab::kSampleRate - joint)
+                     && std::abs (map.tickToSeconds ((double) left.startTick) + collab::audioClipSeconds (left, map) - joint)
                           <= collab::joinToleranceSeconds + 0.0006)
                 {
                     hit.clipId = right.id;
@@ -1081,14 +1081,17 @@ void TrackLanes::mouseDrag (const juce::MouseEvent& e)
 
             case DragMode::fadeIn:
             {
-                const auto s = collab::samplesBetween (orig.startTick, (collab::Tick) std::llround (juce::jmax (0.0, tickNow)), map);
+                // フェードは元ファイル上のサンプル数（テンポに合わせるクリップは speed 倍）
+                const auto s = (collab::SampleCount) std::llround ((double) collab::samplesBetween (orig.startTick, (collab::Tick) std::llround (juce::jmax (0.0, tickNow)), map)
+                                                                   * collab::audioClipSpeed (orig, map));
                 updated.fadeInSamples = juce::jlimit<collab::SampleCount> (0, orig.lengthSamples - orig.fadeOutSamples, s);
                 break;
             }
 
             case DragMode::fadeOut:
             {
-                const auto s = collab::samplesBetween ((collab::Tick) std::llround (juce::jmax (0.0, tickNow)), collab::audioClipEndTick (orig, map), map);
+                const auto s = (collab::SampleCount) std::llround ((double) collab::samplesBetween ((collab::Tick) std::llround (juce::jmax (0.0, tickNow)), collab::audioClipEndTick (orig, map), map)
+                                                                   * collab::audioClipSpeed (orig, map));
                 updated.fadeOutSamples = juce::jlimit<collab::SampleCount> (0, orig.lengthSamples - orig.fadeInSamples, s);
                 break;
             }
@@ -1188,7 +1191,7 @@ void TrackLanes::mouseDrag (const juce::MouseEvent& e)
 
     if (dragAudio)
         if (auto m = magnet (targetTrackId, clipId, juce::jmax (0.0, (double) dragOrigStart + delta),
-                             (double) dragOrigAudio.lengthSamples / (double) collab::kSampleRate, 0, e.mods))
+                             collab::audioClipSeconds (dragOrigAudio, ctx.document.getTempoMap()), 0, e.mods))
             moveStart = juce::jmax<collab::Tick> (0, *m);
 
     const auto fromId = dragTrackId;

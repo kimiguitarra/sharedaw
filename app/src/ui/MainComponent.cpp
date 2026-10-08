@@ -931,6 +931,36 @@ void MainComponent::runSmokeSteps (const juce::File& project, std::function<void
             std::cout << "audio pitch: " << (pitched.size() == 1 && c.pitchSemitones == 12.0 ? "ok" : "FAILED") << std::endl;
         }
 
+        // テンポ合わせ: 右のクリップの素材を曲の半分のテンポとすると、2 倍の速さ（長さ半分）で鳴る
+        m.ctx.editTrack (audioTrackId, "smoke", [bpm = m.document.getTempoMap().bpmAtTick (0)] (collab::Track& t)
+        {
+            if (t.audioClips.size() == 2)
+                t.audioClips[1].sourceBpm = bpm / 2.0;
+        });
+    }, "audio tempo" });
+    steps->push_back ({ 1500, [] (MainComponent& m)
+    {
+        if (audioTrackId.empty())
+            return;
+
+        if (auto* t = m.document.getProject().findTrack (audioTrackId); t != nullptr && t->audioClips.size() == 2)
+        {
+            const auto& c = t->audioClips[1];
+            const auto& map = m.document.getTempoMap();
+            const auto stretched = juce::File (m.document.getProjectDir()).getChildFile ("cache/pitch").findChildFiles (juce::File::findFiles, false, "*_x*.wav");
+            double seconds = 0.0;
+
+            if (stretched.size() == 1)
+                if (std::unique_ptr<juce::AudioFormatReader> r (juce::WavAudioFormat().createReaderFor (stretched[0].createInputStream().release(), true)); r != nullptr)
+                    seconds = (double) r->lengthInSamples / r->sampleRate;
+
+            // 作ったファイルは元の半分の長さ、タイムライン上の長さも半分
+            const double source = m.audioCache.getLengthSamples (m.document.getProjectDir(), c.audioHash) / (double) collab::kSampleRate;
+            const bool ok = stretched.size() == 1 && std::abs (seconds - source / 2.0) < 0.01
+                         && std::abs (collab::audioClipSeconds (c, map) * 2.0 - (double) c.lengthSamples / collab::kSampleRate) < 1.0e-6;
+            std::cout << "audio tempo: " << (ok ? "ok" : "FAILED") << " (" << seconds << " s of " << source << " s)" << std::endl;
+        }
+
         m.togglePianoFullScreen();
         m.document.perform ("smoke", [] (collab::Project& p)
         {

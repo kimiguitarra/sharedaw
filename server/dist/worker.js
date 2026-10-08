@@ -2555,6 +2555,12 @@ var project_schema_default = {
           type: "number",
           minimum: -12,
           maximum: 12
+        },
+        sourceBpm: {
+          description: "Tempo of the source audio. When set, the clip is time-stretched to follow the song tempo. Omitted when not set.",
+          type: "number",
+          minimum: 20,
+          maximum: 400
         }
       }
     },

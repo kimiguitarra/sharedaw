@@ -13,6 +13,22 @@
 namespace collab
 {
 
+/**
+    元の素材を何倍の速さで鳴らすか（sourceBpm があれば、クリップの開始位置の曲のテンポ ÷ sourceBpm。なければ 1）。
+    クリップのサンプル数（オフセット・長さ・フェード）は元ファイル上の数なので、タイムライン上の長さはこれで割ったもの。
+*/
+double audioClipSpeed (const AudioClip&, const TempoMap&);
+
+/** タイムライン上で鳴る長さ（秒）。 */
+double audioClipSeconds (const AudioClip&, const TempoMap&);
+
+/**
+    素材のテンポを推測する（テンポに合わせるのを入れたときの最初の値）。名前に「100bpm」「bpm100」などがあればそれ、
+    なければ名前の中の 60〜200 の数（Splice などの「Loop_128_Fmin」）、それもなければ長さが 1・2・4・8… 拍になる
+    テンポのうち songBpm に近いもの（70〜180）。決まらなければ songBpm。
+*/
+double guessSourceBpm (const std::string& name, double lengthSeconds, double songBpm);
+
 /** オーディオクリップの終わりの位置（テンポに追従しないので、秒 → tick で求める）。 */
 Tick audioClipEndTick (const AudioClip&, const TempoMap&);
 

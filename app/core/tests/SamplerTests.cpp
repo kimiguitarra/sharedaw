@@ -17,12 +17,14 @@ TEST_CASE ("sampler pads round-trip through params and become SFZ regions for th
     pads[1] = { 42, "bbb", "Hat closed", 0.0, 0.25, 0.0, true, 1 };
     pads[2] = { 46, "ccc", "Hat open", 0.0, 0.0, -2.5, false, 1 };
     pads[3] = { 39, "missing", "Clap", 0.0, 0.0, 0.0, true, 0 };
+    pads[4] = { 40, "ddd", "Loop 98", 0.0, 0.0, 0.0, false, 0, 98.0 };   // テンポに合わせるループ
 
     const auto params = withSamplerPads ({ { "volumeDb", -2.0 } }, pads);
     CHECK (params["volumeDb"] == -2.0);
     CHECK (samplerPads (params) == pads);
+    CHECK (params["pads"][4]["bpm"] == 98.0);
 
-    const auto sfz = generateSamplerSfz (params, [] (const std::string& h) { return h == "missing" ? std::string() : "C:\\audio\\" + h + ".wav"; });
+    const auto sfz = generateSamplerSfz (params, [] (const SamplerPad& p) { const auto& h = p.audioHash; return h == "missing" ? std::string() : "C:\\audio\\" + h + ".wav"; });
     CHECK (sfz.find ("sample=C:/audio/aaa.wav key=36") != std::string::npos);
     CHECK (sfz.find ("volume=-3") != std::string::npos);
     CHECK (sfz.find ("key=42") != std::string::npos);
@@ -39,5 +41,5 @@ TEST_CASE ("sampler pads round-trip through params and become SFZ regions for th
     t.instrument = Instrument { Instrument::Kind::builtin, builtin::sampler, "1.0.0", params, {}, {} };
     p.tracks.push_back (t);
     const auto refs = referencedAudio (p);
-    CHECK (refs.size() == 4);
+    CHECK (refs.size() == 5);
 }

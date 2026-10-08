@@ -656,24 +656,49 @@ void EngineBridge::syncTrack (const collab::Track& t, Binding& b, bool tempoChan
     // テイクの切り替わり・くっついたつなぎ目は、5 ms 重ねて直線のクロスフェードで入れ替える（調整はしない）
     const auto shape = te::AudioFadeCurve::linear;
 
-    const auto sourceSeconds = [this] (const collab::AudioClip& c)
+    // ピッチを変えた・テンポに合わせるクリップは、前もって作ったファイルを鳴らす（できるまでは元の音。できたら作り直す）。
+    // 作ったファイルの上での位置にそろえたクリップ（オフセット・長さ・フェードを 1/speed）にして、つなぎ目を求める
+    std::vector<collab::AudioClip> playClips;
+    std::vector<juce::File> playFiles;
+
+    for (auto& c : t.audioClips)
     {
-        const auto file = AudioFiles::fileForHash (document.getProjectDir(), c.audioHash);
+        auto file = AudioFiles::fileForHash (document.getProjectDir(), c.audioHash);
+        auto pc = c;
+        const double speed = collab::audioClipSpeed (c, map);
+        pc.sourceBpm = 0.0;
+
+        if (c.pitchSemitones != 0.0 || speed != 1.0)
+        {
+            auto scaled = [speed] (collab::SampleCount n) { return (collab::SampleCount) std::llround ((double) n / speed); };
+            pc.lengthSamples = std::max<collab::SampleCount> (1, scaled (c.lengthSamples));
+            pc.fadeInSamples = scaled (c.fadeInSamples);
+            pc.fadeOutSamples = scaled (c.fadeOutSamples);
+
+            if (auto made = stretchedFile (c.audioHash, c.pitchSemitones, speed, false); made.existsAsFile())
+            {
+                file = made;
+                pc.sourceOffsetSamples = scaled (c.sourceOffsetSamples);
+            }
+        }
+
+        playClips.push_back (std::move (pc));
+        playFiles.push_back (file);
+    }
+
+    const auto sourceSeconds = [this, &playClips, &playFiles] (const collab::AudioClip& c)
+    {
+        const auto& file = playFiles[(size_t) (&c - playClips.data())];
         return file.existsAsFile() ? te::AudioFile (engine, file).getLength() : -1.0;
     };
 
-    for (auto seg : collab::audibleSegments (t.audioClips, map, 0.005, sourceSeconds))
+    for (auto seg : collab::audibleSegments (playClips, map, 0.005, sourceSeconds))
     {
         auto& c = t.audioClips[seg.clipIndex];
-        auto file = AudioFiles::fileForHash (document.getProjectDir(), c.audioHash);
+        auto file = playFiles[seg.clipIndex];
 
         if (! document.hasLocation() || ! file.existsAsFile())
             continue;
-
-        // ピッチを変えたクリップは、高さを変えたファイルを鳴らす（できるまでは元の音。できたら作り直す）
-        if (c.pitchSemitones != 0.0)
-            if (auto pitched = pitchedFile (c, false); pitched.existsAsFile())
-                file = pitched;
 
         // くっついたクリップのクロスフェードで延ばした分が、元ファイルの終わりを超えるときは切る
         if (const double fileSeconds = te::AudioFile (engine, file).getLength(); fileSeconds > 0.0
@@ -1092,11 +1117,11 @@ float EngineBridge::getTrackGainReductionDb (const std::string& trackId) const
     return it != bindings.end() && it->second.stripWithComp() != nullptr ? it->second.stripWithComp()->getGainReductionDb() : 0.0f;
 }
 
-juce::File EngineBridge::pitchedFile (const collab::AudioClip& c, bool waitUntilReady)
+juce::File EngineBridge::stretchedFile (const std::string& hash, double semitones, double speed, bool waitUntilReady)
 {
     const auto projectDir = document.getProjectDir();
-    const auto source = AudioFiles::fileForHash (projectDir, c.audioHash);
-    auto dest = PitchShift::cachedFile (projectDir, c.audioHash, c.pitchSemitones);
+    const auto source = AudioFiles::fileForHash (projectDir, hash);
+    auto dest = PitchShift::cachedFile (projectDir, hash, semitones, speed);
 
     if (dest.existsAsFile() || ! source.existsAsFile())
         return dest;
@@ -1108,17 +1133,16 @@ juce::File EngineBridge::pitchedFile (const collab::AudioClip& c, bool waitUntil
             juce::Thread::sleep (20);
 
         if (! dest.existsAsFile())
-            PitchShift::render (source, dest, c.pitchSemitones);
+            PitchShift::render (source, dest, semitones, speed);
 
         return dest;
     }
 
     if (pitchJobs.insert (dest.getFullPathName()).second)
     {
-        const double semitones = c.pitchSemitones;
-        pitchPool.addJob ([this, source, dest, semitones, alive = std::weak_ptr<bool> (aliveFlag)]
+        pitchPool.addJob ([this, source, dest, semitones, speed, alive = std::weak_ptr<bool> (aliveFlag)]
         {
-            PitchShift::render (source, dest, semitones);
+            PitchShift::render (source, dest, semitones, speed);
 
             juce::MessageManager::callAsync ([this, dest, alive]
             {
@@ -1127,7 +1151,7 @@ juce::File EngineBridge::pitchedFile (const collab::AudioClip& c, bool waitUntil
 
                 pitchJobs.erase (dest.getFullPathName());
 
-                // 鳴らすファイルが変わったので、オーディオのクリップを作り直す
+                // 鳴らすファイルが変わったので、オーディオのクリップ・サンプラーを作り直す
                 for (auto& [id, b] : bindings)
                     b.clipsValid = false;
 
@@ -1139,17 +1163,38 @@ juce::File EngineBridge::pitchedFile (const collab::AudioClip& c, bool waitUntil
     return dest;
 }
 
+double EngineBridge::samplerPadSpeed (const collab::SamplerPad& pad) const
+{
+    // サンプラーは曲の頭のテンポに合わせる
+    return pad.sourceBpm > 0.0 ? juce::jlimit (0.25, 4.0, document.getTempoMap().bpmAtTick (0) / pad.sourceBpm) : 1.0;
+}
+
 void EngineBridge::preparePitchedAudio()
 {
     bool made = false;
+    const auto& map = document.getTempoMap();
+    const auto dir = document.getProjectDir();
+
+    auto prepare = [&] (const std::string& hash, double semitones, double speed)
+    {
+        if ((semitones != 0.0 || speed != 1.0) && ! PitchShift::cachedFile (dir, hash, semitones, speed).existsAsFile()
+             && AudioFiles::fileForHash (dir, hash).existsAsFile())
+        {
+            stretchedFile (hash, semitones, speed, true);
+            made = true;
+        }
+    };
 
     for (auto& t : document.getProject().tracks)
+    {
         for (auto& c : t.audioClips)
-            if (c.pitchSemitones != 0.0 && ! PitchShift::cachedFile (document.getProjectDir(), c.audioHash, c.pitchSemitones).existsAsFile())
-            {
-                pitchedFile (c, true);
-                made = true;
-            }
+            prepare (c.audioHash, c.pitchSemitones, collab::audioClipSpeed (c, map));
+
+        if (t.instrument && collab::isSampler (*t.instrument))
+            for (auto& pad : collab::samplerPads (t.instrument->params))
+                if (! pad.audioHash.empty())
+                    prepare (pad.audioHash, 0.0, samplerPadSpeed (pad));
+    }
 
     if (made)
         for (auto& [id, b] : bindings)
@@ -1254,10 +1299,19 @@ void EngineBridge::syncInstrument (const collab::Track& t, Binding& b)
     {
         const auto dir = document.getProjectDir();
         const bool located = document.hasLocation();
-        auto text = toJuce (collab::generateSamplerSfz (t.instrument->params, [dir, located] (const std::string& hash)
+        auto text = toJuce (collab::generateSamplerSfz (t.instrument->params, [this, dir, located] (const collab::SamplerPad& pad)
         {
-            const auto f = AudioFiles::fileForHash (dir, hash);
-            return located && f.existsAsFile() ? f.getFullPathName().toStdString() : std::string();
+            auto f = AudioFiles::fileForHash (dir, pad.audioHash);
+
+            if (! located || ! f.existsAsFile())
+                return std::string();
+
+            // テンポに合わせるパッドは、伸び縮みさせたファイル（できるまでは元の音）
+            if (const double speed = samplerPadSpeed (pad); speed != 1.0)
+                if (auto made = stretchedFile (pad.audioHash, 0.0, speed, false); made.existsAsFile())
+                    f = made;
+
+            return f.getFullPathName().toStdString();
         }));
 
         if (text != b.sfzText)

@@ -153,6 +153,9 @@ namespace
         if (c.pitchSemitones != 0.0)
             o["pitchSemitones"] = c.pitchSemitones;   // 0 のときは書かない（古いアプリでも読める）
 
+        if (c.sourceBpm > 0.0)
+            o["sourceBpm"] = c.sourceBpm;
+
         return o;
     }
 
@@ -754,6 +757,8 @@ Project projectFromJson (const json& j)
                     c.fadeInSamples = get<SampleCount> (cj, "fadeInSamples");
                     c.fadeOutSamples = get<SampleCount> (cj, "fadeOutSamples");
                     c.pitchSemitones = std::clamp (getOr<double> (cj, "pitchSemitones", 0.0), -12.0, 12.0);
+                    c.sourceBpm = getOr<double> (cj, "sourceBpm", 0.0);
+                    c.sourceBpm = c.sourceBpm > 0.0 ? std::clamp (c.sourceBpm, 20.0, 400.0) : 0.0;
                     t.audioClips.push_back (std::move (c));
                 }
             }

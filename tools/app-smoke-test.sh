@@ -75,7 +75,7 @@ grep -v "Assertion failure" "$work/smoke.log" || true
 
 if [ "$status" -ne 0 ] || ! grep -q "SMOKE TEST PASSED" "$work/smoke.log" || ! grep -q "export panel: ok" "$work/smoke.log" || ! grep -q "audio files: ok" "$work/smoke.log" \
    || ! grep -q "automation edit: ok" "$work/smoke.log" || ! grep -q "channel order: ok" "$work/smoke.log" \
-   || ! grep -q "audio editor: ok" "$work/smoke.log" || ! grep -q "audio pitch: ok" "$work/smoke.log" || ! grep -q "sampler: ok" "$work/smoke.log"; then
+   || ! grep -q "audio editor: ok" "$work/smoke.log" || ! grep -q "audio pitch: ok" "$work/smoke.log" || ! grep -q "sampler: ok" "$work/smoke.log" || ! grep -q "audio tempo: ok" "$work/smoke.log"; then
     echo "smoke test failed (exit status $status)"
     exit 1
 fi

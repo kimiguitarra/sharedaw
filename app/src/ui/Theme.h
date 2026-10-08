@@ -114,7 +114,7 @@ namespace Theme
     /** 状態の小さな丸（接続中・オフラインなど）。 */
     void drawStatusDot (juce::Graphics&, juce::Rectangle<float> area, juce::Colour);
 
-    /** アイコンの形（塗りつぶし用）。name: snap / flagL / flagR / follow / loop / metronome / stop / play / pause / record */
+    /** アイコンの形（塗りつぶし用）。name: snap / flagL / flagR / follow / loop / metronome / stop / play / pause / record / note */
     juce::Path iconPath (const juce::String& name, juce::Rectangle<float> area);
 
     /** エフェクトの BYPASS スイッチ（押すと点いてバイパス）。内蔵エフェクト・EQ・Compressor・Limiter で同じ見た目にする。 */

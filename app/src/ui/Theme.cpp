@@ -610,6 +610,19 @@ juce::Path iconPath (const juce::String& name, juce::Rectangle<float> area)
         arrows.lineTo (18.5f, 16.0f);
         stroke (arrows, 2.2f);
     }
+    else if (name == "note")
+    {
+        // 四分音符（Cubase の「ミュージカルモード」）: 斜めの楕円の玉と、右の棒
+        juce::Path head;
+        head.addEllipse (4.0f, 14.5f, 10.0f, 7.0f);
+        head.applyTransform (juce::AffineTransform::rotation (-0.45f, 9.0f, 18.0f));
+        p.addPath (head);
+
+        juce::Path stem;
+        stem.startNewSubPath (13.2f, 16.5f);
+        stem.lineTo (13.2f, 2.5f);
+        stroke (stem, 2.0f);
+    }
     else if (name == "piano")
     {
         // ピアノの鍵盤（白鍵の枠と黒鍵 3 つ）

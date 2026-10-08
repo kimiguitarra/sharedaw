@@ -54,6 +54,8 @@ std::vector<SamplerPad> samplerPads (const nlohmann::json& params)
         p.tuneSemitones = std::clamp (j.value ("tune", 0.0), -24.0, 24.0);
         p.oneShot = j.value ("oneShot", true);
         p.chokeGroup = std::clamp (j.value ("choke", 0), 0, 16);
+        p.sourceBpm = j.value ("bpm", 0.0);
+        p.sourceBpm = p.sourceBpm > 0.0 ? std::clamp (p.sourceBpm, 20.0, 400.0) : 0.0;
     }
 
     return pads;
@@ -75,6 +77,7 @@ nlohmann::json withSamplerPads (const nlohmann::json& params, const std::vector<
         if (p.tuneSemitones != 0.0) j["tune"] = p.tuneSemitones;
         if (! p.oneShot)            j["oneShot"] = false;
         if (p.chokeGroup != 0)      j["choke"] = p.chokeGroup;
+        if (p.sourceBpm > 0.0)      j["bpm"] = p.sourceBpm;
 
         list.push_back (j);
     }
@@ -83,7 +86,7 @@ nlohmann::json withSamplerPads (const nlohmann::json& params, const std::vector<
     return result;
 }
 
-std::string generateSamplerSfz (const nlohmann::json& params, const std::function<std::string (const std::string&)>& samplePath)
+std::string generateSamplerSfz (const nlohmann::json& params, const std::function<std::string (const SamplerPad&)>& samplePath)
 {
     std::ostringstream s;
     s.imbue (std::locale::classic());
@@ -98,7 +101,7 @@ std::string generateSamplerSfz (const nlohmann::json& params, const std::functio
         if (p.audioHash.empty())
             continue;
 
-        auto path = samplePath ? samplePath (p.audioHash) : std::string();
+        auto path = samplePath ? samplePath (p) : std::string();
 
         if (path.empty())
             continue;

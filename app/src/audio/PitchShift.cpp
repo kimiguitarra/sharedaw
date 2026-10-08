@@ -1,6 +1,7 @@
 #include "PitchShift.h"
 
 #include <map>
+#include <tuple>
 #include <mutex>
 
 namespace PitchShift
@@ -9,25 +10,30 @@ namespace
 {
     constexpr int blockSize = 512;
 
-    /** input 全体の高さを変える。出力は入力と同じ位置から始まるように lag だけ先を捨てる（足りない分は 0）。 */
-    std::vector<std::vector<float>> process (const std::vector<std::vector<float>>& input, double sampleRate, double semitones, int lag)
+    /**
+        input 全体の高さを変え、speed 倍の速さにする（長さは 1/speed）。出力は入力と同じ位置から始まるように
+        lag だけ先を捨てる（足りない分は 0）。
+    */
+    std::vector<std::vector<float>> process (const std::vector<std::vector<float>>& input, double sampleRate, double semitones,
+                                             double speed, int lag)
     {
         const int numChannels = (int) input.size();
-        const int length = numChannels > 0 ? (int) input[0].size() : 0;
+        const int inputLength = numChannels > 0 ? (int) input[0].size() : 0;
+        const int length = (int) std::lround (inputLength / speed);   // 出力の長さ
 
         te::TimeStretcher stretcher;
         stretcher.initialise (sampleRate, blockSize, numChannels, te::TimeStretcher::soundtouchBetter, {}, false);
-        stretcher.setSpeedAndPitch (1.0f, (float) semitones);
+        stretcher.setSpeedAndPitch ((float) (1.0 / speed), (float) semitones);   // Tracktion の speedRatio は「長さの倍率」
 
         // 終わりまで出し切るため、後ろに少し無音を足して流す
-        const int padded = length + lag + 16384;
+        const int padded = inputLength + (int) std::lround ((lag + 16384) * speed);
         std::vector<std::vector<float>> in ((size_t) numChannels, std::vector<float> ((size_t) padded, 0.0f));
         std::vector<std::vector<float>> out ((size_t) numChannels);
 
         for (int ch = 0; ch < numChannels; ++ch)
         {
             std::copy (input[(size_t) ch].begin(), input[(size_t) ch].end(), in[(size_t) ch].begin());
-            out[(size_t) ch].reserve ((size_t) padded + 2 * blockSize);
+            out[(size_t) ch].reserve ((size_t) (padded / speed) + 2 * blockSize);
         }
 
         std::vector<std::vector<float>> block ((size_t) numChannels, std::vector<float> ((size_t) blockSize * 4, 0.0f));
@@ -98,11 +104,11 @@ namespace
     /**
         処理で音が遅れる量（サンプル数）。短い音の粒を通して、出てくる位置との差を測る（高さと処理の設定で決まり、音の中身にはよらない）。
     */
-    int lagFor (double sampleRate, double semitones)
+    int lagFor (double sampleRate, double semitones, double speed)
     {
         static std::mutex lock;
-        static std::map<std::pair<int, int>, int> cache;
-        const auto key = std::make_pair ((int) sampleRate, (int) std::lround (semitones * 100.0));
+        static std::map<std::tuple<int, int, int>, int> cache;
+        const auto key = std::make_tuple ((int) sampleRate, (int) std::lround (semitones * 100.0), (int) std::lround (speed * 10000.0));
 
         {
             const std::lock_guard<std::mutex> l (lock);
@@ -125,16 +131,18 @@ namespace
                 probe[0][(size_t) (first + k * spacing + i)] = (float) (w * (random.nextFloat() * 2.0f - 1.0f) * 0.5f);
             }
 
-        const auto shifted = process (probe, sampleRate, semitones, 0);
+        const auto shifted = process (probe, sampleRate, semitones, speed, 0);
         double total = 0.0;
 
         for (int k = 0; k < numGrains; ++k)
         {
-            // 粒のまわり（前後 0.09 秒）の重心の差
+            // 粒のまわり（前後 0.09 秒）の重心の差（出力の位置は入力の 1/speed）
             const int from = first + k * spacing - spacing / 2 + grain / 2;
             const int to = from + spacing;
-            auto slice = [from, to] (const std::vector<float>& x) { return std::vector<float> (x.begin() + from, x.begin() + to); };
-            total += centroid (slice (shifted[0])) - centroid (slice (probe[0]));
+            const int outFrom = (int) (from / speed), outTo = std::min ((int) shifted[0].size(), (int) (to / speed));
+            const double in = from + centroid (std::vector<float> (probe[0].begin() + from, probe[0].begin() + to));
+            const double out = outFrom + centroid (std::vector<float> (shifted[0].begin() + outFrom, shifted[0].begin() + outTo));
+            total += out - in / speed;
         }
 
         const int lag = (int) std::lround (total / numGrains);
@@ -145,14 +153,18 @@ namespace
     }
 }
 
-juce::File cachedFile (const juce::File& projectDir, const std::string& hash, double semitones)
+juce::File cachedFile (const juce::File& projectDir, const std::string& hash, double semitones, double speed)
 {
     const int cents = (int) std::lround (semitones * 100.0);
-    return projectDir.getChildFile ("cache").getChildFile ("pitch")
-                     .getChildFile (toJuce (hash) + "_" + (cents >= 0 ? "+" : "") + juce::String (cents) + ".wav");
+    auto name = toJuce (hash) + "_" + (cents >= 0 ? "+" : "") + juce::String (cents);
+
+    if (std::abs (speed - 1.0) > 1.0e-6)
+        name << "_x" << juce::String (speed, 5);
+
+    return projectDir.getChildFile ("cache").getChildFile ("pitch").getChildFile (name + ".wav");
 }
 
-bool render (const juce::File& source, const juce::File& dest, double semitones)
+bool render (const juce::File& source, const juce::File& dest, double semitones, double speed)
 {
     juce::AudioFormatManager formats;
     formats.registerBasicFormats();
@@ -171,7 +183,9 @@ bool render (const juce::File& source, const juce::File& dest, double semitones)
     for (int ch = 0; ch < numChannels; ++ch)
         input[(size_t) ch].assign (buffer.getReadPointer (ch), buffer.getReadPointer (ch) + length);
 
-    const auto shifted = process (input, reader->sampleRate, semitones, lagFor (reader->sampleRate, semitones));
+    const auto shifted = process (input, reader->sampleRate, semitones, speed, lagFor (reader->sampleRate, semitones, speed));
+    const int outLength = numChannels > 0 ? (int) shifted[0].size() : 0;
+    buffer.setSize (numChannels, outLength);
 
     for (int ch = 0; ch < numChannels; ++ch)
         std::copy (shifted[(size_t) ch].begin(), shifted[(size_t) ch].end(), buffer.getWritePointer (ch));
@@ -196,7 +210,7 @@ bool render (const juce::File& source, const juce::File& dest, double semitones)
 
         stream.release();   // writer が持つ
 
-        if (! writer->writeFromAudioSampleBuffer (buffer, 0, length))
+        if (! writer->writeFromAudioSampleBuffer (buffer, 0, outLength))
             return false;
     }
 
